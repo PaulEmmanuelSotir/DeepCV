@@ -1,6 +1,6 @@
 # DeepCV README.md
 
-__By Paul-Emmanuel SOTIR <paulemmanuel.sotir@oultook.com>__
+__By Paul-Emmanuel SOTIR <paulemmanuel.sotir@oultook.com>__  
 _This project is under Open Source MIT License, see [./LICENSE](./LICENSE) or more details._
 
 __WIP: This Project is still under active developement, at an early stage of developement__  

@@ -1,3 +1,25 @@
+# Kedro-specific
+## ignore all local configuration
+conf/local/**
+!conf/local/.gitkeep
+## ignore potentially sensitive credentials files
+conf/**/*credentials*
+## ignore everything in the following folders
+data/**
+logs/**
+references/**
+results/**
+## But keep all .gitkeep files
+!.gitkeep
+## Ignore conda environement directory/prefix
+/.conda_env/
+/.vscode/
+
+
+
+# MLFlow-specific
+/MLRuns/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

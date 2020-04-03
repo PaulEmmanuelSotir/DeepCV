@@ -25,8 +25,8 @@ from kedro.io import DataCatalog
 
 from src.tests.tests_utils import test_module
 
-__all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar',
-           'get_device', 'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir']
+__all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device',
+           'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
@@ -64,16 +64,18 @@ def progess_bar(iterable: Iterable, desc: str, disable: bool = False):
                 '| {n_fmt}/{total_fmt} [Elapsed={elapsed}, Remaining={remaining}, Speed={rate_fmt}{postfix}]')
 
 
-def get_device() -> torch.device:
-    return torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+# def start_tensorboard(port=8889, forward=False):
+#     raise NotImplementedError  # TODO: implementation
 
 
-def start_tensorboard(port=8889, forward=False):
-    raise NotImplementedError  # TODO: implementation
+# def stop_tensorboard(port=8889):
+#     raise NotImplementedError  # TODO: implementation
 
 
-def stop_tensorboard(port=8889):
-    raise NotImplementedError  # TODO: implementation
+def get_device(devid: Optional[int] = None) -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device('cuda' + (f':{devid}' if devid else ''))
+    return torch.device('cpu')
 
 
 def import_and_reload(module_name, path='.'):

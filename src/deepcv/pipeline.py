@@ -7,8 +7,7 @@ from typing import Dict
 from kedro.pipeline import Pipeline
 import kedro.pipeline.decorators as dec
 
-from deepcv.pipelines import machine_learning as ml
-from deepcv.pipelines import data_engineering as de
+from deepcv.detection.object import get_object_detector_pipelines
 
 DECORATORS = [dec.log_time, dec.mem_profile]  # Other decorator available: retry, spark_to_pandas, pandas_to_spark
 
@@ -22,10 +21,6 @@ def create_pipelines(**kwargs) -> Dict[str, Pipeline]:
     Returns:
         A mapping from a pipeline name to a ``Pipeline`` object.
     """
-
-    data_engineering_pipeline = de.create_pipeline()
-    machine_learning_pipeline = ml.create_pipeline()
-
-    return {"de": data_engineering_pipeline,
-            "ml": machine_learning_pipeline,
-            "__default__": (data_engineering_pipeline + machine_learning_pipeline).decorate(*DECORATORS)}
+    pipeline_mapping = {}
+    pipeline_mapping.update({p.name: p.decorate(*DECORATORS) for p in get_object_detector_pipelines()})
+    return {**pipeline_mapping, "__default__": sum([p for n, p in pipeline_mapping])}

@@ -15,14 +15,16 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 import torch
 import torch.nn as nn
 from torch.functional import F
+import torch.distributions as tdist
 from hilbertcurve.hilbertcurve import HilbertCurve
 
+from deepcv import utils
 from ....tests.tests_utils import test_module
 from torch import Tensor, squeeze, zeros
 
-__all__ = ['Flatten', 'MultiHeadModule', 'ConcatHilbertCoords', 'HybridConnectivityGatedNet', 'layer', 'conv_layer', 'fc_layer', 'resnet_net_block', 'squeeze_cell',
-           'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name', 'parrallelize', 'mean_batch_loss',
-           'ForwardFunc2TorchModule', 'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
+__all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadModule', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
+           'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
+           'parrallelize', 'mean_batch_loss', 'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -52,20 +54,56 @@ class HybridConnectivityGatedNet(nn.Module):
         return self.net(x)
 
 
-# Torch modules created from their resective forward function:
-Flatten = func_to_module('Flatten', ['from_dim'])(flatten)
-MultiHeadModule = func_to_module('MultiHeadModule', ['embedding_shape', 'heads'])(multi_head_forward)
-ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', ['channel_dim'])(concat_hilbert_coords_channel)
+def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[inspect.Parameter]] = []):
+    """ Returns a decorator which creates a new ``torch.nn.Module``-based class using ``forward_func`` as underlying forward function.  
+    Note: If ``init_params`` isn't empty, then returned ``nn.Module``-based class won't have the same signature as ``forward_func``.
+    This is because some arguments provided to ``forward_func`` will instead be attributes of created module, taken by class's ``__init__`` function.  
+    Args:
+        - typename: Returned nn.Module class's ``__name__``
+        - init_params: An iterable of string parameter name(s) of ``forward_func`` which should be taken by class's ``__init__`` function instead of ``forward`` function.
+    """
+    def _warper(forward_func: Callable) -> Type[nn.Module]:
+        """ Returned decorator converting a function to a nn.Module class
+        Args:
+            - forward_func: Function from which nn.Module-based class is built. ``forward_func`` will be called on built module's ``forward`` function call.
+        """
+        signature = inspect.signature(forward_func)
 
+        if len(init_params) > 0 and not type(init_params)[0] is inspect.Parameter:
+            init_params = [signature.parameters[n] for n in init_params]
+        forward_params = [p for p in signature if p not in init_params]
+        init_signature = signature.replace(parameters=init_params, return_annotation=)
+        forward_signature = signature.replace(parameters=forward_params)
 
-def multi_head_forward(x: torch.Tensor, embedding_shape: torch.Size, heads: Iterable[nn.Module]) -> torch.Tensor:
-    new_siamese_dim = -len(embedding_shape)
-    return torch.cat([head(x).unsqueeze(new_siamese_dim) for head in heads], dim=new_siamese_dim - 1)
+        class _Module(nn.Module):
+            def __init__(self, *args, **kwargs):
+                super(_Module, self).__init__()
+                bound_args = init_signature.bind(*args, **kwargs)
+                bound_args.apply_defaults()
+                self.__dict__.update(bound_args.arguments)
+
+            def forward(self, *inputs, **kwargs) -> torch.Tensor:
+                bound_args = forward_signature.bind(*inputs, **kwargs)
+                bound_args.apply_defaults()
+                return forward_func(**bound_args.arguments, **self.__dict__)
+
+        _Module.__init__.__annotations__ = init_signature.__annotations__
+        _Module.__init__.__defaults__ = {n: p.default for (n, p) in init_signature.parameters.items()}
+        _Module.forward.__annotations__ = forward_signature.__annotations__
+        _Module.forward.__defaults__ = {n: p.default for (n, p) in forward_signature.parameters.items()}
+        _Module.__name__ = typename
+        return _Module
+    return _warper
 
 
 def flatten(x: torch.Tensor, from_dim: int = 0):
     """ Flattens tensor dimensions following ``from_dim``th dimension. """
     return x.view(*x.shape[:from_dim + 1], -1)
+
+
+def multi_head_forward(x: torch.Tensor, embedding_shape: torch.Size, heads: Iterable[nn.Module]) -> torch.Tensor:
+    new_siamese_dim = -len(embedding_shape)
+    return torch.cat([head(x).unsqueeze(new_siamese_dim) for head in heads], dim=new_siamese_dim - 1)
 
 
 def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) -> torch.Tensor:
@@ -92,6 +130,12 @@ def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) 
     return torch.cat([space_fill_coords_map, features], dim=channel_dim)
 
 
+# Torch modules created from their resective forward function:
+Flatten = func_to_module('Flatten', ['from_dim'])(flatten)
+MultiHeadModule = func_to_module('MultiHeadModule', ['embedding_shape', 'heads'])(multi_head_forward)
+ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', ['channel_dim'])(concat_hilbert_coords_channel)
+
+
 def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] = None, batch_norm: Optional[dict] = None, preactivation: bool = False) -> Tuple[nn.Module]:
     """ Defines neural network layer operations
     Args:
@@ -109,9 +153,9 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
     def _dropout() -> Optional[nn.Module]:
         if dropout_prob is not None and dropout_prob != 0.:
             if batch_norm is not None:
-                logging.warn("""Warning: Dropout used along with batch norm may be unrecommended, see
-                                [CVPR 2019 paper: "Understanding the Disharmony Between Dropout and Batch Normalization by Variance"](https://zpascal.net/cvpr2019/Li_Understanding_the_Disharmony_Between_Dropout_and_Batch_Normalization_by_Variance_CVPR_2019_paper.pdf)""")
-            retrun nn.Dropout(p=dropout_prob)
+                logging.warn(
+                    "Warning: Dropout used along with batch norm may be unrecommended, see [CVPR 2019 paper: 'Understanding the Disharmony Between Dropout and Batch Normalization by Variance'](https://zpascal.net/cvpr2019/Li_Understanding_the_Disharmony_Between_Dropout_and_Batch_Normalization_by_Variance_CVPR_2019_paper.pdf)")
+            return nn.Dropout(p=dropout_prob)
 
     def _bn() -> Optional[nn.Module]:
         if batch_norm is not None:
@@ -148,9 +192,42 @@ def multiscale_exitation_cell(hp: SimpleNamespace) -> nn.Module:
     raise NotImplementedError
 
 
-def meta_layer():
-    # A 'parrallel'/'meta' layer applied to previous layer/block's features to infer global statistics of next layer's weight matrix
-    raise NotImplementedError
+img = torch.zeros((3, 100, 100))
+
+conv1 = nn.ReLU(nn.Conv2d(3, 16, (3, 3), padding=(3, 3), padding_mode='zero'))
+
+net = nn.Sequential(('conv1', conv1), ('meta_1_2', conv_with_meta), ('conv2', conv2))
+
+meta_1_2 = meta_layer((16, ))
+
+ouput = net(img)
+
+
+def ConvWithMetaLayer(nn.Module):
+    def __init__(self, preactivation: bool = False):
+        self.meta = layer(layer_op=, act_fn=nn.ReLU, dropout_prob=0., batch_norm=None, preactivation=preactivation)
+        self.conv = nn.ReLU(nn.Conv2d(16, 3, (3, 3)))  # TODO: preactivation, etc...
+        self.RANDOM_PROJ = torch.randn_like(self.conv.weights)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        meta_out = self.meta(x)
+        weight_scale, meta_out = meta_out.split((1, meta_out.size(-1) - 1), dim=-1)
+        scaled_w = torch.mul(self.conv.weights.data, weight_scale)
+        meta_out = meta_out.reshape((1,) * (self.conv.weights.dim() - 1) + (-1,))
+        meta_out = meta_out.prod(self.RANDOM_PROJ)
+        self.conv.weights = torch.add(meta_out, scaled_w)
+        return self.conv(x)
+
+
+def meta_layer(input_feature_shape: torch.Size, target_module: nn.Parameter):
+    """ A 'parrallel'/'meta' layer applied to previous layer/block's features to infer global statistics of next layer's weight matrix
+    Args:
+        - layer_op: Underlying layer operation module
+    """
+    underlying_layer_ops = layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float]=None, batch_norm: Optional[dict]=None, preactivation: bool=False)
+    ops = [('underlying_layer_ops', underlying_layer_ops), ]
+
+    return nn.Sequential(OrderedDict(ops))
 
 
 def get_gain_name(act_fn: type) -> str:
@@ -179,7 +256,7 @@ def parrallelize(model: nn.Module) -> nn.Module:
     return model
 
 
-def mean_batch_loss(loss: nn.loss._Loss, batch_loss: torch.Tensor, batch_size=1) -> Optional[Number]:
+def mean_batch_loss(loss: nn.loss._Loss, batch_loss: torch.Tensor, batch_size=1) -> Optional[utils.Number]:
     if loss.reduction == 'mean':
         return batch_loss.item()
     elif loss.reduction == 'sum':
@@ -215,68 +292,6 @@ def mean_batch_loss(loss: nn.loss._Loss, batch_loss: torch.Tensor, batch_size=1)
 #         return self.forward(input, target)
 
 
-def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[inspect.Parameter]] = []) -> Type[nn.Module]:
-    """ Returns a decorator which creates a new ``torch.nn.Module``-based class using ``forward_func`` as underlying forward function.  
-    Note: If ``init_params`` isn't empty, then returned ``nn.Module``-based class won't have the same signature as ``forward_func``.
-    This is because some arguments provided to ``forward_func`` will instead be attributes of created module, taken by class's ``__init__`` function.  
-    Args:
-        - typename: Returned nn.Module class's ``__name__``
-        - init_params: An iterable of string parameter name(s) of ``forward_func`` which should be taken by class's ``__init__`` function instead of ``forward`` function.
-    """
-    def _decorator(forward_func: Callable):
-        """ Returned decorator converting a function to a nn.Module class
-        Args:
-            - forward_func: Function from which nn.Module-based class is built. ``forward_func`` will be called on built module's ``forward`` function call.
-        """
-        signature = inspect.signature(forward_func)
-
-        if len(init_params) > 0 and not type(init_params)[0] is inspect.Parameter:
-            init_params = [signature.parameters[n] for n in init_params]
-        forward_params = [p for p in signature if p not in init_params]
-        init_signature = signature.replace(parameters=init_params, return_annotation=)
-        forward_signature = signature.replace(parameters=forward_params)
-
-        class _Module(nn.Module):
-            def __init__(self, *args, **kwargs):
-                super(_Module, self).__init__()
-                bound_args = init_signature.bind(*args, **kwargs)
-                bound_args.apply_defaults()
-                self.__dict__.update(bound_args.arguments)
-
-            def forward(self, *inputs, **kwargs) -> torch.Tensor:
-                bound_args = forward_signature.bind(*inputs, **kwargs)
-                bound_args.apply_defaults()
-                return forward_func(**bound_args.arguments, **self.__dict__)
-
-        _Module.__init__.__annotations__ = init_signature.__annotations__
-        _Module.__init__.__defaults__ = init_signature.__defaults__
-        _Module.forward.__annotations__ = forward_signature.__annotations__
-        _Module.forward.__defaults__ = forward_signature.__defaults__
-        _Module.__name__ = typename
-        return _Module
-    return _decorator
-
-
-def test_func_to_module():
-    def _case1(): pass
-    def _case2(param): assert param == 2
-    def _case3(param1, param2=3): assert param1 == 3 and param2 == 3
-    def _case4(param1: torch.Tensor, **kwparams): return kwparams
-
-    M1 = func_to_module('M1')(_case1)
-    M2 = func_to_module('M2')(_case2)
-    M3 = func_to_module('M3')(_case3)
-    M4 = func_to_module('M4', ['truc', 'bidule'])(_case4)
-
-    m4 = M4(truc='1', bidule=2)
-    assert m4.forward(torch.zeros((16, 16))) == {'truc': '1', 'bidule': 2}
-
-    @func_to_module('M5')
-    def _case5(a: torch.Tensor): return a
-    @func_to_module('M6')
-    def _case6(param: str = 'test'): assert param == 'test'
-
-
 def is_conv(op_t: Union[nn.Module, Type]) -> bool:
     from torch.nn.modules.conv import _ConvNd
     if not issubclass(type(op_t), Type):
@@ -299,11 +314,33 @@ def parameter_summary(op_t: Union[nn.Module, Type], pprint: bool = False) -> dic
 
 
 class TestNNMetaModule:
-    def test_is_conv():
+    def test_is_conv(self):
         convs = [nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d, nn.Conv2d(3, 16, (3, 3))]
         not_convs = [nn.Linear, nn.Linear(32, 32), tuple(), int, 54, torch.Tensor(), nn.Fold, nn.Conv2d(3, 16, (3, 3)).weight]
         assert all(map(is_conv, convs)), 'TEST ERROR: is_conv function failed to be true for at least one torch.nn convolution type or instance.'
         assert not any(map(is_conv, not_convs)), 'TEST ERROR: is_conv function failed to be false for at least one non-convolution type or instance.'
+
+    def test_func_to_module(self):
+        def _case1(): pass
+        def _case2(param): assert param == 2
+        def _case3(param1, param2=3): assert param1 == 3 and param2 == 3
+        def _case4(param1: torch.Tensor, **kwparams): return kwparams
+
+        M1 = func_to_module('M1')(_case1)
+        M2 = func_to_module('M2')(_case2)
+        M3 = func_to_module('M3')(_case3)
+        M4 = func_to_module('M4', ['truc', 'bidule'])(_case4)
+
+        m4 = M4(truc='1', bidule=2)
+        assert m4.forward(torch.zeros((16, 16))) == {'truc': '1', 'bidule': 2}
+
+        @func_to_module('M5')
+        def _case5(a: torch.Tensor): return a
+        @func_to_module('M6')
+        def _case6(param: str = 'test'): assert param == 'test'
+
+        m6 = _case6()
+        m6.forward()
 
 
 if __name__ == '__main__':

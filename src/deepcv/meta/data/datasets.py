@@ -5,13 +5,13 @@
 """
 import threading
 import collections
-import numpy as np
 from pathlib import Path
 from typing import Optionnal, Type, Union, Iterable
 
+import PIL
+import numpy as np
 import torch
 import torch.nn as nn
-import PIL
 from kedro.io import AbstractVersionedDataSet
 
 from ....tests.tests_utils import test_module

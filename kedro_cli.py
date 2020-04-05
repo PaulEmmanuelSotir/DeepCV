@@ -121,8 +121,8 @@ JUPYTER_IDLE_TIMEOUT_HELP = """When a notebook is closed, Jupyter server will
 terminate its kernel after so many seconds of inactivity. This does not affect
 any open notebooks."""
 
-CONDA_ARG_HELP = f""" Conda environement filename. Optionnal argument (str) specifying conda
-environement configuration filename located in source directory. Default value: "['environment.yml', 'environment.yaml']",
+CONDA_ARG_HELP = f""" Conda environement filename. Optional argument (str) specifying conda
+environement configuration filename located in source directory. Default value: "['environment.yml', 'environment.yaml', 'env.yml', 'env.yaml']",
 which means 'kedro install' command will create/update conda environement using the first conda environement file whose name
 matches one of these strings, if any. """
 
@@ -382,15 +382,14 @@ def _conda_install(conda_yml: Union[str, List[str]]):
             return
 
 @cli.command()
-@click.option('--conda-yml', '-c', 'conda_yml', type=str, default=['environment.yml', 'environment.yaml'], multiple=False, help=CONDA_ARG_HELP)
+@click.option('--conda-yml', '-c', 'conda_yml', type=str, default=['environment.yml', 'environment.yaml', 'env.yml', 'env.yaml'], multiple=False, help=CONDA_ARG_HELP)
 def install(conda_yml: Union[str, List[str]]):
     """ Installs project dependencies from both requirements.txt and conda environment file, if any (optional).  
 
-    NOTE: Conda environement is created under the prefix/directory ``kedro_cli.DEFAULT_CONDA_ENV_NAME`` (or user defined prefix in environment 
-    file if any), except if you already created a conda environement before calling 'kedro install', then conda environement 
-    will only be updated. Conda environement name is parsed from environment file if it is specified, otherwise conda environment will be 
-    named after project name. Kedro install command will try to find existing conda environement to update according to YML env file's 
-    'prefix' and/or 'name' before creating a new one.
+    NOTE: Handles conda environement install/update if needed. ``kedro install`` will look for a conda environement file in source directory.
+    By default, conda environment is named after ``kedro_cli.DEFAULT_CONDA_ENV_NAME`` variable, except if there is a user defined prefix or name in
+    environment file (parses yaml conda environment file). If ``kedro install`` have already been called or if you already created a conda environement beforE, then conda environement 
+    will be updated.
     """
 
     # TODO: parse json outputs from conda (and eventually use 'conda info --envs --json' in order to see available envs (sucessfull creation))

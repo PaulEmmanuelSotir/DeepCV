@@ -64,7 +64,7 @@ PROJ_PATH = Path(__file__).resolve().parent
 PROJ_NAME = 'DeepCV'
 PACKAGE_NAME = 'deepcv'
 os.environ["IPYTHONDIR"] = str(PROJ_PATH / ".ipython")
-DEFAULT_CONDA_PREFIX = str(PROJ_PATH / f'{PACKAGE_NAME}_conda')
+DEFAULT_CONDA_ENV_NAME = f'{PACKAGE_NAME}_conda'
 
 NO_DEPENDENCY_MESSAGE = """{0} is not installed. Please make sure {0} is in
 src/requirements.txt and run `kedro install`."""
@@ -121,14 +121,10 @@ JUPYTER_IDLE_TIMEOUT_HELP = """When a notebook is closed, Jupyter server will
 terminate its kernel after so many seconds of inactivity. This does not affect
 any open notebooks."""
 
-CONDA_ARG_HELP = f""" Conda environement filename. Optionnal argument (str or List[str]) specifying conda
-environement configuration filename(s) located in source directory. Default value: "['environment.yml', 'environment.yaml']",
+CONDA_ARG_HELP = f""" Conda environement filename. Optionnal argument (str) specifying conda
+environement configuration filename located in source directory. Default value: "['environment.yml', 'environment.yaml']",
 which means 'kedro install' command will create/update conda environement using the first conda environement file whose name
-matches, if any. Conda environement is created under the prefix/directory "{CONDA_PREFIX}" (or user defined prefix in environment 
-file if any), except if you already created a conda environement manually before calling 'kedro install', then conda environement 
-will only be updated. Conda environement name is parsed from environement file if specified, otherwise conda environment will be 
-named after project name. Kedro install command will try to find existing conda environement to update according to YML env file's 
-'prefix' and/or 'name' before creating a new one. """
+matches one of these strings, if any. """
 
 
 def _split_string(ctx, param, value):
@@ -313,30 +309,20 @@ def lint(files):
 
 
 def _run_conda_cmd(*args, **run_kwargs):
-    proc = subprocess.run(['conda', *args, '--json', '-q'], **run_kwargs)
+    proc = subprocess.run(['conda', *args, '--json', '-q'], **run_kwargs, capture_output=True)
+    if proc.stdout is None:
+        print('Error occured when running conda command: can`t retrieve JSON output.')
+        sys.exit(1)
     return proc.returncode, json.loads(proc.stdout)
 
 
 def _conda_activate():
     raise NotImplementedError  # TODO: implement this
-
-
-def _ask(prompt: str, choices: List = ['N', 'Y'], ask_indexes: bool = False):
-    prompt += ' (Choices: ' + ('; '.join([f'{i}: "{str(e)}""' for i, e in enumerate(choices)]) if ask_indexes else '; '.join(map(str, choices)))
-    choice = input(prompt)
-
-    if ask_indexes:
-        choice = _try_convert_to_numeric(choice)
-        while(not isinstance(choice, int) or choice not in range(len(choices))):
-            choice = _try_convert_to_numeric(input(prompt))
-        return int(choice), choices[int(choice)]
-    else:
-        while(choice not in choices):
-            choice = input(prompt)
-        return choices.index(choice), choice
+    # call(['source', 'activate', conda_prefix] if 'posix' in os.name else ['activate', conda_prefix])
 
 
 def _conda_install(conda_yml: Union[str, List[str]]):
+    print('#' * 10 + ' Installing or updating conda environement if needed... ' + '#' * 10)
     for conda_config in conda_yml if isinstance(conda_yml, List) else [conda_yml]:
         config_path = Path.cwd() / 'src' / conda_config
         if config_path.is_file():
@@ -347,75 +333,81 @@ def _conda_install(conda_yml: Union[str, List[str]]):
                 print(f'Error: Can\'t parse or empty conda environment file "{config_path}"')
                 sys.exit(1)
             cfg_name, cfg_prefix = conda_cfg.get('name'), conda_cfg.get('prefix')
-            name = cfg_name if cfg_name else PROJ_NAME
-            prefix = cfg_prefix if cfg_prefix else DEFAULT_CONDA_PREFIX
+            if cfg_name and cfg_prefix:
+                print(f'Error: Conda environment file can\' specify a prefix ({cfg_prefix}) and a name ({cfg_name}) at once.')
+                sys.exit(1)
+            if not cfg_name and not cfg_prefix:
+                name = DEFAULT_CONDA_ENV_NAME
+            else:
+                name = cfg_name if cfg_name else cfg_prefix
 
             returncode, json = _run_conda_cmd('env', 'list')
             if returncode:
                 print('Error: Failed to list conda environments, Conda may not be installed.')
                 sys.exit(1)
 
-            # Find out conda environement name and prefix
-            update = False
-            matching_envs = [Path(env) for env in json['envs'] if os.path.split(env)[1] == cfg_name]
-            if ((cfg_prefix and cfg_name and Path(str(cfg_prefix)) / cfg_name in json['envs']) or (not cfg_name and cfg_prefix and Path(str(cfg_prefix)) in json['envs'])):
-                print(f'Found existing conda environment with matching prefix ("{cfg_prefix}") and name ("{cfg_name}").')
-                update = True
-            elif any(matching_envs) and not conda_cfg:
-                choice = matching_envs[0]
-                if len(matching_envs) == 1:
-                    print(f'Found a conda environment with matching name ("{matching_envs[0]}") but no prefix have been specified in env file.')
-                    _, update = _ask('Reuse existing conda environement? (Y/N)')
-                else:
-                    print(f'Found multiple conda environments with matching name ("{matching_envs}") and no prefix have been specified in env file.')
-                    _, update = _ask('Would you reuse one of existing conda environements or create a new one? (Y/N)')
-                    if update:
-                        prompt = f'Which conda environement would you reuse?'
-                        _, choice = _ask(prompt, choices=matching_envs, ask_indexes=True)
-                if update:
-                    prefix, name = os.path.split(choice)
+            # Find out conda environement name or prefix
+            matching_envs = [Path(env) for env in json['envs'] if Path(env).name == name or (Path(name).exists() and Path(env).resolve() == Path(name).resolve())]
+            if any(matching_envs):
+                # Update conda environement
+                print(f'Found existing conda environment with matching prefix or name ("{matching_envs[0]}").')
+                print('#' * 10 + ' Trying to update conda environement... ' + '#' * 10)
+                env_identifier = ('--name', name) if not cfg_prefix else ('--prefix', name)
+                call(['conda', 'env', 'update', *env_identifier, '--file', str(config_path), '--prune', '--json', '-q'])
+                # TODO: figure out if it is possible that there is multiple matching environements
+                # if len(matching_envs) > 1:
+                #     print(f'Found multiple conda environments with matching name ("{matching_envs}").')
+                #     _, update = _ask('Would you reuse one of existing conda environements or create a new one? (Y/N)')
+                #     if update:
+                #         prompt = f'Which conda environement would you reuse?'
+                #         _, choice = _ask(prompt, choices=matching_envs, ask_indexes=True)
+                # if update:
+                #     name = choice
 
-            # Create or update conda environement file
-            if update:
-                print('Trying to update conda environement...')
-                call(['conda', 'env', 'update', '--prefix', prefix, '--name', name, '--file', str(config_path), '--prune', '--json', '-q'])
-                print('Success.')
             else:
-                print('Trying to create conda environement...')
-                call(['conda', 'env', 'create', '--prefix', prefix, '--name', name, '--file', str(config_path), '--json', '-q'])
-                print('Success.')
+                # Create conda environement
+                print('#' * 10 + ' Trying to create conda environement... ' + '#' * 10)
+                env_identifier = ('--name', name) if not cfg_prefix else ('--prefix', name) # We assume here that DEFAULT_CONDA_ENV_NAME isn't a prefix
+                call(['conda', 'env', 'create', *env_identifier, '--file', str(config_path), '--json', '-q'])
+            print('#' * 10 + ' Success. ' + '#' * 10)
 
-            # Update environement file in order to contain environement name and prefix explicity (avoids eventual future user prompts to choose conda environement to reuse or not)
-            print('Updating environement file to include name and prefix')
-            if name:
+            # Update environement file in order to contain environement name (in case of prefix envionment, prefix can't be missing from evn file as default behavior is to create conda environment without prefix but a name)
+            if not cfg_prefix and not cfg_name:
+                print('Updating environement file to include new conda environement name')
                 conda_cfg['name'] = name
-            if prefix:
-                conda_cfg['prefix'] = prefix
-            anyconfig.dump(conda_cfg, ac_parser='yaml', out=config_path)
+                anyconfig.dump(conda_cfg, ac_parser='yaml', out=config_path)
 
             # TODO: make sure to activate conda environement before installing other dependencies from pip requirements.txt??
-            # call(['source', 'activate', conda_prefix] if 'posix' in os.name else ['activate', conda_prefix])
+            #_conda_activate(name)
             return
 
-
 @cli.command()
-@click.option('--conda-yml', '-c', 'conda_yml', type=Union[str, List[str]], default=['environment.yml', 'environment.yaml'], multiple=False, help=CONDA_ARG_HELP)
+@click.option('--conda-yml', '-c', 'conda_yml', type=str, default=['environment.yml', 'environment.yaml'], multiple=False, help=CONDA_ARG_HELP)
 def install(conda_yml: Union[str, List[str]]):
-    """Install project dependencies from both requirements.txt and conda environment file, if any (optional)."""
+    """ Installs project dependencies from both requirements.txt and conda environment file, if any (optional).  
+
+    NOTE: Conda environement is created under the prefix/directory ``kedro_cli.DEFAULT_CONDA_ENV_NAME`` (or user defined prefix in environment 
+    file if any), except if you already created a conda environement before calling 'kedro install', then conda environement 
+    will only be updated. Conda environement name is parsed from environment file if it is specified, otherwise conda environment will be 
+    named after project name. Kedro install command will try to find existing conda environement to update according to YML env file's 
+    'prefix' and/or 'name' before creating a new one.
+    """
 
     # TODO: parse json outputs from conda (and eventually use 'conda info --envs --json' in order to see available envs (sucessfull creation))
     if conda_yml:
         _conda_install(conda_yml)
 
+    print('#' * 10 + ' Installing pip requirements... ' + '#' * 10)
     requirements_txt = 'src' / Path('requirements.txt')
     if requirements_txt.is_file():
-        pip_command = ['install', '-U', '-r', requirements_txt]
+        pip_command = ['install', '-U', '-r', str(requirements_txt)]
 
         if os.name == 'posix':
             python_call('pip', pip_command)
         else:
             command = [sys.executable, '-m', 'pip'] + pip_command
             subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_CONSOLE)
+    print('#' * 10 + ' Done. ' + '#' * 10)
 
 
 @forward_command(cli, forward_help=True)

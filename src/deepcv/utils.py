@@ -26,7 +26,7 @@ from kedro.io import DataCatalog
 from src.tests.tests_utils import test_module
 
 __all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device',
-           'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir']
+           'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'yolo']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
@@ -141,6 +141,21 @@ def import_pickle() -> types.ModuleType:
 
 def source_dir(source_file: str = __file__) -> Path:
     return Path(os.path.dirname(os.path.realpath(source_file)))
+
+
+def ask(prompt: str, choices: List = ['N', 'Y'], ask_indexes: bool = False):
+    prompt += ' (Choices: ' + ('; '.join([f'{i}: "{str(e)}""' for i, e in enumerate(choices)]) if ask_indexes else '; '.join(map(str, choices)))
+    choice = input(prompt)
+
+    if ask_indexes:
+        choice = _try_convert_to_numeric(choice)
+        while(not isinstance(choice, int) or choice not in range(len(choices))):
+            choice = _try_convert_to_numeric(input(prompt))
+        return int(choice), choices[int(choice)]
+    else:
+        while(choice not in choices):
+            choice = input(prompt)
+        return choices.index(choice), choice
 
 
 def yolo(self: DataCatalog, *search_terms):

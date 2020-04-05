@@ -39,47 +39,53 @@
 # (transcoding), templating and a way to reuse arguments that are frequently repeated. See more here:
 # https://kedro.readthedocs.io/en/stable/04_user_guide/04_data_catalog.html
 
-imagenet32:
+imagenet32_train: &imagenet32
   type: PytorchDataset
-  torch_dataset: torchvision.datasets.ImageNet32
-  dataset_kwargs:
-    root: "data/01_raw/ImageNet/32"
-    train: True
-    transform: None
-    target_transform: None
-    download: False
+  torch_dataset: "torchvision.datasets.ImageNet32"
+  root: "data/01_raw/ImageNet/32/train"
+  train: True
+  download: True
 
-cifar10_dataset:
-  type: PytorchDataset
-  torch_dataset: torchvision.datasets.CIFAR10
-  dataset_kwargs:
-    root: "data/01_raw/CIFAR/100"
-    train: True
-    transform: None
-    target_transform: None
-    download: False
+imagenet32_test:
+  <<: *imagenet32
+  root: "data/01_raw/ImageNet/32/test"
+  train: False
 
-cifar100_dataset:
+cifar10_train: &cifar10
   type: PytorchDataset
-  torch_dataset: torchvision.datasets.CIFAR100
-  dataset_kwargs:
-    root: "data/01_raw/CIFAR/100"
-    train: True
-    transform: None
-    target_transform: None
-    download: False
+  torch_dataset: "torchvision.datasets.CIFAR10"
+  root: "data/01_raw/CIFAR/10/train"
+  train: True
+  download: True
+
+cifar10_test:
+  <<: *cifar10
+  root: "data/01_raw/CIFAR/10/test"
+  train: False
+
+cifar100_train: &cifar100
+  type: PytorchDataset
+  torch_dataset: "torchvision.datasets.CIFAR100"
+  root: "data/01_raw/CIFAR/100/train"
+  train: True
+  download: True
+
+cifar100_test:
+  <<: *cifar100
+  root: "data/01_raw/CIFAR/100/test"
+  train: False
 
 football_img_dataset:
   type: PytorchDataset
-  torch_dataset: deepcv.meta.data.datasets.football_img_dataset
+  torch_dataset: "deepcv.meta.data.datasets.ImageDataset"
   filepath: data/01_raw/Football/images
+#
+# football_vid_dataset:
+#   type: PytorchDataset
+#   torch_dataset: "deepcv.meta.data.datasets.VideoDataset"
+#   filepath: data/01_raw/Football/videos
 
-football_vid_dataset:
-  type: PytorchDataset
-  torch_dataset: deepcv.meta.data.datasets.football_vid_dataset
-  filepath: data/01_raw/Football/videos
-
-example_iris_data:
-  type: CSVLocalDataSet
-  filepath: data/01_raw/iris.csv
-  versioned: False
+# example_iris_data:
+#   type: CSVLocalDataSet
+#   filepath: data/01_raw/iris.csv
+#   versioned: False

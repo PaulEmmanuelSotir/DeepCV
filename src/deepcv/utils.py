@@ -25,7 +25,7 @@ from kedro.io import DataCatalog
 
 from src.tests.tests_utils import test_module
 
-__all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device',
+__all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts'
            'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'yolo']
 __author__ = 'Paul-Emmanuel Sotir'
 
@@ -76,6 +76,14 @@ def get_device(devid: Optional[int] = None) -> torch.device:
     if torch.cuda.is_available():
         return torch.device('cuda' + (f':{devid}' if devid else ''))
     return torch.device('cpu')
+
+
+def merge_dicts(*dicts: Iterable[Dict[str, Any]]):
+    """ Utils function used to merge given dictionnaries """
+    merged = {}
+    for p in dicts:
+        merged.update(p)
+    return merged
 
 
 def import_and_reload(module_name, path='.'):

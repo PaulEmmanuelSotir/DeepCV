@@ -7,7 +7,7 @@ import numpy as np
 import multiprocessing
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, Optional, Iterable
+from typing import Any, Dict, Optional, Iterable, Tuple
 
 import torch
 import torch.nn as nn
@@ -27,7 +27,7 @@ from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerP
 from ...tests.tests_utils import test_module
 from deepcv import utils
 
-__all__ = ['BackendConfig', 'train', 'process_parameters']
+__all__ = ['BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -61,10 +61,26 @@ class BackendConfig:
 # TODO: Integrate MLFlow
 
 
-def train(hp: Dict[str, Any], model: nn.Module, loss: torch.nn._Loss, trainset: DataLoader, validset: DataLoader, testset: Optional[DataLoader] = None,
-          opt: torch.optim.Optimizer, backend_conf: BackendConfig = BackendConfig(), device=utils.get_device(), metrics: Dict[Metric] = {}):
+def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dataset: Tuple[DataLoader], opt: Type[torch.optim.Optimizer],
+          backend_conf: BackendConfig = BackendConfig(), device=utils.get_device(), metrics: Dict[Metric] = {}):
+    """ Pytorch model training procedure defined using ignite
+    Args:
+        - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_parameters`` to see required parameters and defaults
+        - model: Pytorch ``nn.Module`` to train
+        - loss: Loss module to be used
+        - dataset: Tuple of pytorch DataLoader giving access to trainset, validset and an eventual testset
+        - opt: Optimizer type to be used for gradient descent
+        - backend_conf: Backend information defining distributed configuration (available GPUs, whether if CPU or GPU are used, distributed node count, ...), see ``deepcv.meta.ignite_training.BackendConfig`` class for more details.
+        - device: Torch device on which computation is executed
+        - metrics: Additional metrics dictionnary (loss is already included in metrics to be evaluated by default)
     # TODO: print training initialization info
+    # TODO: add support for cross-validation
+    # TODO: split this function body into a few internal functions for better readability
+    """
+    assert len(dataset) == 3 or len(dataset) == 2, 'Error: dataset tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
     output_path = Path(hp['output_path'])
+    trainset, *validset_testset = dataset
+    hp = _check_params(hp)
 
     if backend_conf.distributed:
         dist.init_process_group(backend_conf.dist_backend, init_method=hp['dist_url'])
@@ -125,13 +141,13 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: torch.nn._Loss, trainset: 
 
     metrics = {**metrics, 'loss': Loss(loss, device=device if backend_conf.distributed else None)}
 
-    evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
+    valid_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
 
     def run_validation(engine):
         torch.cuda.synchronize()
         train_evaluator.run(trainset)
-        evaluator.run(validset)
+        valid_evaluator.run(validset_testset[0])
 
     trainer.add_event_handler(Events.EPOCH_STARTED(every=hp['validate_every']), run_validation)
     trainer.add_event_handler(Events.COMPLETED, run_validation)
@@ -139,16 +155,16 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: torch.nn._Loss, trainset: 
     if backend_conf.rank == 0:
         if hp['display_iters']:
             ProgressBar(persist=False, desc='Train evaluation').attach(train_evaluator)
-            ProgressBar(persist=False, desc='Test evaluation').attach(evaluator)
+            ProgressBar(persist=False, desc='Test evaluation').attach(valid_evaluator)
 
         log_handler = OutputHandler(tag='train', metric_names=list(metrics.keys()), global_step_transform=global_step_from_engine(trainer))
         tb_logger.attach(train_evaluator, log_handler=log_handler, event_name=Events.COMPLETED)
 
         log_handler = OutputHandler(tag='test', metric_names=list(metrics.keys()), global_step_transform=global_step_from_engine(trainer))
-        tb_logger.attach(evaluator, log_handler=log_handler, event_name=Events.COMPLETED)
+        tb_logger.attach(valid_evaluator, log_handler=log_handler, event_name=Events.COMPLETED)
 
         # Store the best model by validation accuracy:
-        common.save_best_model_by_val_score(hp['output_path'], evaluator, model=model, metric_name='accuracy', n_saved=3, trainer=trainer, tag='val')
+        common.save_best_model_by_val_score(hp['output_path'], valid_evaluator, model=model, metric_name='accuracy', n_saved=3, trainer=trainer, tag='val')
 
         if hp['log_model_grads_every'] is not None and hp['log_model_grads_every'] > 0:
             tb_logger.attach(trainer, log_handler=GradsHistHandler(model, tag=model.__class__.__name__),
@@ -177,28 +193,27 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: torch.nn._Loss, trainset: 
         tb_logger.close()
 
 
-def process_parameters(*parameters: Iterable[Dict[str, Any]]):
-    ignite_training_defaults = {'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1, 'display_iters': 1000,
-                                'seed': 23424, 'deterministic': False, 'dist_url': '', 'dist_backend': None, 'resume_from': '', 'crash_iteration': -1}
-    # Merge given parameters dicts
-    merged = {}
-    for p in parameters:
-        merged.update(p)
+def _check_params(hp: Dict[str, Any]) -> Dict[str, Any]:
+    TRAINING_HP_REQUIRED = ['output_path', 'optimizer_opts', 'shceduler_milestones_values', 'epochs']
+    TRAINING_HP_DEFAULTS = {'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1, 'display_iters': 1000,
+                            'seed': None, 'deterministic': False, 'dist_url': '', 'dist_backend': None, 'resume_from': '', 'crash_iteration': -1}
+
+    # Make sure required parameters are present
+    missing = [n for n in TRAINING_HP_REQUIRED if n not in hp]
+    assert len(missing) > 0, f'Error: Missing mandatory hyperparameter(s) (missing="{missing}") for ignite training process.'
 
     # Apply default values for optionnal parameters
-    merged.update({n: v for n, v in ignite_training_defaults if n not in merged})
+    hp.update({n: v for n, v in TRAINING_HP_DEFAULTS if n not in hp})
 
     # Append some specific parameters to resulting hyperparameter dict
-    merged['device'] = utils.get_device(devid=merged['local_rank'])
-    merged['backend_conf'] = BackendConfig(merged['device'], merged['dist_backend'], merged['local_rank'])
-    if merged['backend_conf'].ngpus_current_node > 0 and merged['backend_conf'].distributed:
-        merged['num_workers'] = max(1, (merged['backend_conf'].ncpu_per_node - 1) // merged['backend_conf'].ngpus_current_node)
+    hp['device'] = utils.get_device(devid=hp['local_rank'])
+    hp['backend_conf'] = BackendConfig(hp['device'], hp['dist_backend'], hp['local_rank'])
+    if hp['backend_conf'].ngpus_current_node > 0 and hp['backend_conf'].distributed:
+        hp['num_workers'] = max(1, (hp['backend_conf'].ncpu_per_node - 1) // hp['backend_conf'].ngpus_current_node)
     else:
-        merged['num_workers'] = max(1, multiprocessing.cpu_count() - 1)
-    return merged
+        hp['num_workers'] = max(1, multiprocessing.cpu_count() - 1)
+    return hp
 
-
-if __name__ == '__main__':
     test_module(__file__)
 
 

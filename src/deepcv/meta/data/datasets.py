@@ -29,29 +29,25 @@ TORCHVISION_DATASETS = {v.__class__.__name__: v for n, v in torchvision.datasets
 
 
 class PytorchDatasetWarper(kedro.io.AbstractDataSet):
-    def __init__(self, torch_dataset: Type[torch.utils.data.Dataset], dataset_kwargs: Dict[str, Any]):
+    def __init__(self, torch_dataset: Type[torch.utils.data.Dataset], **dataset_kwargs):
         super(PytorchDatasetWarper, self).__init__()
         self.pytorch_dataset = eval(torch_dataset)(**dataset_kwargs)
 
-    def _load(self) -> None: pass
-    def _save(self, dataloader: torch.utils.data.DataLoader) -> None: pass
+    def _load(self): pass
+    def _save(self): pass
+    def _describe(self): return self.__dict__
 
-    def _describe(self) -> Dict[str, Any]:
-        return {'dataloader': self.dataloader} + self.__dict__
-
-
-# TODO: apply out_transform to targets
-# TODO: refactor ImageIterator and ImageDataset (move some operator overload/methods from iterator to dataset iterable)
 
 class ImageDataset(kedro.io.AbstractVersionedDataSet):
     """ Custom image dataset, for usage outside of pytorch dataset tooling or if versionning is needed.
+    # TODO: refactor ImageIterator and ImageDataset (move some operator overload/methods from iterator to dataset iterable)
     TODO: kedro.io.CachedDataset ??
     TODO: keep in mind self._glob_function and self._exists_function
     TODO: implement _exists function for versioning
     """
 
     def __init__(self, dataset_path: Union[str, Path], version: Optional[kedro.io.Version], in_transform=None, out_transform=None, cache: bool = False, shuffle: bool = True, exists_fn: Callable[[str], bool] = None, glob_fn: Callable[[str], List[str]] = None):
-        super(VersionnedImageDataset).__init__(self, dataset_path, version, exists_fn, glob_fn)
+        super(ImageDataset).__init__(self, dataset_path, version, exists_fn, glob_fn)
         # TODO: parse image folder and targets
         # TODO: refactor storage + remove useless TypeVar-s
         raise NotImplementedError

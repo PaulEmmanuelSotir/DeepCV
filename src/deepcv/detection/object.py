@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 
 from ...tests.tests_utils import test_module
 import deepcv.meta as meta
+import deepcv.utils as utils
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'load_dataset', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -52,14 +53,14 @@ class ObjectDetector(meta.nn.DeepcvModule):
         raise NotImplementedError
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        return self.net(inputs)
 
 
 def get_object_detector_pipelines():
-    p1 = Pipeline([node(meta.ignite_training.process_parameters, name='process_hyperparameters', inputs=['params:ignite_training', 'params:object_detector', 'params:cifar10'], outputs=['hp']),
-                   node(meta.data.preprocess.preprocess_cifar, name='preprocess_cifar_dataset', inputs=['cifar10_dataset', 'hp'], outputs=['trainset', 'validset', 'testset']),
-                   node(create_model, name='create_object_detection_model', inputs=['trainset', 'hp'], outputs=['model']),
-                   node(train, name='train_object_detector', inputs=['trainset', 'validset', 'testset', 'model', 'hp'], outputs=None)],
+    p1 = Pipeline([node(utils.merge_dicts, name='merge_hyperparameters', inputs=['params:ignite_training', 'params:object_detector', 'params:cifar10'], outputs=['hp']),
+                   node(meta.data.preprocess.preprocess_cifar, name='preprocess_cifar_dataset', inputs=['cifar10_train', 'cifar10_test', 'hp'], outputs=['dataset']),
+                   node(create_model, name='create_object_detection_model', inputs=['dataset', 'hp'], outputs=['model']),
+                   node(train, name='train_object_detector', inputs=['dataset', 'model', 'hp'], outputs=None)],
                   name='object_detector_training')
     return [p1]
 
@@ -76,7 +77,7 @@ def create_model(trainset: DataLoader, hp: Dict[str, Any]):
     return model
 
 
-def train(trainset: DataLoader, validset: DataLoader, testset: DataLoader, model: nn.Module, hp: Dict[str, Any]):
+def train(dataset: Tuple[DataLoader], model: nn.Module, hp: Dict[str, Any]):
     device, backend_conf = hp['device'], hp['backend_conf']
     metrics = {'accuracy': Accuracy(device=device if distributed else None)}
     loss = nn.CrossEntropyLoss()
@@ -85,7 +86,7 @@ def train(trainset: DataLoader, validset: DataLoader, testset: DataLoader, model
     # TODO: remove these lines and create respective nodes
     trainset, validset = get_train_test_loader(path=hp['data_path'], batch_size=batch_size, distributed=backend_conf.distributed, num_workers=num_workers)
 
-    return meta.ignite_training.train(hp, model, loss, trainset, validset, testset, opt, backend_conf, device, metrics)
+    return meta.ignite_training.train(hp, model, loss, dataset, opt, backend_conf, device, metrics)
 
 
 if __name__ == '__main__':

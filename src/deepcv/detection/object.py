@@ -6,17 +6,20 @@
 from typing import Any, Dict, Optional
 from pathlib import Path
 
+from kedro.pipeline import Pipeline
+from kedro.node import node
+
 import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim as optim
+import torch.distributed as dist
 from torch.utils.data import DataLoader
 
-from ....tests.tests_utils import test_module
-import deepcv.meta.ignite_training as training
-from deepcv.meta.data.preprocess import preprocess_cifar
+from ...tests.tests_utils import test_module
+import deepcv.meta as meta
 
-__all__ = []
+__all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'load_dataset', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
 
 """
@@ -40,42 +43,49 @@ __author__ = 'Paul-Emmanuel Sotir'
 # TODO: refactor to handle given metrics
 
 
-class ObjectDetector(nn.Module):
-    def __init__(self):
-        super(ObjectDetector, self).__init__(self)
+class ObjectDetector(meta.nn.DeepcvModule):
+    HP_DEFAULTS = {'layers': ..., 'batch_norm': None, 'dropout_prob': 0.}
+
+    def __init__(self, input_shape, hp):
+        super(ObjectDetector, self).__init__(input_shape, hp)
+        self.net = nn.Sequential()
+        raise NotImplementedError
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
+        return self.net(x)
 
 
 def get_object_detector_pipelines():
-    preprocess_node = node(preprocess_cifar, name='preprocess_cifar_dataset', inputs=['cifar10_dataset', 'params:cifar10_testset_ratio'], outputs=['trainset', 'testset'])
-    p1 = Pipeline([preprocess_node,
-                   node(create_model, name='create_object_detection_model', inputs=['trainset', 'testset'], outputs=['trainset', 'testset', 'model']),
-                   node(train, name='train_object_detector', inputs=['trainset', 'testset', 'params:object_detector_hp'], outputs=None)],
+    p1 = Pipeline([node(meta.ignite_training.process_parameters, name='process_hyperparameters', inputs=['params:ignite_training', 'params:object_detector', 'params:cifar10'], outputs=['hp']),
+                   node(meta.data.preprocess.preprocess_cifar, name='preprocess_cifar_dataset', inputs=['cifar10_dataset', 'hp'], outputs=['trainset', 'validset', 'testset']),
+                   node(create_model, name='create_object_detection_model', inputs=['trainset', 'hp'], outputs=['model']),
+                   node(train, name='train_object_detector', inputs=['trainset', 'validset', 'testset', 'model', 'hp'], outputs=None)],
                   name='object_detector_training')
     return [p1]
 
 
-def create_model(hp: Dict[str, Any]):
-    model = ObjectDetector()
+def load_dataset(hp: Dict[str, Any]):
+    if distributed:
+        hp['batch_size'] = hp['batch_size'] // dist.get_world_size()
+
+
+def create_model(trainset: DataLoader, hp: Dict[str, Any]):
+    dummy_img = trainset[0][0]
+    input_shape = dummy_img.shape
+    model = ObjectDetector(input_shape, hp)
     return model
 
 
-def load_dataset(, distributed: bool = False, hp: Dict[str, Any]):
-    batch_size = hp['batch_size'] // (dist.get_world_size() if distributed else 1)
-
-
-def train(trainset: DataLoader, validset: DataLoader, model: nn.Module, hp: Dict[str, Any]):
+def train(trainset: DataLoader, validset: DataLoader, testset: DataLoader, model: nn.Module, hp: Dict[str, Any]):
+    device, backend_conf = hp['device'], hp['backend_conf']
     metrics = {'accuracy': Accuracy(device=device if distributed else None)}
-    device = utils.get_device(devid=hp['local_rank'])
-    backend_conf = training.BackendConfig(device, hp.get('dist_backend'), hp['local_rank'])
+    loss = nn.CrossEntropyLoss()
+    opt = optim.SGD
 
     # TODO: remove these lines and create respective nodes
-    num_workers = max(1, (ncpu_per_node - 1) // torch.cuda.device_count()) if torch.cuda.device_count() > 0 else max(1, multiprocessing.cpu_count() - 1)
-    trainset, validset = get_train_test_loader(path=hp['data_path'], batch_size=batch_size, distributed=distributed, num_workers=num_workers)
+    trainset, validset = get_train_test_loader(path=hp['data_path'], batch_size=batch_size, distributed=backend_conf.distributed, num_workers=num_workers)
 
-    return training.train(hp, model, trainset, validset, distributed=distributed, device=device, metrics=metrics)
+    return meta.ignite_training.train(hp, model, loss, trainset, validset, testset, opt, backend_conf, device, metrics)
 
 
 if __name__ == '__main__':

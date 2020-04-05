@@ -19,26 +19,41 @@ import torch.distributions as tdist
 from hilbertcurve.hilbertcurve import HilbertCurve
 
 from deepcv import utils
-from ....tests.tests_utils import test_module
+from ...tests.tests_utils import test_module
 from torch import Tensor, squeeze, zeros
 
-__all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadModule', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
+__all__ = ['DeepcvModule', 'HybridConnectivityGatedNet', 'Flatten', 'MultiHeadModule', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
            'parrallelize', 'mean_batch_loss', 'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class HybridConnectivityGatedNet(nn.Module):
-    """ Implementation of Hybrid Connectivity Gated Net (HCGN), residual/dense conv block architecture from the following paper: https://arxiv.org/pdf/1908.09699.pdf """
+class DeepcvModule(nn.Module):
+    HP_DEFAULTS = ...
 
-    def __init__(self, hp: SimpleNamespace):
+    def __init__(self, input_shape: torch.Size, hp: Dict[str, Any]):
+        super(DeepcvModule, self).__init__()
+        assert HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
+
+        self.input_shape = input_shape
+        self.hyper_params = {n: v for n, v in hp if n in HP_DEFAULTS}
+        self.hyper_params.update({n: v for n, v in HP_DEFAULTS if n not in hp and v != ...})
+        missing_hyperparams = [n for n in HP_DEFAULTS if n not in self.hyper_params]
+        assert len(missing_hyperparams) > 0, f'Error: Missing required hyper-parameter in "{self.__class__.__name__}" module parameters'
+
+
+class HybridConnectivityGatedNet(DeepcvModule):
+    """ Implementation of Hybrid Connectivity Gated Net (HCGN), residual/dense conv block architecture from the following paper: https://arxiv.org/pdf/1908.09699.pdf """
+    HP_DEFAULTS = {'modules': ..., 'batch_norm': None, 'dropout_prob': 0.}
+
+    def __init__(self, input_shape: torch.Size, hp: Dict[str, Any]):
         """ HybridConnectivityGatedNet __init__ function
         Args:
-            hp: Hyperparameters (should at least contain: TODO: ...)
+            hp: Hyperparameters
         """
-        super(HybridConnectivityGatedNet, self).__init__()
+        super(HybridConnectivityGatedNet, self).__init__(input_shape, hp)
         smg_modules = []
-        for i, module_opts in enumerate(hp.modules):
+        for i, module_opts in enumerate(hp['modules']):
             prev_module = smg_modules[-1]
             gating = 'TODO'  # TODO: !!
             raise NotImplementedError

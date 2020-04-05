@@ -1,8 +1,28 @@
 # HyperParameters
+cifar10:
+  validset_ratio: 0.2
+  testset_ratio: 0.2
+  augmentation: False
 
-validset_ratio: 0.2
-testset_ratio: 0.2
-epochs: 80
-learning_rate: 1e-4
-batch_size: 32
+object_detector:
+  batch_size: 32
+  optimizer_opts: {lr: , momentum: , weight_decay: , nesterov: True}
+  shceduler_milestones_values: [(0, 0.0),
+                                  (len(trainset) * hp['warmup_epochs'], hp['optimizer_opts']['lr']),
+                                  (len(trainset) * hp['epochs'], 0.0)]}
+  epochs: 80 # Epoch
+  resume_from: ''
+  output_path: 
+  crash_iteration: -1
+  batch_norm: True
+  dropout_prob: 0.
 
+ignite_training:
+  validate_every: 1 # Epoch
+  checkpoint_every: # Iters
+  log_model_grads_every: # Iters
+  display_iters: # Iters
+  seed: 563454
+  deterministic: False
+  dist_url: # "env://"
+  dist_backend: '' # Set, for example, nccl (torch.distributed.Backend.NCCL) for distributed training using nccl backend

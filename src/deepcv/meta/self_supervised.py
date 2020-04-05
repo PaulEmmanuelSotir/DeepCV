@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from ....tests.tests_utils import test_module
+from ...tests.tests_utils import test_module
 from deepcv import utils
 
 __all__ = []

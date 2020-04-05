@@ -31,7 +31,7 @@ Test can alternatively be put directly in thair respective source scripts (sourc
 To run the tests, run ``kedro test`` or directly run ``python ./src/tests/tests_utils.py`` or pytest command. In either cases, you can specify custom pytest cli arguments.
 You may also use `` test_module `` function in your covered source scripted like so:  
 ``` python
-from ....tests.tests_utils import test_module
+from ..tests.tests_utils import test_module
 
 ... # Source implementation of your code and their respective tests (following pytest naming convention)
 

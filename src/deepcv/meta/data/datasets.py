@@ -5,38 +5,82 @@
 """
 import threading
 import collections
+import functools as fn
 from pathlib import Path
-from typing import Optionnal, Type, Union, Iterable
+from typing import Optional, Type, Union, Iterable, Dict, Any
 
 import PIL
+import kedro.io
 import numpy as np
+
 import torch
 import torch.nn as nn
-from kedro.io import AbstractVersionedDataSet
+import torchvision.datasets
 
+import deepcv
 from ....tests.tests_utils import test_module
 
-__all__ = []
+__all__ = ['PytorchDatasetWarper', 'ImageDataset']
 __author__ = 'Paul-Emmanuel Sotir'
 
 # path.glob("*.[jpg|jpeg]")
 
-LoadedImageT = TypeVar('LoadedImageT', Image, np.array, torch.tensor)
-RefImageT = TypeVar('RefImageT', os.file, pathlib.Path, os.PathLike, str)
-ImageT = TypeVar('ImageT', RefImageT, LoadedImageT)
-MetadataT = Optionnal[dict[str, TypeVar('T')]}
+TORCHVISION_DATASETS = {v.__class__.__name__: v for n, v in torchvision.datasets.__all__ if issubclass(v, torch.utils.data.Dataset)}
+
+
+class PytorchDatasetWarper(kedro.io.AbstractDataSet):
+    def __init__(self, torch_dataset: Type[torch.utils.data.Dataset], dataset_kwargs: Dict[str, Any]):
+        super(PytorchDatasetWarper, self).__init__()
+        self.pytorch_dataset = eval(torch_dataset)(**dataset_kwargs)
+
+    def _load(self) -> None: pass
+    def _save(self, dataloader: torch.utils.data.DataLoader) -> None: pass
+
+    def _describe(self) -> Dict[str, Any]:
+        return {'dataloader': self.dataloader} + self.__dict__
 
 
 # TODO: apply out_transform to targets
 # TODO: refactor ImageIterator and ImageDataset (move some operator overload/methods from iterator to dataset iterable)
 
-class ImageIterator(collections.MutableMapping):
-    def __init__(self, images: List[Path], in_transform=None, out_transform=None, cache: bool = False, shuffle: bool = True):
-        self.store = {p: ... for p in images}
+class ImageDataset(kedro.io.AbstractVersionedDataSet):
+    """ Custom image dataset, for usage outside of pytorch dataset tooling or if versionning is needed.
+    TODO: kedro.io.CachedDataset ??
+    TODO: keep in mind self._glob_function and self._exists_function
+    TODO: implement _exists function for versioning
+    """
+
+    def __init__(self, dataset_path: Union[str, Path], version: Optional[kedro.io.Version], in_transform=None, out_transform=None, cache: bool = False, shuffle: bool = True, exists_fn: Callable[[str], bool] = None, glob_fn: Callable[[str], List[str]] = None):
+        super(VersionnedImageDataset).__init__(self, dataset_path, version, exists_fn, glob_fn)
+        # TODO: parse image folder and targets
+        # TODO: refactor storage + remove useless TypeVar-s
+        raise NotImplementedError
+
+        self.images_refs = {}
+        self.loaded_images = {}  # {path: (image, target) for path, target in self.images_refs}
         self.update(dict(*args, **kwargs))
         self.in_transform, self.out_transform = in_transform, out_transform
         self.cache = cache
         self.shuffle = shuffle
+
+    def get_last_save_version(self) -> Optional[str]:
+        pass
+
+    def get_last_load_version(self) -> Optional[str]:
+        pass
+
+    def _load(self) -> ImageDataset:
+        load_path = self._get_load_path()
+        raise NotImplementedError
+
+    def _save(self, data: Any) -> None:
+        """Saves image data to the specified filepath"""
+        save_path = self._get_save_path()
+        raise NotImplementedError
+
+    def _describe(self) -> str:
+        """Returns a dict that describes the attributes of the dataset"""
+        return """ TODO """
 
     @property
     def shuffle(self) -> bool:
@@ -59,12 +103,12 @@ class ImageIterator(collections.MutableMapping):
 
     def __getitem__(self, key: Union[ImageT, slice]) -> Tuple[LoadedImageT, MetadataT]:
         if issubclass(key, slice):
-            return {self._image_transform(img): target for img, target in self.store[key]}
-        return self._image_transform(key), self.store[key]
+            return {self._image_transform(img): self.out_transform(target) for img, target in self.store[key]}
+        return self._image_transform(key), self.out_transform(self.store[key])
 
     def __setitem__(self, key: Union[ImageT, slice], target: Union[MetadataT, Iterable[MetadataT]] = None):
         if issubclass(key, ImageT):
-            assert issubclass(target, MetadataT), 'Error: cannot assign multiple targets to a single image.''
+            assert issubclass(target, MetadataT), 'Error: cannot assign multiple targets to a single image.'
         elif issubclass(key, slice):
             assert issubclass(target, Iterable[MetadataT]), 'Error: Cannot assign a single target to an image slice'
         self.store[key] = target
@@ -73,7 +117,16 @@ class ImageIterator(collections.MutableMapping):
         del self.store[key]
 
     def __iter__(self) -> Iterable[ImageT, MetadataT]:
-        return iter(self.store)  # TODO: map _image_transform to returned iterator or refactor ImageDataset to be an iterator and
+        it = iter(self.store)  # TODO: map/warp _image_transform to returned iterator or refactor ImageDataset to be an iterator and
+
+        def _warp_tranform_on_iter(iterator_next_fn):
+            def _warper(*args, **kwargs):
+                x, y = iterator_next_fn()
+                return self._image_transform(x), self.out_transform(y)
+            return _warper
+        it.__next__ = _warp_tranform_on_iter(it.__next__)
+
+        return it
 
     def __len__(self) -> int:
         return len(self.store)
@@ -82,16 +135,18 @@ class ImageIterator(collections.MutableMapping):
         return type(instance) is ImageDataset or type(instance) is dict
 
     def __subclasscheck__(self, subclass):
-        return super(ImageDataset).__subclasscheck__(subclass)
-        or issubclass(subclass, dict)
+        return super(ImageDataset).__subclasscheck__(subclass) or issubclass(subclass, dict)
+
+    def __enter__(self):
+        self.load_all()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release_all()
 
     def popitem(self):
         """ Remove and return an item pair from ImageDataset. Raise KeyError is ImageDataset instance is empty. """
         img, target = self.store.popitem()
         return self._image_transform(img), target
-
-    def pushitem(self, image: ImageT, target: MetadataT = None):
-        raise NotImplementedError  # TODO: implement
 
     def load_all(self):
         self.store.values = map(load_image, self.store.keys)
@@ -120,8 +175,7 @@ class ImageIterator(collections.MutableMapping):
             # Convert image reference/path to specified output image reference type
             return output_type(image)
         else:
-            assert isinstance(
-                image, LoadedImageT), f'Error occured when releasing image from ImageDataset, unrecognized image type: "{type(image)}" (image value: "{image}")'
+            assert isinstance(image, LoadedImageT), f'Error occured when releasing image from ImageDataset, unrecognized image type: "{type(image)}" (image value: "{image}")'
             # Release image data
             raise NotImplementedError  # TODO: implement
 
@@ -129,31 +183,9 @@ class ImageIterator(collections.MutableMapping):
     def fromkeys(cls, images_iterable: Iterable[ImageT], default_target: MetadataT = None) -> ImageDataset:
         """ Creates a new ImageDataset instance from given keys mapped to given target (None by default). """
         self = cls()
-        for key in keys_iterable:
+        for key in images_iterable:
             self.store[key] = default_target
         return self
-
-
-# TODO: return ImageDataset.__iter__() in __iter__ function of VersionnedImageDataset?
-class ImageDataset(AbstractVersionedDataSet):
-    def __init__(self, , dataset_path: Union[str, Path], version):
-        super(VersionnedImageDataset).__init__(self, dataset_path, version)
-
-    @override
-    def _load(self) -> ImageDataset:
-        load_path = self._get_load_path()
-        raise NotImplementedError
-
-    @override
-    def _save(self) -> None:
-        """Saves image data to the specified filepath"""
-        save_path = self._get_save_path()
-        raise NotImplementedError
-
-    @override
-    def _describe() -> str:
-        """Returns a dict that describes the attributes of the dataset"""
-        return """ TODO """
 
 
 if __name__ == '__main__':

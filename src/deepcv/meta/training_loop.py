@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import ignite
 
-from ....tests.tests_utils import test_module
+from ...tests.tests_utils import test_module
 from deepcv import utils
 
 __all__ = []

@@ -19,6 +19,7 @@ dependencies:
         - scikit-image=0.16.*
         - seaborn=0.10.*
         - pytorch=1.4.*
+        - torchvision=0.5.*
         - mlflow=1.7.*
         - hyperopt=0.2.*
         - jupyter=1.0.*

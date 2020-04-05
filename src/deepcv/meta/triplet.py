@@ -12,7 +12,7 @@ from torch.functional import F
 from torch.utils.data import DataLoader
 
 from deepcv import utils
-from ....tests.tests_utils import test_module
+from ...tests.tests_utils import test_module
 
 __all__ = ['sample_triplets', 'triplet_loss']
 __author__ = 'Paul-Emmanuel Sotir'

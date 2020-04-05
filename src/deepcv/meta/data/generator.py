@@ -17,6 +17,7 @@ from click import secho, style
 
 from deepcv import utils
 from ....tests.tests_utils import test_module
+
 singan = utils.try_import(r'....third_party.SinGAN.SinGAN', msg='Can\'t import third party module')
 
 
@@ -39,6 +40,7 @@ def train_distilled_singan(train_images):
     if singan:
         # We first train a new SinGAN instance on each images
         for img in train_images:
+            raise NotImplementedError
             singan_opts = types.SimpleNamespace(device=utils.get_device(), mode='train', input_dir=r'', input_name=r'')
             Gs, Zs, reals, NoiseAmp = [], [], [], []
 

@@ -7,7 +7,7 @@ import numpy as np
 import multiprocessing
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Iterable
 
 import torch
 import torch.nn as nn
@@ -24,23 +24,11 @@ from ignite.contrib.handlers import PiecewiseLinear
 from ignite.contrib.handlers import TensorboardLogger, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerParamsHandler, GradsHistHandler
 
-from ....tests.tests_utils import test_module
+from ...tests.tests_utils import test_module
 from deepcv import utils
 
-__all__ = ['BackendConfig', 'train']
+__all__ = ['BackendConfig', 'train', 'process_parameters']
 __author__ = 'Paul-Emmanuel Sotir'
-
-
-def init_training(deterministic: bool = True):
-    if deterministic:
-        utils.set_seeds(353453)
-    utils.setup_cudnn(deterministic)
-    device = utils.get_device()
-    raise NotImplementedError  # TODO: implement
-
-
-if __name__ == '__main__':
-    test_module(__file__)
 
 
 class BackendConfig:
@@ -48,7 +36,7 @@ class BackendConfig:
         self.is_cpu = device.type == 'cpu'
         self.ncpu = multiprocessing.cpu_count()
         self.dist_backend = dist_backend
-        self.distributed = dist_backend is not None
+        self.distributed = dist_backend is not None and dist_backend != ''
         self.local_rank = local_rank
         self.rank, self.ngpus, self.ngpus_current_node, self.nnodes = 0, 0, 0, 1
 
@@ -73,8 +61,8 @@ class BackendConfig:
 # TODO: Integrate MLFlow
 
 
-def train(hp: Dict[str, Any], model: nn.Module, trainset: DataLoader, validset: DataLoader, testset: Optional[DataLoader] = None,
-          backend_conf: BackendConfig = BackendConfig(), device=utils.get_device(), metrics: Dict[Metric] = {}):
+def train(hp: Dict[str, Any], model: nn.Module, loss: torch.nn._Loss, trainset: DataLoader, validset: DataLoader, testset: Optional[DataLoader] = None,
+          opt: torch.optim.Optimizer, backend_conf: BackendConfig = BackendConfig(), device=utils.get_device(), metrics: Dict[Metric] = {}):
     # TODO: print training initialization info
     output_path = Path(hp['output_path'])
 
@@ -99,8 +87,8 @@ def train(hp: Dict[str, Any], model: nn.Module, trainset: DataLoader, validset: 
     if backend_conf.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[backend_conf.local_rank, ], output_device=backend_conf.local_rank)
 
-    optimizer = hp['optimizer'](model.parameters(), **hp['optimizer_opts'])
-    criterion = hp['loss'].to(device)
+    optimizer = opt(model.parameters(), **hp['optimizer_opts'])
+    loss = loss.to(device)
     lr_scheduler = PiecewiseLinear(optimizer, milestones_values=hp['shceduler_milestones_values'], param_name='lr')
 
     def process_function(engine, batch):
@@ -109,12 +97,12 @@ def train(hp: Dict[str, Any], model: nn.Module, trainset: DataLoader, validset: 
         model.train()
         # Supervised part
         y_pred = model(x)
-        loss = criterion(y_pred, y)
+        loss_tensor = loss(y_pred, y)
 
         optimizer.zero_grad()
-        loss.backward()
+        loss_tensor.backward()
         optimizer.step()
-        return {'batch loss': loss.item(), }
+        return {'batch loss': loss_tensor.item(), }
 
     trainer = Engine(process_function)
     train_sampler = trainset.sampler if backend_conf.distributed else None  # TODO: figure out why 'None' if not distributed?
@@ -135,7 +123,7 @@ def train(hp: Dict[str, Any], model: nn.Module, trainset: DataLoader, validset: 
         tb_logger.attach(trainer, log_handler=OutputHandler(tag='train', metric_names=metric_names), event_name=Events.ITERATION_COMPLETED)
         tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer, param_name='lr'), event_name=Events.ITERATION_STARTED)
 
-    metrics = {**metrics, 'loss': Loss(criterion, device=device if backend_conf.distributed else None)}
+    metrics = {**metrics, 'loss': Loss(loss, device=device if backend_conf.distributed else None)}
 
     evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
@@ -162,17 +150,17 @@ def train(hp: Dict[str, Any], model: nn.Module, trainset: DataLoader, validset: 
         # Store the best model by validation accuracy:
         common.save_best_model_by_val_score(hp['output_path'], evaluator, model=model, metric_name='accuracy', n_saved=3, trainer=trainer, tag='val')
 
-        if hp['log_model_grads_every'] is not None:
+        if hp['log_model_grads_every'] is not None and hp['log_model_grads_every'] > 0:
             tb_logger.attach(trainer, log_handler=GradsHistHandler(model, tag=model.__class__.__name__),
                              event_name=Events.ITERATION_COMPLETED(every=hp['log_model_grads_every']))
 
-    if hp['crash_iteration'] is not None:
+    if hp['crash_iteration'] is not None and hp['crash_iteration'] >= 0:
         @trainer.on(Events.ITERATION_STARTED(once=hp['crash_iteration']))
         def _(engine):
             raise Exception('STOP at iteration: {}'.format(engine.state.iteration))
 
     resume_from = hp['resume_from']
-    if resume_from is not None:
+    if not resume_from:
         checkpoint_fp = Path(resume_from)
         assert checkpoint_fp.exists(), f'Checkpoint "{checkpoint_fp}" is not found'
         print(f'Resuming from a checkpoint: {checkpoint_fp}')
@@ -187,6 +175,31 @@ def train(hp: Dict[str, Any], model: nn.Module, trainset: DataLoader, validset: 
 
     if backend_conf.rank == 0:
         tb_logger.close()
+
+
+def process_parameters(*parameters: Iterable[Dict[str, Any]]):
+    ignite_training_defaults = {'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1, 'display_iters': 1000,
+                                'seed': 23424, 'deterministic': False, 'dist_url': '', 'dist_backend': None, 'resume_from': '', 'crash_iteration': -1}
+    # Merge given parameters dicts
+    merged = {}
+    for p in parameters:
+        merged.update(p)
+
+    # Apply default values for optionnal parameters
+    merged.update({n: v for n, v in ignite_training_defaults if n not in merged})
+
+    # Append some specific parameters to resulting hyperparameter dict
+    merged['device'] = utils.get_device(devid=merged['local_rank'])
+    merged['backend_conf'] = BackendConfig(merged['device'], merged['dist_backend'], merged['local_rank'])
+    if merged['backend_conf'].ngpus_current_node > 0 and merged['backend_conf'].distributed:
+        merged['num_workers'] = max(1, (merged['backend_conf'].ncpu_per_node - 1) // merged['backend_conf'].ngpus_current_node)
+    else:
+        merged['num_workers'] = max(1, multiprocessing.cpu_count() - 1)
+    return merged
+
+
+if __name__ == '__main__':
+    test_module(__file__)
 
 
 # TODO: remove this deprecated code and use ignite training loop instead

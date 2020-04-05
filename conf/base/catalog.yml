@@ -40,12 +40,46 @@
 # https://kedro.readthedocs.io/en/stable/04_user_guide/04_data_catalog.html
 
 imagenet32:
-  type: ImageDataset
-  filepath: data/01_raw/ImageNet/32
-  versioned: True
+  type: PytorchDataset
+  torch_dataset: torchvision.datasets.ImageNet32
+  dataset_kwargs:
+    root: "data/01_raw/ImageNet/32"
+    train: True
+    transform: None
+    target_transform: None
+    download: False
+
+cifar10_dataset:
+  type: PytorchDataset
+  torch_dataset: torchvision.datasets.CIFAR10
+  dataset_kwargs:
+    root: "data/01_raw/CIFAR/100"
+    train: True
+    transform: None
+    target_transform: None
+    download: False
+
+cifar100_dataset:
+  type: PytorchDataset
+  torch_dataset: torchvision.datasets.CIFAR100
+  dataset_kwargs:
+    root: "data/01_raw/CIFAR/100"
+    train: True
+    transform: None
+    target_transform: None
+    download: False
+
+football_img_dataset:
+  type: PytorchDataset
+  torch_dataset: deepcv.meta.data.datasets.football_img_dataset
+  filepath: data/01_raw/Football/images
+
+football_vid_dataset:
+  type: PytorchDataset
+  torch_dataset: deepcv.meta.data.datasets.football_vid_dataset
+  filepath: data/01_raw/Football/videos
 
 example_iris_data:
   type: CSVLocalDataSet
   filepath: data/01_raw/iris.csv
   versioned: False
-

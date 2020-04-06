@@ -24,7 +24,8 @@ from torch import Tensor, squeeze, zeros
 
 __all__ = ['DeepcvModule', 'HybridConnectivityGatedNet', 'Flatten', 'MultiHeadModule', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
-           'parrallelize', 'mean_batch_loss', 'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
+           'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'type_or_instance_is', 'is_fully_connected',
+           'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -70,9 +71,9 @@ class HybridConnectivityGatedNet(DeepcvModule):
 
 
 def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[inspect.Parameter]] = []):
-    """ Returns a decorator which creates a new ``torch.nn.Module``-based class using ``forward_func`` as underlying forward function.  
+    """ Returns a decorator which creates a new ``torch.nn.Module``-based class using ``forward_func`` as underlying forward function.
     Note: If ``init_params`` isn't empty, then returned ``nn.Module``-based class won't have the same signature as ``forward_func``.
-    This is because some arguments provided to ``forward_func`` will instead be attributes of created module, taken by class's ``__init__`` function.  
+    This is because some arguments provided to ``forward_func`` will instead be attributes of created module, taken by class's ``__init__`` function.
     Args:
         - typename: Returned nn.Module class's ``__name__``
         - init_params: An iterable of string parameter name(s) of ``forward_func`` which should be taken by class's ``__init__`` function instead of ``forward`` function.
@@ -100,7 +101,7 @@ def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[ins
             def forward(self, *inputs, **kwargs) -> torch.Tensor:
                 bound_args = forward_signature.bind(*inputs, **kwargs)
                 bound_args.apply_defaults()
-                return forward_func(**bound_args.arguments, **self.__dict__)
+                return forward_func(**bound_args.arguments, **vars(self))
 
         _Module.__init__.__annotations__ = init_signature.__annotations__
         _Module.__init__.__defaults__ = {n: p.default for (n, p) in init_signature.parameters.items()}
@@ -162,8 +163,9 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
     Note:
         Note that dropout used along with batch norm may be unrecommended (see respective warning message).
     """
-    assert 'weight' in layer_op.__dict__, f'Error: Bad layer operation module argument, no "weight" attribute found in layer_op="{layer_op}"'
-    assert 'out_channels' in layer_op.__dict__ or 'out_features' in layer_op.__dict__, f'Error: Bad layer operation module argument, no "out_channels" or "out_features" attribute found in layer_op="{layer_op}"'
+    assert 'weight' in vars(layer_op), f'Error: Bad layer operation module argument, no "weight" attribute found in layer_op="{layer_op}"'
+    assert 'out_channels' in vars(layer_op) or 'out_features' in vars(layer_op),
+    f'Error: Bad layer operation module argument, no "out_channels" or "out_features" attribute found in layer_op="{layer_op}"'
 
     def _dropout() -> Optional[nn.Module]:
         if dropout_prob is not None and dropout_prob != 0.:
@@ -235,7 +237,7 @@ def ConvWithMetaLayer(nn.Module):
 
 
 def meta_layer(input_feature_shape: torch.Size, target_module: nn.Parameter):
-    """ A 'parrallel'/'meta' layer applied to previous layer/block's features to infer global statistics of next layer's weight matrix
+    """ A 'parallel'/'meta' layer applied to previous layer/block's features to infer global statistics of next layer's weight matrix
     Args:
         - layer_op: Underlying layer operation module
     """
@@ -261,14 +263,36 @@ def get_gain_name(act_fn: type) -> str:
         raise Exception("Unsupported activation function, can't initialize it.")
 
 
-def parrallelize(model: nn.Module) -> nn.Module:
-    """ Make use of all available GPU using nn.DataParallel
+def data_parallelize(model: nn.Module, print_msg: bool = True) -> nn.Module:
+    """ Make use of all available GPU using nn.DataParallel if there are multiple GPUs available
     NOTE: ensure to be using different random seeds for each process if you use techniques like data-augmentation or any other techniques which needs random numbers different for each steps. TODO: make sure this isn't already done by Pytorch?
     """
     if torch.cuda.device_count() > 1:
-        print(f'> Using "nn.DataParallel(model)" on {torch.cuda.device_count()} GPUs.')
+        print(f'> Using "nn.DataParallel({model})" on {torch.cuda.device_count()} GPUs.')
         model = nn.DataParallel(model)
     return model
+
+
+def is_data_parallelization_usefull_heuristic(model: nn.Module, batch_shape: torch.Size, print_msg: bool = True) -> bool:
+    """ Returns whether if data parallelization could be helpfull in terms of performances using a heuristic from model capacity, GPU count, batch_size and dataset's shape
+    Args:
+        - model: Model to be trained (computes its parameters capacity)
+        - batch_shape: Dataset's batches shape
+    # TODO: perform a random/grid search to find out factors
+    """
+    ngpus = torch.cuda.device_count()
+    capacity_factor, batch_factor, ngpus_factor = 1. / (1024 * 1024), 1. / (1024 * 512), 1. / 8.
+    if ngpus <= 1:
+        return False
+    capacity_score = 0.5 * F.sigmoid(np.log10(capacity_factor * get_model_capacity(model) + 1.)) / 5.
+    batch_score += 3. * F.sigmoid(np.log10(np.log10(batch_factor * np.prod(batch_shape) + 1.) + 1.)) / 5.
+    gpus_score += 1.5 * F.sigmoid(np.log10(ngpus_factor * (ngpus - 1.) + 1.)) / 5.  # TODO: improve this heuristic score according to GPU bandwidth and FLOPs?
+    heuristic = capacity_score + batch_score + gpus_score
+    if print_msg:
+        negation, lt_gt_op = ('not', '>') if heuristic > 0.5 else ('', '<')
+        p
+        rint((f'DataParallelization may {negation} be helpfull to improve training performances: heuristic {lt_gt_op} 0.5 (heuristic = capacity_score({capacity_score:.3f}) + batch_score({batch_score:.3f}) + gpus_score({gpus_score}) = {heuristic:.3f})')
+    return heuristic > 0.5
 
 
 def mean_batch_loss(loss: nn.loss._Loss, batch_loss: torch.Tensor, batch_size=1) -> Optional[utils.Number]:
@@ -306,12 +330,23 @@ def mean_batch_loss(loss: nn.loss._Loss, batch_loss: torch.Tensor, batch_size=1)
 #     def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 #         return self.forward(input, target)
 
+def get_model_capacity(model: nn.Module):
+    return sum([np.prod(param.shape) for name, param in model.parameters(recurse=True)])
+
+
+def type_or_instance_is(op_t: Any, type_to_check: Type) -> bool:
+    if not issubclass(type(op_t), Type):
+        return issubclass(type(module), type_to_check)
+    return issubclass(module, type_to_check)
+
+
+def is_fully_connected(op_t: Union[nn.Module, Type]) -> bool:
+    return type_or_instance_is(module, nn.Linear)
+
 
 def is_conv(op_t: Union[nn.Module, Type]) -> bool:
     from torch.nn.modules.conv import _ConvNd
-    if not issubclass(type(op_t), Type):
-        return issubclass(type(op_t), _ConvNd)
-    return issubclass(op_t, _ConvNd)
+    return type_or_instance_is(module, _ConvNd)
 
 # TODO: implement nn reflection tools (e.g. is_conv, contains_conv, parameter_summary, ...)
 
@@ -324,14 +359,14 @@ def contains_only_convs(op_t: Union[nn.Module, Type]) -> bool:
     raise NotImplementedError
 
 
-def parameter_summary(op_t: Union[nn.Module, Type], pprint: bool = False) -> dict:
+def parameter_summary(op_t: Union[nn.Module, Type], pprint: bool=False) -> dict:
     raise NotImplementedError
 
 
 class TestNNMetaModule:
     def test_is_conv(self):
-        convs = [nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d, nn.Conv2d(3, 16, (3, 3))]
-        not_convs = [nn.Linear, nn.Linear(32, 32), tuple(), int, 54, torch.Tensor(), nn.Fold, nn.Conv2d(3, 16, (3, 3)).weight]
+        convs=[nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d, nn.Conv2d(3, 16, (3, 3))]
+        not_convs=[nn.Linear, nn.Linear(32, 32), tuple(), int, 54, torch.Tensor(), nn.Fold, nn.Conv2d(3, 16, (3, 3)).weight]
         assert all(map(is_conv, convs)), 'TEST ERROR: is_conv function failed to be true for at least one torch.nn convolution type or instance.'
         assert not any(map(is_conv, not_convs)), 'TEST ERROR: is_conv function failed to be false for at least one non-convolution type or instance.'
 
@@ -341,20 +376,20 @@ class TestNNMetaModule:
         def _case3(param1, param2=3): assert param1 == 3 and param2 == 3
         def _case4(param1: torch.Tensor, **kwparams): return kwparams
 
-        M1 = func_to_module('M1')(_case1)
-        M2 = func_to_module('M2')(_case2)
-        M3 = func_to_module('M3')(_case3)
-        M4 = func_to_module('M4', ['truc', 'bidule'])(_case4)
+        M1=func_to_module('M1')(_case1)
+        M2=func_to_module('M2')(_case2)
+        M3=func_to_module('M3')(_case3)
+        M4=func_to_module('M4', ['truc', 'bidule'])(_case4)
 
-        m4 = M4(truc='1', bidule=2)
+        m4=M4(truc='1', bidule=2)
         assert m4.forward(torch.zeros((16, 16))) == {'truc': '1', 'bidule': 2}
 
         @func_to_module('M5')
         def _case5(a: torch.Tensor): return a
         @func_to_module('M6')
-        def _case6(param: str = 'test'): assert param == 'test'
+        def _case6(param: str='test'): assert param == 'test'
 
-        m6 = _case6()
+        m6=_case6()
         m6.forward()
 
 

@@ -5,17 +5,36 @@ cifar10:
   augmentation: False
 
 object_detector:
+  epochs: &epochs 80
+  warmup_epochs: &warmup_epochs 20
   batch_size: 32
-  optimizer_opts: {lr: , momentum: , weight_decay: , nesterov: True}
-  shceduler_milestones_values: [(0, 0.0),
-                                  (len(trainset) * hp['warmup_epochs'], hp['optimizer_opts']['lr']),
-                                  (len(trainset) * hp['epochs'], 0.0)]}
-  epochs: 80 # Epoch
-  resume_from: ''
-  output_path: 
+  optimizer_opts:
+    { lr: &lr 0.1, momentum: 0., weight_decay: 0., nesterov: True }
+  shceduler_milestones_values: # scheduler milestone are, here, given in epochs, not in iterations # TODO: modify code accoringly
+    - [0, 0.0]
+    - [<<: *warmup_epochs, <<: *lr]
+    - [<<: *epochs, 0.0]
+  resume_from: ""
+  output_path:
   crash_iteration: -1
-  batch_norm: True
-  dropout_prob: 0.
+  model:
+    act_fn: "nn.ReLU" # evaluated at runtime in python code
+    dropout_prob: 0.0
+    batch_norm: { affine: True, eps: 1e-05, momentum: 0.07359778246238029 }
+    architecture:
+      - ["conv2d", { kernel_size: [3, 3], out_channels: 4, padding: 0 }]
+      - ["conv2d", { kernel_size: [3, 3], out_channels: 4, padding: 0 }]
+      - ["conv2d", { kernel_size: [3, 3], out_channels: 4, padding: 0 }]
+      - ["avg_pooling", { kernel_size: [2, 2], stride: [2, 2] }]
+      - ["conv2d", { kernel_size: [5, 5], out_channels: 16, padding: 0 }]
+      - ["conv2d", { kernel_size: [5, 5], out_channels: 16, padding: 0 }]
+      - ["avg_pooling", { kernel_size: [2, 2], stride: [2, 2] }]
+      - ["conv2d", { kernel_size: [5, 5], out_channels: 32, padding: 2 }]
+      - ["conv2d", { kernel_size: [7, 7], out_channels: 32, padding: 3 }]
+      - ["avg_pooling", { kernel_size: [2, 2], stride: [2, 2] }]
+      - ["conv2d", { kernel_size: [5, 5], out_channels: 64, padding: 2 }]
+      - ["flatten", null]
+      - ["fully_connected", null]
 
 ignite_training:
   validate_every: 1 # Epoch
@@ -25,4 +44,4 @@ ignite_training:
   seed: 563454
   deterministic: False
   dist_url: # "env://"
-  dist_backend: '' # Set, for example, nccl (torch.distributed.Backend.NCCL) for distributed training using nccl backend
+  dist_backend: "" # Set, for example, nccl (torch.distributed.Backend.NCCL) for distributed training using nccl backend

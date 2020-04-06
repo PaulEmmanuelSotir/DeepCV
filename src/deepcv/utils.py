@@ -25,7 +25,7 @@ from kedro.io import DataCatalog
 
 from src.tests.tests_utils import test_module
 
-__all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts'
+__all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts',
            'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'yolo']
 __author__ = 'Paul-Emmanuel Sotir'
 

@@ -3,7 +3,7 @@
 """ Object detection module - object.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from pathlib import Path
 
 from kedro.pipeline import Pipeline
@@ -44,16 +44,89 @@ __author__ = 'Paul-Emmanuel Sotir'
 # TODO: refactor to handle given metrics
 
 
+def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
+    prev_dim = len(prev_shapes[-1])
+    if prev_dim >= 4:
+        return nn.AvgPool3d(**layer_params)
+    elif prev_dim >= 2:
+        return nn.AvgPool2d(**layer_params)
+    return nn.AvgPool1d(**layer_params)
+
+
+def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
+    layer_params['in_channels'] = prev_shapes[-1][0]
+    layers.append(tu.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm']))
+    prev_out = layer_params['out_channels']
+    # Get convolution output features shape by performing a dummy forward
+    with torch.no_grad():
+        net = nn.Sequential(*layers)
+        dummy_batch_x = torch.zeros(torch.Size((1, *self._input_shape)))
+        self._conv_features_shapes.append(net(dummy_batch_x).shape)
+
+
+def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
+    # Determine in_features for this fully connected layer
+    if in_conv_backbone:  # First FC layer following convolution backbone
+        self._conv_out_features = np.prod(self._conv_features_shapes[-1][-3:])
+        layer_params['in_features'] = self._conv_out_features
+        in_conv_backbone = False
+    else:
+        layer_params['in_features'] = prev_out
+    if 'out_features' not in layer_params:
+        # Handle last fully connected layer (no dropout nor batch normalization for this layer)
+        layer_params['out_features'] = self._output_size
+        layers.append(tu.fc_layer(layer_params))
+    else:
+        layers.append(tu.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm']))
+    prev_out = layer_params['out_features']
+
+
+def _create_flatten(*_args, **_kwargs):
+    return tu.Flatten()
+
+
+_LAYER_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected, 'flatten': _create_flatten}
+
+
 class ObjectDetector(meta.nn.DeepcvModule):
-    HP_DEFAULTS = {'layers': ..., 'batch_norm': None, 'dropout_prob': 0.}
+    HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape, hp):
+    def __init__(self, input_shape: torch.Size, output_size: torch.Size, hp: Dict[str, Any]):
         super(ObjectDetector, self).__init__(input_shape, hp)
-        self.net = nn.Sequential()
-        raise NotImplementedError
+        self._output_size = output_size
+        self._xavier_gain = nn.init.calculate_gain(tu.get_gain_name(hp['act_fn']))
+        self._conv_features_shapes, self._conv_out_features = [], None  # TODO: refactor this to be 'prev_shapes'
+        hp['architecture'] = list(hp['architecture'])
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        return self.net(inputs)
+        # Define neural network architecture
+        layers = []
+        in_conv_backbone, prev_out = True, self._input_shape  # TODO: replace these vars with 'prev_shapes'
+
+        for name, params in hp['architecture']:
+            fn = _LAYER_CREATORS.get(name)
+            if not fn:
+                raise RuntimeError(f'Error: Could not create layer/module named "{name}" given module creators: "{_LAYER_CREATORS.keys()}"')
+            module, prev_shapes = fn(params, prev_shapes, hp)
+            self._layers.append(module)
+        self._layers = nn.Sequential(*layers)
+
+    def init_params(self):
+        def _initialize_weights(module: nn.Module):
+            if meta.nn.is_conv(module):
+                nn.init.xavier_normal_(module.weight.data, gain=self._xavier_gain)
+                module.bias.data.fill_(0.)
+            elif utils.is_fully_connected(module):
+                nn.init.xavier_unifor                                                                                               m_(module.weight.data, gain=self._xavier_gain)
+                module.bias.data.fill_(0.)
+            elif type(module).__module__ == nn.BatchNorm2d.__module__:
+                nn.init.uniform_(module.weight.data)  # gamma == weight here
+                module.bias.data.fill_(0.)  # beta == bias here
+            elif list(module.parameters(recurse=False)) and list(module.children()):
+                raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
+        self.apply(_initialize_weights)
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self._layers(x)  # Apply whole neural net architecture
 
 
 def get_object_detector_pipelines():
@@ -73,20 +146,29 @@ def load_dataset(hp: Dict[str, Any]):
 def create_model(trainset: DataLoader, hp: Dict[str, Any]):
     dummy_img = trainset[0][0]
     input_shape = dummy_img.shape
-    model = ObjectDetector(input_shape, hp)
+    output_size = ???  # TODO: !!
+    model = ObjectDetector(input_shape, output_size, **hp['model'])
+    model.init_params()
     return model
 
 
-def train(dataset: Tuple[DataLoader], model: nn.Module, hp: Dict[str, Any]):
-    device, backend_conf = hp['device'], hp['backend_conf']
-    metrics = {'accuracy': Accuracy(device=device if distributed else None)}
+def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: Dict[str, Any]):
+    backend_conf = meta.ignite_training.BackendConfig(dist_backend=hp['dist_backend'], dist_url=hp['dist_url'], local_rank=hp['local_rank'])
+    metrics = {'accuracy': Accuracy(device='cuda:{backend_conf.local_rank}' if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()
     opt = optim.SGD
+
+    # Create dataloaders from dataset
+    if backend_conf.ngpus_current_node > 0 and backend_conf.distributed:
+        workers = max(1, (backend_conf.ncpu_per_node - 1) // backend_conf.ngpus_current_node)
+    else:
+        workers = max(1, multiprocessing.cpu_count() - 1)
+    dataloaders = (DataLoader(ds, TODO..., workers) for ds in datasets)
 
     # TODO: remove these lines and create respective nodes
     trainset, validset = get_train_test_loader(path=hp['data_path'], batch_size=batch_size, distributed=backend_conf.distributed, num_workers=num_workers)
 
-    return meta.ignite_training.train(hp, model, loss, dataset, opt, backend_conf, device, metrics)
+    return meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
 
 
 if __name__ == '__main__':

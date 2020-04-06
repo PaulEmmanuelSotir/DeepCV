@@ -7,7 +7,7 @@ import numpy as np
 import multiprocessing
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, Optional, Iterable, Tuple
+from typing import Any, Dict, Optional, Iterable, Tuple, Union, Type
 
 import torch
 import torch.nn as nn
@@ -26,27 +26,30 @@ from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerP
 
 from ...tests.tests_utils import test_module
 from deepcv import utils
+from deepcv import meta
 
 __all__ = ['BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
 class BackendConfig:
-    def __init__(self, device=utils.get_device(), dist_backend: dist.Backend = None, local_rank: int = 0):
+    def __init__(self, device=None, dist_backend: dist.Backend = None, dist_url: str = '', local_rank: Optional[int] = None):
         self.is_cpu = device.type == 'cpu'
+        self.device = device if device else utils.get_device(devid=local_rank if local_rank else None)
         self.ncpu = multiprocessing.cpu_count()
         self.dist_backend = dist_backend
+        self.dist_url = dist_url
         self.distributed = dist_backend is not None and dist_backend != ''
         self.local_rank = local_rank
-        self.rank, self.ngpus, self.ngpus_current_node, self.nnodes = 0, 0, 0, 1
+        self.ngpus_current_node = torch.cuda.device_count()
+        self.rank, self.ngpus, self.nnodes = 0, 0, 1
 
         if self.distributed:
-            self.ngpus_current_node = torch.cuda.device_count()
             self.rank = dist.get_rank()
             self.ngpus = dist.get_world_size()
             self.nnodes = dist.get_world_size() // self.ngpus_current_node  # TODO: fix issue: self.nnodes correct only if each nodes have the same GPU count
-        elif not self.is_cpu:
-            self.ngpus, self.ngpus_current_node, = 1, 1
+        else:
+            self.ngpus = self.ngpus_current_node
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -58,34 +61,33 @@ class BackendConfig:
             return 'single-gpu'
         return f'distributed-{self.nnodes}nodes-{self.ngpus}gpus-{self.ngpus_current_node}current-node-gpus'
 
-# TODO: Integrate MLFlow
 
-
-def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dataset: Tuple[DataLoader], opt: Type[torch.optim.Optimizer],
-          backend_conf: BackendConfig = BackendConfig(), device=utils.get_device(), metrics: Dict[Metric] = {}):
+def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[Metric] = {}):
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_parameters`` to see required parameters and defaults
         - model: Pytorch ``nn.Module`` to train
         - loss: Loss module to be used
-        - dataset: Tuple of pytorch DataLoader giving access to trainset, validset and an eventual testset
+        - dataloaders: Tuple of pytorch DataLoader giving access to trainset, validset and an eventual testset
         - opt: Optimizer type to be used for gradient descent
         - backend_conf: Backend information defining distributed configuration (available GPUs, whether if CPU or GPU are used, distributed node count, ...), see ``deepcv.meta.ignite_training.BackendConfig`` class for more details.
-        - device: Torch device on which computation is executed
         - metrics: Additional metrics dictionnary (loss is already included in metrics to be evaluated by default)
     # TODO: print training initialization info
     # TODO: add support for cross-validation
-    # TODO: split this function body into a few internal functions for better readability
+    # TODO: Integrate MLFlow?
     """
-    assert len(dataset) == 3 or len(dataset) == 2, 'Error: dataset tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
+    assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
     output_path = Path(hp['output_path'])
-    trainset, *validset_testset = dataset
+    trainset, *validset_testset = dataloaders
+    device = backend_conf.device
     hp = _check_params(hp)
 
-    if backend_conf.distributed:
-        dist.init_process_group(backend_conf.dist_backend, init_method=hp['dist_url'])
-        assert device.type == 'cuda', 'Error: Distributed training must be run on GPU(s).'
-        torch.cuda.set_device(backend_conf.local_rank)
+    if hp['deterministic']:
+        utils.set_seeds(backend_conf.rank + hp['seed'])
+    utils.setup_cudnn(deterministic=hp['deterministic'])
+
+    model = model.to(device)
+    model = _setup_distributed_training(device, backend_conf, model, trainset[0])
 
     if backend_conf.local_rank == 0 and backend_conf.rank == 0:
         # Create output directory if current node is master or if not distributed
@@ -94,17 +96,8 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
         if not output_path.exists():
             output_path.mkdir(parents=True)
 
-    if hp['deterministic']:
-        utils.set_seeds(backend_conf.rank + hp['seed'])
-    utils.setup_cudnn(deterministic=hp['deterministic'])
-
-    model = model.to(device)
-
-    if backend_conf.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[backend_conf.local_rank, ], output_device=backend_conf.local_rank)
-
-    optimizer = opt(model.parameters(), **hp['optimizer_opts'])
     loss = loss.to(device)
+    optimizer = opt(model.parameters(), **hp['optimizer_opts'])
     lr_scheduler = PiecewiseLinear(optimizer, milestones_values=hp['shceduler_milestones_values'], param_name='lr')
 
     def process_function(engine, batch):
@@ -175,13 +168,7 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
         def _(engine):
             raise Exception('STOP at iteration: {}'.format(engine.state.iteration))
 
-    resume_from = hp['resume_from']
-    if not resume_from:
-        checkpoint_fp = Path(resume_from)
-        assert checkpoint_fp.exists(), f'Checkpoint "{checkpoint_fp}" is not found'
-        print(f'Resuming from a checkpoint: {checkpoint_fp}')
-        checkpoint = torch.load(checkpoint_fp.as_posix())
-        Checkpoint.load_objects(to_load=to_save, checkpoint=checkpoint)
+    _resume_training(hp.get('resume_from'), to_save)
 
     try:
         trainer.run(trainset, max_epochs=hp['epochs'])
@@ -196,7 +183,7 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
 def _check_params(hp: Dict[str, Any]) -> Dict[str, Any]:
     TRAINING_HP_REQUIRED = ['output_path', 'optimizer_opts', 'shceduler_milestones_values', 'epochs']
     TRAINING_HP_DEFAULTS = {'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1, 'display_iters': 1000,
-                            'seed': None, 'deterministic': False, 'dist_url': '', 'dist_backend': None, 'resume_from': '', 'crash_iteration': -1}
+                            'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
 
     # Make sure required parameters are present
     missing = [n for n in TRAINING_HP_REQUIRED if n not in hp]
@@ -206,16 +193,32 @@ def _check_params(hp: Dict[str, Any]) -> Dict[str, Any]:
     hp.update({n: v for n, v in TRAINING_HP_DEFAULTS if n not in hp})
 
     # Append some specific parameters to resulting hyperparameter dict
-    hp['device'] = utils.get_device(devid=hp['local_rank'])
-    hp['backend_conf'] = BackendConfig(hp['device'], hp['dist_backend'], hp['local_rank'])
-    if hp['backend_conf'].ngpus_current_node > 0 and hp['backend_conf'].distributed:
-        hp['num_workers'] = max(1, (hp['backend_conf'].ncpu_per_node - 1) // hp['backend_conf'].ngpus_current_node)
-    else:
-        hp['num_workers'] = max(1, multiprocessing.cpu_count() - 1)
     return hp
 
-    test_module(__file__)
 
+def _setup_distributed_training(device, backend_conf: BackendConfig, model: nn.Module, batch_shape: torch.Size) -> nn.Module:
+    if backend_conf.distributed:
+        dist.init_process_group(backend_conf.dist_backend, init_method=backend_conf.dist_url)
+        assert device.type == 'cuda', 'Error: Distributed training must be run on GPU(s).'
+        torch.cuda.set_device(backend_conf.local_rank)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[backend_conf.local_rank, ], output_device=backend_conf.local_rank)
+    elif not backend_conf.is_cpu and meta.nn.is_data_parallelization_usefull_heuristic(model, batch_shape):
+        # If not distributed, we can still use data parrallelization if there are multiple GPUs available and data is large enought to be worth it
+        model = meta.nn.data_parallelize(model)
+    return model
+
+
+def _resume_training(resume_from: Union[str, Path], to_save: Dict[str, Any]):
+    if resume_from:
+        checkpoint_fp = Path(resume_from)
+        assert checkpoint_fp.exists(), f'Checkpoint "{checkpoint_fp}" is not found'
+        print(f'Resuming from a checkpoint: {checkpoint_fp}')
+        checkpoint = torch.load(checkpoint_fp.as_posix())
+        Checkpoint.load_objects(to_load=to_save, checkpoint=checkpoint)
+
+
+if __name__ == '__main__':
+    test_module(__file__)
 
 # TODO: remove this deprecated code and use ignite training loop instead
 

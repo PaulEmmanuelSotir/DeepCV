@@ -44,50 +44,6 @@ __author__ = 'Paul-Emmanuel Sotir'
 # TODO: make this model fully generic and move it to meta.nn (allow module_creators to be extended and/or overriden)
 
 
-def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
-    prev_dim = len(prev_shapes[-1])
-    if prev_dim >= 4:
-        return nn.AvgPool3d(**layer_params)
-    elif prev_dim >= 2:
-        return nn.AvgPool2d(**layer_params)
-    return nn.AvgPool1d(**layer_params)
-
-
-def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
-    layer_params['in_channels'] = prev_shapes[-1][0]
-    layers.append(tu.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm']))
-    prev_out = layer_params['out_channels']
-
-
-def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
-    layer_params['in_features'] = np.prod(prev_shapes[-1][1:])  # We assume here that features/inputs are given in batches
-    if 'out_features' not in layer_params:
-        # Handle last fully connected layer (no dropout nor batch normalization for this layer)
-        layer_params['out_features'] = self._output_size
-        layers.append(tu.fc_layer(layer_params))
-    else:
-        layers.append(tu.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm']))
-    prev_out = layer_params['out_features']
-
-
-def _create_flatten(*_args, **_kwargs):
-    return tu.Flatten()
-
-
-def _initialize_weights(module: nn.Module):
-    if meta.nn.is_conv(module):
-        nn.init.xavier_normal_(module.weight.data, gain=self._xavier_gain)
-        module.bias.data.fill_(0.)
-    elif utils.is_fully_connected(module):
-        nn.init.xavier_uniform_(module.weight.data, gain=self._xavier_gain)
-        module.bias.data.fill_(0.)
-    elif type(module).__module__ == nn.BatchNorm2d.__module__:
-        nn.init.uniform_(module.weight.data)  # gamma == weight here
-        module.bias.data.fill_(0.)  # beta == bias here
-    elif list(module.parameters(recurse=False)) and list(module.children()):
-        raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
-
-
 class ObjectDetector(meta.nn.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
@@ -158,6 +114,50 @@ def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: Dict[
     dataloaders = (DataLoader(ds, hp['batch_size'], shuffle=True if i == 0 else False, num_workers=workers) for i, ds in enumerate(datasets))
 
     return meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
+
+
+def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
+    prev_dim = len(prev_shapes[-1])
+    if prev_dim >= 4:
+        return nn.AvgPool3d(**layer_params)
+    elif prev_dim >= 2:
+        return nn.AvgPool2d(**layer_params)
+    return nn.AvgPool1d(**layer_params)
+
+
+def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
+    layer_params['in_channels'] = prev_shapes[-1][0]
+    layers.append(tu.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm']))
+    prev_out = layer_params['out_channels']
+
+
+def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
+    layer_params['in_features'] = np.prod(prev_shapes[-1][1:])  # We assume here that features/inputs are given in batches
+    if 'out_features' not in layer_params:
+        # Handle last fully connected layer (no dropout nor batch normalization for this layer)
+        layer_params['out_features'] = self._output_size
+        layers.append(tu.fc_layer(layer_params))
+    else:
+        layers.append(tu.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm']))
+    prev_out = layer_params['out_features']
+
+
+def _create_flatten(*_args, **_kwargs):
+    return tu.Flatten()
+
+
+def _initialize_weights(module: nn.Module):
+    if meta.nn.is_conv(module):
+        nn.init.xavier_normal_(module.weight.data, gain=self._xavier_gain)
+        module.bias.data.fill_(0.)
+    elif utils.is_fully_connected(module):
+        nn.init.xavier_uniform_(module.weight.data, gain=self._xavier_gain)
+        module.bias.data.fill_(0.)
+    elif type(module).__module__ == nn.BatchNorm2d.__module__:
+        nn.init.uniform_(module.weight.data)  # gamma == weight here
+        module.bias.data.fill_(0.)  # beta == bias here
+    elif list(module.parameters(recurse=False)) and list(module.children()):
+        raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
 
 
 if __name__ == '__main__':

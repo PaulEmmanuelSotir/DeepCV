@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 import ignite
 from ignite.utils import convert_tensor
 from ignite.engine import Events, Engine, create_supervised_evaluator
-from ignite.metrics import Accuracy, Loss, Metric
+from ignite.metrics import Loss, Metric
 from ignite.handlers import Checkpoint, global_step_from_engine
 from ignite.contrib.engines import common
 from ignite.contrib.handlers import PiecewiseLinear

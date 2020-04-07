@@ -7,6 +7,7 @@
 import os
 import sys
 import time
+import math
 import types
 import random
 import logging
@@ -26,7 +27,7 @@ from kedro.io import DataCatalog
 from src.tests.tests_utils import test_module
 
 __all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts',
-           'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'yolo']
+           'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'human_readable_size', 'yolo']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
@@ -164,6 +165,31 @@ def ask(prompt: str, choices: List = ['N', 'Y'], ask_indexes: bool = False):
         while(choice not in choices):
             choice = input(prompt)
         return choices.index(choice), choice
+
+
+def human_readable_size(size_bytes: int, format_to_str: bool = True) -> Union[str, Tuple(float, str)]:
+    size_units = ('B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB')
+    if size_bytes == 0:
+        return 0., size_units[0]
+
+    # Handle negative sizes ;-)
+    sign = size_bytes / math.abs(size_bytes)
+    size_bytes = math.abs(size_bytes)
+
+    # Find out 1024-base power (bytes size unit)
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+
+    # Handle cases where size_bytes is bigger than 1024 x maximal size unit
+    if i < 0 or i >= len(size_units):
+        scale = math.pow(1024, i - len(size_units) + 1)
+        i = len(size_units) - 1
+        p = math.pow(1024, len(size_units) - 1)
+    else:
+        scale = 1
+
+    value, unit = (scale * sign * float(size_bytes) / p, size_units[i])
+    return f'{value:.2f}{unit}' if format_to_str else (value, unit)
 
 
 def yolo(self: DataCatalog, *search_terms):

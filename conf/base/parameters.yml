@@ -33,8 +33,8 @@ object_detector:
       - ["conv2d", { kernel_size: [7, 7], out_channels: 32, padding: 3 }]
       - ["avg_pooling", { kernel_size: [2, 2], stride: [2, 2] }]
       - ["conv2d", { kernel_size: [5, 5], out_channels: 64, padding: 2 }]
-      - ["flatten", null]
-      - ["fully_connected", null]
+      - ["meta.nn.Flatten", null]
+      - ["fully_connected", { out_features }]
 
 ignite_training:
   validate_every: 1 # Epoch

@@ -29,9 +29,15 @@ TORCHVISION_DATASETS = {v.__class__.__name__: v for n, v in torchvision.datasets
 
 
 class PytorchDatasetWarper(kedro.io.AbstractDataSet):
-    def __init__(self, torch_dataset: Type[torch.utils.data.Dataset], **dataset_kwargs):
+    def __init__(self, torch_dataset: Union[str, Type[torch.utils.data.Dataset]], **dataset_kwargs):
         super(PytorchDatasetWarper, self).__init__()
-        self.pytorch_dataset = eval(torch_dataset)(**dataset_kwargs)
+        if isinstance(torch_dataset, str):
+            try:
+                self.pytorch_dataset = deepcv.utils.get_by_identifier(torch_dataset)(**dataset_kwargs)
+            except Exception as e:
+                raise ValueError(f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` doesn\'t match type identifier criterias.') from e
+        else:
+            self.pytorch_dataset = torch_dataset(**dataset_kwargs)
 
     def _load(self): pass
     def _save(self): pass

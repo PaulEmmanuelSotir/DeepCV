@@ -3,11 +3,13 @@
 """ Object detection module - object.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-from typing import Any, Dict, Optional, Tuple, Callable
+from typing import Any, Dict, Optional, Tuple, Callable, List
 from pathlib import Path
 import multiprocessing
+import inspect
+import re
 
-from kedro.pipeline import Pipeline, node
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -16,28 +18,15 @@ import torch.optim as optim
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 from ignite.metrics import Accuracy
+from kedro.pipeline import Pipeline, node
 
 from ...tests.tests_utils import test_module
 import deepcv.meta as meta
 import deepcv.utils as utils
 
-__all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'load_dataset', 'create_model', 'train']
+__all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
 
-"""
-'seed': 563454 (used only if deterministic is True)
-'deterministic': False
-'local_rank': 0
-'dist_url': # "env://"
-'dist_backend': None # Set, for example, 'nccl' (torch.distributed.Backend.NCCL) for distributed training using nccl backend
-'batch_size':
-'optimizer': optim.SGD
-'optimizer_opts': {'lr', 'momentum':, 'weight_decay', 'nesterov': True}
-'loss': nn.CrossEntropyLoss()
-'shceduler_milestones_values': [(0, 0.0),
-                                (len(trainset) * hp['warmup_epochs'], hp['optimizer_opts']['lr']),
-                                (len(trainset) * hp['epochs'], 0.0)]}
-"""
 
 # TODO: refactor to handle test and/or valid sets + handle cross validation
 # TODO: add support for residual/dense links
@@ -47,22 +36,26 @@ __author__ = 'Paul-Emmanuel Sotir'
 class ObjectDetector(meta.nn.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Size, output_size: torch.Size, module_creators: Dict[str, Callable], hp: Dict[str, Any], init_params_fn=None):
+    def __init__(self, input_shape: torch.Size, output_params: Tuple[nn.Module, torch.Size], module_creators: Dict[str, Callable], hp: Dict[str, Any], init_params_fn=None):
         super(ObjectDetector, self).__init__(input_shape, hp)
-        self._output_size = output_size
-        self._xavier_gain = nn.init.calculate_gain(tu.get_gain_name(hp['act_fn']))
+        self._output_params = output_params
+        self._xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(hp['act_fn']))
         self._features_shapes = []
         self._architecture = list(hp['architecture'])
 
         # Define neural network architecture
         modules = []
         for name, params in self._architecture:
-            # Create layer/block module
+            # Create layer/block module from module_creators function dict
             fn = module_creators.get(name)
             if not fn:
-                raise RuntimeError(f'Error: Could not create layer/module named "{name}" given module creators: "{_LAYER_CREATORS.keys()}"')
-            module = fn(params, self._features_shapes, hp)
-            modules.append(module)
+                # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
+                try:
+                    fn = utils.get_by_identifier(name)
+                except Exception as e:
+                    raise RuntimeError(f'Error: Could not locate module/function named "{name}" given module creators: "{module_creators.keys()}"') from e
+            available_params = {'layer_params': params, 'prev_shapes': self._features_shapes, 'hp': hp}
+            modules.append(fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters}))
 
             # Get neural network output features shapes by performing a dummy forward
             with torch.no_grad():
@@ -116,8 +109,8 @@ def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: Dict[
     return meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
 
 
-def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
-    prev_dim = len(prev_shapes[-1])
+def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]) -> nn.Module:
+    prev_dim = len(prev_shapes[1:])
     if prev_dim >= 4:
         return nn.AvgPool3d(**layer_params)
     elif prev_dim >= 2:
@@ -125,25 +118,19 @@ def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Si
     return nn.AvgPool1d(**layer_params)
 
 
-def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
-    layer_params['in_channels'] = prev_shapes[-1][0]
-    layers.append(tu.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm']))
-    prev_out = layer_params['out_channels']
+def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]) -> nn.Module:
+    layer_params['in_channels'] = prev_shapes[-1][1]
+    layer = meta.nn.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+    return layer
 
 
-def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]):
+def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]) -> nn.Module:
     layer_params['in_features'] = np.prod(prev_shapes[-1][1:])  # We assume here that features/inputs are given in batches
     if 'out_features' not in layer_params:
         # Handle last fully connected layer (no dropout nor batch normalization for this layer)
-        layer_params['out_features'] = self._output_size
-        layers.append(tu.fc_layer(layer_params))
-    else:
-        layers.append(tu.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm']))
-    prev_out = layer_params['out_features']
-
-
-def _create_flatten(*_args, **_kwargs):
-    return tu.Flatten()
+        layer_params['out_features'] = self._output_size  # TODO: handle output layer elsewhere
+        return meta.nn.fc_layer(layer_params)
+    return meta.nn.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
 
 
 def _initialize_weights(module: nn.Module):

@@ -175,9 +175,9 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
     except Exception:
         import traceback
         print(traceback.format_exc())
-
-    if backend_conf.rank == 0:
-        tb_logger.close()
+    finally:
+        if backend_conf.rank == 0:
+            tb_logger.close()
 
 
 def _check_params(hp: Dict[str, Any]) -> Dict[str, Any]:

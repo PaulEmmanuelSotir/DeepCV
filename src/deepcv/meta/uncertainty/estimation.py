@@ -11,7 +11,7 @@ from ....tests.tests_utils import test_module
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
 
-# TODO: see https://ai.googleblog.com/2020/01/can-you-trust-your-models-uncertainty.html for a comparision of different uncertainty estimation methods
+# TODO: see https://ai.googleblog.com/2020/01/can-you-trust-your-models-uncertainty.html for a comparision of different uncertainty estimation methods (github: https://github.com/google-research/google-research/tree/master/uq_benchmark_2019)
 
 if __name__ == '__main__':
     test_module(__file__)

@@ -367,7 +367,7 @@ def _conda_install(conda_yml: Union[str, List[str]]):
             else:
                 # Create conda environement
                 print('#' * 10 + ' Trying to create conda environement... ' + '#' * 10)
-                env_identifier = ('--name', name) if not cfg_prefix else ('--prefix', name) # We assume here that DEFAULT_CONDA_ENV_NAME isn't a prefix
+                env_identifier = ('--name', name) if not cfg_prefix else ('--prefix', name)  # We assume here that DEFAULT_CONDA_ENV_NAME isn't a prefix
                 call(['conda', 'env', 'create', *env_identifier, '--file', str(config_path), '--json', '-q'])
             print('#' * 10 + ' Success. ' + '#' * 10)
 
@@ -378,11 +378,12 @@ def _conda_install(conda_yml: Union[str, List[str]]):
                 anyconfig.dump(conda_cfg, ac_parser='yaml', out=config_path)
 
             # TODO: make sure to activate conda environement before installing other dependencies from pip requirements.txt??
-            #_conda_activate(name)
+            # _conda_activate(name)
             return
 
+
 @cli.command()
-@click.option('--conda-yml', '-c', 'conda_yml', type=str, default=['environment.yml', 'environment.yaml', 'env.yml', 'env.yaml'], multiple=False, help=CONDA_ARG_HELP)
+@click.option('--conda-yml', '-c', 'conda_yml', type=str, default=['environment.yml', 'environment.yaml', 'env.yml', 'env.yaml', 'conda.yml', 'conda.yaml'], multiple=False, help=CONDA_ARG_HELP)
 def install(conda_yml: Union[str, List[str]]):
     """ Installs project dependencies from both requirements.txt and conda environment file, if any (optional).  
 
@@ -392,7 +393,6 @@ def install(conda_yml: Union[str, List[str]]):
     will be updated.
     """
 
-    # TODO: parse json outputs from conda (and eventually use 'conda info --envs --json' in order to see available envs (sucessfull creation))
     if conda_yml:
         _conda_install(conda_yml)
 

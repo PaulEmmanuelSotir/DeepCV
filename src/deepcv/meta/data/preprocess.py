@@ -18,9 +18,9 @@ __author__ = 'Paul-Emmanuel Sotir'
 import torchvision
 
 
-def preprocess_cifar(trainset: Dataset, validset: Dataset, testset: Optional[Dataset] = None, hp: Dict[str, Any], augmentation: bool = False) -> Dict[str, Dataset]:
+def preprocess_cifar(trainset: PytorchDatasetWarper, validset: PytorchDatasetWarper, testset: Optional[PytorchDatasetWarper] = None, hp: Dict[str, Any], augmentation: bool = False) -> Dict[str, Dataset]:
     # Data augmentation
-    for ds in (trainset, validset, testset):
+    for ds in (trainset.pytorch_dataset, validset.pytorch_dataset, testset.pytorch_dataset):
         if ds is not None and len(ds) > 0:
             if augmentation:
                 ds.data, ds.targets = map(_image_augmentation, zip(ds.data, ds.targets))
@@ -33,7 +33,7 @@ def preprocess_cifar(trainset: Dataset, validset: Dataset, testset: Optional[Dat
                 return target
             ds.target_transform = _target_transform
 
-    return {'trainset': trainset, 'validset': validset, 'testset': testset}
+    return {'trainset': trainset.pytorch_dataset, 'validset': validset.pytorch_dataset, 'testset': testset.pytorch_dataset}
 
 
 def _img_preprocess(image: torch.Tensor) -> torch.Tensor:

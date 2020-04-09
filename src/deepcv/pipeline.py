@@ -7,7 +7,7 @@ from typing import Dict
 from kedro.pipeline import Pipeline
 import kedro.pipeline.decorators as dec
 
-from deepcv.detection.object import get_object_detector_pipelines
+from .detection.object import get_object_detector_pipelines
 
 DECORATORS = [dec.log_time, dec.mem_profile]  # Other decorator available: retry, spark_to_pandas, pandas_to_spark
 

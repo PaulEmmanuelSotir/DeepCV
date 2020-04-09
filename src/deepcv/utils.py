@@ -19,7 +19,7 @@ import numpy as np
 from pathlib import Path
 from types import SimpleNamespace
 from functools import singledispatch
-from typing import Union, Iterable, Optional
+from typing import Union, Iterable, Optional, Dict, Any, List, Tuple
 
 import torch
 from tqdm import tqdm
@@ -168,7 +168,7 @@ def ask(prompt: str, choices: List = ['N', 'Y'], ask_indexes: bool = False):
         return choices.index(choice), choice
 
 
-def human_readable_size(size_bytes: int, format_to_str: bool = True) -> Union[str, Tuple(float, str)]:
+def human_readable_size(size_bytes: int, format_to_str: bool = True) -> Union[str, Tuple[float, str]]:
     size_units = ('B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB')
     if size_bytes == 0:
         return 0., size_units[0]

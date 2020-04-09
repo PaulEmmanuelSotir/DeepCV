@@ -7,10 +7,10 @@ from typing import Dict
 
 from kedro.context import KedroContext, load_context
 from kedro.pipeline import Pipeline
-import kedro.contrib.io.transformers as transformers
+import kedro.extras.transformers as transformers
 
-from deepcv.pipeline import create_pipelines
-from deepcv.utils import source_dir
+from .pipeline import create_pipelines
+from .utils import source_dir
 
 __author__ = 'Paul-Emmanuel Sotir'
 

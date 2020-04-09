@@ -1,5 +1,0 @@
-output_dir: ~/src
-project_name: DeepCV
-repo_name: deepcv
-python_package: deepcv
-include_example: true

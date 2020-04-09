@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 from ignite.metrics import Accuracy
 from kedro.pipeline import Pipeline, node
 
-from ...tests.tests_utils import test_module
+from tests.tests_utils import test_module
 import deepcv.meta as meta
 import deepcv.utils as utils
 
@@ -42,7 +42,6 @@ class ObjectDetector(meta.nn.DeepcvModule):
         self._xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(hp['act_fn']))
         self._features_shapes = []
         self._architecture = list(hp['architecture'])
-
         # Define neural network architecture
         modules = []
         for name, params in self._architecture:

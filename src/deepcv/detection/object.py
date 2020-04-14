@@ -3,9 +3,10 @@
 """ Object detection module - object.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-from typing import Any, Dict, Optional, Tuple, Callable, List
+from typing import Any, Dict, Optional, Tuple, Callable, List, Iterable
 from pathlib import Path
 import multiprocessing
+from collections import OrderedDict
 import inspect
 import re
 
@@ -36,15 +37,15 @@ __author__ = 'Paul-Emmanuel Sotir'
 class ObjectDetector(meta.nn.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Size, output_params: Tuple[nn.Module, torch.Size], module_creators: Dict[str, Callable], hp: Dict[str, Any], init_params_fn=None):
+    def __init__(self, input_shape: torch.Size, module_creators: Dict[str, Callable], hp: Dict[str, Any]):
         super(ObjectDetector, self).__init__(input_shape, hp)
-        self._output_params = output_params
-        self._xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(hp['act_fn']))
-        self._features_shapes = []
-        self._architecture = list(hp['architecture'])
+        self._xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(self._hp['act_fn']))
+        self._features_shapes = [self.input_shape]
+        self._hp['architecture'] = list(self._hp['architecture'])
+
         # Define neural network architecture
         modules = []
-        for name, params in self._architecture:
+        for i, (name, params) in enumerate(self._hp['architecture']):
             # Create layer/block module from module_creators function dict
             fn = module_creators.get(name)
             if not fn:
@@ -53,25 +54,42 @@ class ObjectDetector(meta.nn.DeepcvModule):
                     fn = utils.get_by_identifier(name)
                 except Exception as e:
                     raise RuntimeError(f'Error: Could not locate module/function named "{name}" given module creators: "{module_creators.keys()}"') from e
-            available_params = {'layer_params': params, 'prev_shapes': self._features_shapes, 'hp': hp}
-            modules.append(fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters}))
+            available_params = {'layer_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
+            modules.append((f'module_{i}', fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})))
 
             # Get neural network output features shapes by performing a dummy forward
             with torch.no_grad():
                 dummy_batch_x = torch.unsqueeze(torch.zeros(self._input_shape), dim=0)
                 self._features_shapes.append(nn.Sequential(*modules)(dummy_batch_x).shape)
-        self._net = nn.Sequential(*modules)
-
-        if init_params_fn:
-            self.apply(init_params_fn)
+        self._net = nn.Sequential(OrderedDict(modules))
+        self.apply(self._initialize_weights)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return self._net(x)  # Apply whole neural net architecture
 
     def __str__(self) -> str:
         capacity = utils.human_readable_size(meta.nn.get_model_capacity(self))
-        modules_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}' for (n, p), s in zip(self._architecture, self._features_shapes)])
+        modules_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}' for (n, p), s in zip(self._hp['architecture'], self._features_shapes)])
         return f'{self.__class__.__name__} (capacity={capacity}):\n\t{modules_str}'
+
+    def get_inputs(self) -> Iterable[torch.Tensor]:
+        raise NotImplementedError
+
+    def get_outputs(self) -> Iterable[torch.Tensor]:
+        raise NotImplementedError
+
+    def _initialize_weights(self, module: nn.Module):
+        if meta.nn.is_conv(module):
+            nn.init.xavier_normal_(module.weight.data, gain=self._xavier_gain)
+            module.bias.data.fill_(0.)
+        elif utils.is_fully_connected(module):
+            nn.init.xavier_uniform_(module.weight.data, gain=self._xavier_gain)
+            module.bias.data.fill_(0.)
+        elif type(module).__module__ == nn.BatchNorm2d.__module__:
+            nn.init.uniform_(module.weight.data)  # gamma == weight here
+            module.bias.data.fill_(0.)  # beta == bias here
+        elif list(module.parameters(recurse=False)) and list(module.children()):
+            raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
 
 
 def get_object_detector_pipelines():
@@ -86,9 +104,10 @@ def get_object_detector_pipelines():
 def create_model(trainset: DataLoader, hp: Dict[str, Any]):
     dummy_img, dummy_target = trainset[0][0]
     input_shape = dummy_img.shape
-    output_size = dummy_target.shape
+    hp['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
+
     module_creators = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected, 'flatten': _create_flatten}
-    model = ObjectDetector(input_shape, output_size, module_creators, hp['model'], init_params_fn=_initialize_weights)
+    model = ObjectDetector(input_shape, module_creators, hp['model'])
     return model
 
 
@@ -130,20 +149,6 @@ def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torc
         layer_params['out_features'] = self._output_size  # TODO: handle output layer elsewhere
         return meta.nn.fc_layer(layer_params)
     return meta.nn.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
-
-
-def _initialize_weights(module: nn.Module):
-    if meta.nn.is_conv(module):
-        nn.init.xavier_normal_(module.weight.data, gain=self._xavier_gain)
-        module.bias.data.fill_(0.)
-    elif utils.is_fully_connected(module):
-        nn.init.xavier_uniform_(module.weight.data, gain=self._xavier_gain)
-        module.bias.data.fill_(0.)
-    elif type(module).__module__ == nn.BatchNorm2d.__module__:
-        nn.init.uniform_(module.weight.data)  # gamma == weight here
-        module.bias.data.fill_(0.)  # beta == bias here
-    elif list(module.parameters(recurse=False)) and list(module.children()):
-        raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
 
 
 if __name__ == '__main__':

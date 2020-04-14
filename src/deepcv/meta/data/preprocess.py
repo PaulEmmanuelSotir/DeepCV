@@ -9,16 +9,14 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 
+from .datasets import PytorchDatasetWarper
 from ....tests.tests_utils import test_module
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-import torchvision
-
-
-def preprocess_cifar(trainset: PytorchDatasetWarper, validset: PytorchDatasetWarper, testset: Optional[PytorchDatasetWarper] = None, hp: Dict[str, Any], augmentation: bool = False) -> Dict[str, Dataset]:
+def preprocess_cifar(trainset: PytorchDatasetWarper, validset: PytorchDatasetWarper, testset: Optional[PytorchDatasetWarper] = None, hp: Dict[str, Any] = {}, augmentation: bool = False) -> Dict[str, Dataset]:
     # Data augmentation
     for ds in (trainset.pytorch_dataset, validset.pytorch_dataset, testset.pytorch_dataset):
         if ds is not None and len(ds) > 0:

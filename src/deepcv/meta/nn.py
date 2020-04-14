@@ -4,6 +4,7 @@
 Defines various neural network building blocks (layers, architectures parts, transforms, loss terms, ...)
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
+import copy
 import inspect
 import logging
 import numpy as np
@@ -22,7 +23,7 @@ from deepcv import utils
 from ...tests.tests_utils import test_module
 from torch import Tensor, squeeze, zeros
 
-__all__ = ['DeepcvModule', 'HybridConnectivityGatedNet', 'Flatten', 'MultiHeadModule', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
+__all__ = ['DeepcvModule', 'HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
            'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'type_or_instance_is', 'is_fully_connected',
            'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
@@ -36,9 +37,9 @@ class DeepcvModule(nn.Module):
         super(DeepcvModule, self).__init__()
         assert HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
 
-        self.input_shape = input_shape
-        self.hyper_params = {n: v for n, v in hp if n in HP_DEFAULTS}
-        self.hyper_params.update({n: v for n, v in HP_DEFAULTS if n not in hp and v != ...})
+        self._input_shape = input_shape
+        self._hp = {n: v for n, v in hp if n in HP_DEFAULTS}
+        self._hp.update({n: v for n, v in HP_DEFAULTS if n not in hp and v != ...})
         missing_hyperparams = [n for n in HP_DEFAULTS if n not in self.hyper_params]
         assert len(missing_hyperparams) > 0, f'Error: Missing required hyper-parameter in "{self.__class__.__name__}" module parameters'
 
@@ -68,6 +69,39 @@ class HybridConnectivityGatedNet(DeepcvModule):
             - input: Input tensor fed to convolutional neural network (must be of shape (N, C, W, H))
         """
         return self.net(x)
+
+
+def to_multiscale_inputs_model(model: DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
+    """ Turns a given deepcv module to a similar models which takes `scales` inputs at different layer depth instead of one input at first layer.
+    Each new inputs are downscaled by a 2 factor, thus if you input `model` takes a 3x100x100 image the returned model will take 3 images of these respective shapes: (3x100x100; 3x50x50, 3x25x25) (assuming we have `no_downscale_dims=(0,)` and `scales=3`)
+    Args:
+        - model: Orginal DeepcvModule model which is modified in order to take multiple scales of input. This model should only take inputs at its first layer/sub-module
+        - scales: Number of different input image scales of the returned model
+        - no_downscale_dims: Input shape's dimension(s) which shouldn't be downscaled
+    # TODO: add inputs transforms to downscale input 'scales' times
+    # TODO: fix missing implentation parts ;->) bad but quick job here, be 🕵️‍♀️carefull🕵️‍♀️
+    """
+    self._model = model
+    input_shape = model._input_shape
+    architecture = model._hp['architecture']
+    new_hp = copy.deepcopy(model._hp)
+    assert scales >= 2, f'Error: Can\'t define a multi scale input model with only ``{scales}`` (``scales`` must be greater than or equal to 2)'
+    assert scales < len(architecture), f'Error: Given model ``{model}`` isn\'t deep enought for ``{scales}`` different input scales.'
+
+    for i in range([1:scales]):
+        submodule_indice = i * (len(architecture) // scales)
+        ith_scale_submodule = architecture[i]
+        append_input = {'append': '&input_{i}', {}}
+        new_hp['architecture'].insert(submodule_indice + i - 1, append_input)
+
+    return type(model)(model._input_shape, new_hp)
+
+
+def to_multiscale_outputs_model(model: DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
+    """
+    TODO: similar implementation than to_multiscale_inputs_model
+    """
+    raise NotImplementedError
 
 
 def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[inspect.Parameter]] = []):
@@ -104,10 +138,12 @@ def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[ins
                 return forward_func(**bound_args.arguments, **vars(self))
 
         _Module.__init__.__annotations__ = init_signature.__annotations__
-        _Module.__init__.__defaults__ = {n: p.default for (n, p) in init_signature.parameters.items()}
+        _Module.__init__.__defaults__ = {n: p.default for (n, p) in init_signature.parameters.items() if p.default}
         _Module.forward.__annotations__ = forward_signature.__annotations__
-        _Module.forward.__defaults__ = {n: p.default for (n, p) in forward_signature.parameters.items()}
+        _Module.forward.__defaults__ = {n: p.default for (n, p) in forward_signature.parameters.items() if p.default}
         _Module.__name__ = typename
+        _Module.__doc__ = f'Module created at runtime from `{forward_func.__name__}` forward function.\nInitial forward function documentation:\n' + forward_func.__doc__
+        _Module.forward.__doc__ = _Module.__doc__
         return _Module
     return _warper
 
@@ -117,9 +153,15 @@ def flatten(x: torch.Tensor, from_dim: int = 0):
     return x.view(*x.shape[:from_dim + 1], -1)
 
 
-def multi_head_forward(x: torch.Tensor, embedding_shape: torch.Size, heads: Iterable[nn.Module]) -> torch.Tensor:
-    new_siamese_dim = -len(embedding_shape)
-    return torch.cat([head(x).unsqueeze(new_siamese_dim) for head in heads], dim=new_siamese_dim - 1)
+def multi_head_forward(x: torch.Tensor, heads: Iterable[nn.Module], concat_dim: int = 1, new_dim: bool = False) -> torch.Tensor:
+    """ Forwards `x` tensor throught multiple head modules: contenates each given head module's output over features first dimension or a new dimension
+    Args:
+        - x: input tensor to be forwarded through head modules
+        - heads: Head module taking `x` tensor as input and which output is concatenated over other heads dimension. All head modules must have the same output shape in order to be concatenated into output tensor (except on first features/`embedding_shape` dimension if `new_dim` is `False`)
+        - concat_dim: By default, equals to `1`, which means that output tensor will be a concanetation of head's outputs tensors over 2nd dimension (typically, after batch dimension)
+        - new_dim: Whether create a new concatenation dim or not. (defaults to `False`). For example, if `x` tensor is a batch of images or convolution outputs with channel dim after batch dimension, then if `new_dim=False` head modules output is concatenated over channel dim, otherwise output tensors are concatenated over a new dimension.
+    """
+    return torch.cat([head(x).unsqueeze(concat_dim) if new_dim else head(x) for head in heads], dim=concat_dim)
 
 
 def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) -> torch.Tensor:
@@ -128,6 +170,7 @@ def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) 
     Args:
         - features: N-D Feature maps torch.Tensor with channel dimmension located at ``channel_dim``th dim and feature map dims located after channel's one. (Hilbert curve distance can be computed for any number, N, of feature map dimensions)
         - channel_dim: Channel dimension index, 0 by default.
+    # TODO: cache hilbert curve to avoid to reprocess it too often
     """
     assert features.dim() > 1, 'Invalid argument: "features" tensor should be at least of 2 dimensions.'
     assert channel_dim < features.dim() and channel_dim >= -features.dim(),
@@ -148,7 +191,7 @@ def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) 
 
 # Torch modules created from their resective forward function:
 Flatten = func_to_module('Flatten', ['from_dim'])(flatten)
-MultiHeadModule = func_to_module('MultiHeadModule', ['embedding_shape', 'heads'])(multi_head_forward)
+MultiHeadConcat = func_to_module('MultiHeadConcat', ['heads', 'concat_dim', 'new_dim'])(multi_head_forward)
 ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', ['channel_dim'])(concat_hilbert_coords_channel)
 
 
@@ -207,17 +250,6 @@ def squeeze_cell(hp: SimpleNamespace) -> nn.Module:
 
 def multiscale_exitation_cell(hp: SimpleNamespace) -> nn.Module:
     raise NotImplementedError
-
-
-img = torch.zeros((3, 100, 100))
-
-conv1 = nn.ReLU(nn.Conv2d(3, 16, (3, 3), padding=(3, 3), padding_mode='zero'))
-
-net = nn.Sequential(('conv1', conv1), ('meta_1_2', conv_with_meta), ('conv2', conv2))
-
-meta_1_2 = meta_layer((16, ))
-
-ouput = net(img)
 
 
 def ConvWithMetaLayer(nn.Module):

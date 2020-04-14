@@ -20,13 +20,14 @@ from ignite.engine import Events, Engine, create_supervised_evaluator
 from ignite.metrics import Loss, Metric
 from ignite.handlers import Checkpoint, global_step_from_engine
 from ignite.contrib.engines import common
-from ignite.contrib.handlers import PiecewiseLinear
 from ignite.contrib.handlers import TensorboardLogger, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerParamsHandler, GradsHistHandler
+import ignite.contrib.handlers
 
 from ...tests.tests_utils import test_module
 from deepcv import utils
 from deepcv import meta
+import deepcv
 
 __all__ = ['BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -98,7 +99,8 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
 
     loss = loss.to(device)
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
-    lr_scheduler = PiecewiseLinear(optimizer, milestones_values=hp['shceduler_milestones_values'], param_name='lr')
+    schedule = hp['scheduler']
+    scheduler = schedule['type'](**{n: eval(v) if 'eval_args' in schedule and n in schedule['eval_args'] else v for n, v in schedule['kwargs']})
 
     def process_function(engine, batch):
         x, y = (convert_tensor(b, device=device, non_blocking=True) for b in batch)
@@ -115,14 +117,14 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
 
     trainer = Engine(process_function)
     train_sampler = trainset.sampler if backend_conf.distributed else None  # TODO: figure out why 'None' if not distributed?
-    to_save = {'trainer': trainer, 'model': model, 'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
+    to_save = {'trainer': trainer, 'model': model, 'optimizer': optimizer, 'scheduler': scheduler}
     metric_names = ['batch loss', ]
     common.setup_common_training_handlers(trainer,
                                           train_sampler=train_sampler,
                                           to_save=to_save,
                                           save_every_iters=hp['checkpoint_every'],
                                           output_path=hp['output_path'],
-                                          lr_scheduler=lr_scheduler,
+                                          lr_scheduler=scheduler,
                                           output_names=metric_names,
                                           with_pbar_on_iters=hp['display_iters'],
                                           log_every_iters=10,)
@@ -181,7 +183,7 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
 
 
 def _check_params(hp: Dict[str, Any]) -> Dict[str, Any]:
-    TRAINING_HP_REQUIRED = ['output_path', 'optimizer_opts', 'shceduler_milestones_values', 'epochs']
+    TRAINING_HP_REQUIRED = ['output_path', 'optimizer_opts', 'shceduler', 'epochs']
     TRAINING_HP_DEFAULTS = {'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1, 'display_iters': 1000,
                             'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
 

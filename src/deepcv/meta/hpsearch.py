@@ -64,6 +64,90 @@ def nni_entry_point(hp: Dict[str, Any], model: nn.Module, training_procedure: Ca
 # TODO: remove this function or modify it to be integrated in kedro pipelines
 
 
+# valid_error_estimator = GeneralizationAcrossScalesPredictor()
+# best_trial_valid_loss, best_hps = float('inf'), None
+# subset_sizes = (2e-3, 4e-3, 7e-3, 1e-2, 15e-3, 25e-3)
+# subsets = [get_random_subset_dataloader(trainset, ss, batch_size=hp['batch_size'], num_workers=..., pin_memory=True) for ss in subset_sizes]
+# hp loop:
+#     hp = sample(hp_space)
+#     best_valid_loss = float('inf')
+#     for subset in subsets:
+#         best_valid_loss = float('inf')
+#         model = init()
+#         loss_curves = []
+#         train loop:
+#             train_loss = train_iter(model, trainset)
+#             valid_loss = evaluate(model, validset)
+#             loss_curves.append(trai_loss, valid_loss)
+#             if valid_loss < best_valid_loss:
+#                 best_valid_loss = valid_loss
+#         training_rslts.append({'loss_curves': loss_curves | | or | | 'best_valid_loss': best_valid_loss, 'best_train_loss': best_train_loss, 'model': model, 'trainset': subset, 'validset': validset, 'hp': hp})
+
+#     valid_error_estimator.fit_generalization(training_rslts)
+
+#     predicted_valid_loss = valid_error_estimator(model, trainset, ...)
+#     if predicted_valid_loss - threshold < best_trial_valid_loss:
+#         best_valid_loss = full_train_loop(trainset, model, ...)
+#         if best_valid_loss < best_trial_valid_loss:
+#             best_trial_valid_loss = best_valid_loss
+#             best_hps = hp
+
+
+class HyperparamsEmbedding(nn.Module):
+    """ Hyper-parameter dict embedding module 
+    Given an hyper-parameter space (hp_space usually used during smpling of hyperopt's hyperparameter search), converts input hyperparameter dict into a vectorized representation.
+    Applied to a valid hp dict, returns a fixed-size vector embedding which can be interpreted as vectors in an euclidian space (final neural net layers are enforced by loss constraints to output embeddings in euclidian-like space)
+    """
+
+    def __init__(self, embdding_size: int, hp_space: Dict[str, Any], intermediate_embedding_size: Optinal[int] = 128):
+        self._embedding_size = embedding_size
+        self._hp_space = hp_space
+        self._intermediate_embedding_size = max(embedding_size + 32, intermediate_embedding_size)
+
+        # Define shallow neural net architecture used to obtain final hyper-parameter embedding in appropriate space (euclidian space easier to interpret than space of `_from_hp_space(hp)` vector)
+        mean_embedding_size = sum(self._intermediate_embedding_size, self.embedding_size) // 2
+        linear1 = nn.Linear(in_features=self._intermediate_embedding_size + 1, out_features=mean_embedding_size)  # + 1 for hp dict hash input
+        linear2 = nn.Linear(in_features=mean_embedding_size, out_features=min(mean_embedding_size, self.embedding_size * 2))
+        linear3 = nn.Linear(in_features=min(mean_embedding_size, self.embedding_size * 2), out_features=self.embedding_size)
+        self._net = nn.Sequential(linear1, nn.ReLU(), linear2, nn.ReLU(), linear3, nn.Softmax())
+
+    def fit(self, hp_dicts):
+        # Unsupervised training to learn 3-layers fully connected NN for hp embedding in euclidian-like space
+        raise NotImplementedError
+
+    def forward(self, hp: Dict[str, Any]) -> torch.Tensor:
+        # Parse hp_space to deduce hyperparameter dict's position in hp_space: returns an array of relative positions (or None value(s) if hp_space defines choice(s)/range(s) which are not present in input hp dict)
+        hp_repr = _from_hp_space(hp)
+
+        # Concat binary representations of all relative positions of hp_repr into a vector of size 'embdding_size'
+        bits_per_position = 32 * self._intermediate_embedding_size // len(hp_repr)  # TODO: replace 32 with sizeof(int)
+        intermediate_embedding = np.ndarray((self._intermediate_embedding_size,), dtype=np.float32)
+        for i, pos in enumerate(hp_repr):
+            highest_bit_idx = np.floor(np.log(pos, 2))
+            bit_pos_repr = pos & (sum(np.power(2, k) for k in range(bits_per_position)) << (
+                highest_bit_idx - bits_per_position))  # TODO: fix it by making sure that pos is a positive integer
+
+            j = np.mod(i * bits_per_position, 32)
+            # TODO: handle bit-level offset and consequences
+            intermediate_embedding[j]
+
+        # Concat obtained embedding vector with hp dict hash and input it to FC NN
+        hp_repr = torch.cat(hp_repr, torch.Tensor(hash(hp)))
+        return self._net(hp_repr)
+
+    def _from_hp_space(self, hp: Dict[str, Any], hp_repr: Optional[np.ndarray] = None):
+        # TODO: parse hp space and append as much as possible (so that whole repr fits in 'embedding_size') binary representation of each relative positions in hp_space ranges/choices
+        if not hp_repr:
+            # First call of recursion over hp_space dict
+            hp_repr = np.array([])
+        for n, v in hp:
+            if issubclass(v, Dict):
+                hp_rerp.append(_from_hp_space(v, hp_repr))
+            else:
+                hp_repr.append()
+        return torch.from_numpy(hp_repr)
+
+
 class GeneralizationAcrossScalesPredictor(nn.Module):
     """ GeneralizationAcrossScalesPredictor
     Improved implementation of [a constructive prediction of the generalization error across scales](https://arxiv.org/pdf/1909.12673.pdf), which can combine proposed paper's model with a two layer fully connected neural net to better predict valid loss (optional).
@@ -76,13 +160,11 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
     # TODO: scale neural net model based on how much training data is available
     # TODO: predict best losses with their respective uncertainty in FC NN
     """
-    SUBSETS_TRAINING_RESULTS_T = Sequence[Tuple[int, Dict[str, Number]]]
 
-    def __init__(self, datasets: Tuple[Dataset], subset_sizes: Sequence[float] = (2e-3, 4e-3, 7e-3, 1e-2, 15e-3, 25e-3), fit_using_hps: bool = False, fit_using_dataset_stats: bool = False, fit_using_loss_curves: bool = False, **dataloader_kwargs):
+    def __init__(self, datasets: Tuple[Dataset], fit_using_hps: Optional[HyperparamsEmbedding] = None, fit_using_dataset_stats: bool = False, fit_using_loss_curves: bool = False, **dataloader_kwargs):
         self._fit_using_hps = fit_using_hps
         self._fit_using_dataset_stats = fit_using_dataset_stats
         self._fit_using_loss_curves = fit_using_loss_curves
-        self._subsets = [(get_random_subset_dataloader(ds, ss, **dataloader_kwargs) for ss in subset_sizes) for ds in datasets]
         # We initialize (α, eps0, c∞, η, β, b) parameters to regression results over CIDAR10 dataset with a ResNet architecture (values resulting from https://arxiv.org/pdf/1909.12673.pdf experiments)
         self._leastsquares_params = np.array([0.66, 0.9, 7.14e-14, 19.77, 0.53, 5.87e-2])
 
@@ -90,9 +172,9 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
         if self._use_additional_nn_model:
             # Define additional meta model which, combined with previous lightweight regression model, predicts generalization capability of a model over full dataset
             # Default NN input data: Best train loss, best valid loss, trainset size and model size for each subsets (4 * subset_count) + leastsquares fitted model's parameter vector (self._leastsquares_params) and prediction (+1) + full dataset size, model parameter count (+2)
-            self._input_size = 4 * len(self._subsets) + len(self._leastsquares_params) + 3
-            if self._fit_using_hps:
-                self._input_size += ...  # + Input hyperparameter dict embedding/distance-like-hash to NN
+            self._input_size = 4 * len(self._subsets) + len(self._leastsquares_params) + 3  # TODO: change NN input to be constant sized (not depending on subset count)?
+            if self._fit_using_hps is not None:
+                self._input_size += self._fit_using_hps.embedding_size  # + Input hyperparameter dict embedding/distance-like-hash to NN
             if self._fit_using_dataset_stats:
                 self._input_size += ...  # + Input dataset stats like trainset/validset ratio, data shape, batch_size, mean;variance;quartiles;... of trainset targets, data-type
             if self._fit_using_loss_curves:
@@ -103,7 +185,8 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             nn.init.xavier_uniform_(self._nn_metamodel.weight.data, gain=nn.init.calculate_gain('tanh'))
             self._nn_metamodel.bias.data.fill_(0.)
 
-    def fit_generalization_across_subsets(self, metaparams: torch.Tensor, rslts_across_subsets: SUBSETS_TRAINING_RESULTS_T):
+    def fit_generalization(self, training_rslts: Dict[str, Any]):
+        model_capacities = ...training_rslts
         cst_modelsize = deepcv.utils.is_roughtly_constant(model_capacities)
         if cst_modelsize:
             # If model capacity doesn't change, we can simplify model regression by removing 'b' and 'beta' parameters (constant term which can be modeled by 'cinf' parameter)
@@ -116,7 +199,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
         # Fit basic `error_landscape_estimation` model over subsets training results using least squares regression of error estimates divergence
         def _error_landscape_divergence(metaparms: np.array) -> float:
             preds = [error_landscape_estimation(metaparms, None if cst_modelsize else m, None if cst_datasize else n)
-                     for m, n in zip(model_capacities, rslts_across_subsets.items())]
+                     for m, n in zip(model_capacities, training_rslts.items())]
             return [(pred - real) / real for pred, real in zip(preds, valid_losses)]
 
         rslt = least_squares(_error_landscape_divergence, x0=params, jac='3-point', bounds=(0., 200), method='dogbox', loss='soft_l1')
@@ -131,14 +214,15 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             # TODO: online training considerations
             # TODO: create and train on 'meta' dataset from MLFlow?
 
-    def forward(self, rslts_across_subsets: SUBSETS_TRAINING_RESULTS_T, model: nn.Module = None, trainset: DataLoader = None, hp: Dict[str, Any] = None, loss_curves: Sequence[Tuple[int, float]] = None) -> float:
-        model_capacity = meta.nn.get_model_capacity(model)
-        estimation = error_landscape_estimation(self._leastsquares_params, model_capacity, len(trainset))
+    def forward(self, model: Union[nn.Module, int], trainset: Union[DataLoader, int]) -> float:
+        model_capacity = meta.nn.get_model_capacity(model) if issubclass(model, nn.Module) else model
+        trainset_size = trainset if issubclass(trainset, int) else len(trainset)
+        estimation = error_landscape_estimation(self._leastsquares_params, model_capacity, trainset_size)
 
         if self._use_additional_nn_model:
             raise NotImplementedError
             # By default our model takes best train loss, best valid loss, model capacity and dataset size for each dataset subsets along with full dataset size, model capacity and 'error_landscape_estimation' model parameter vector previously fitted with least-squares regression
-            x = torch.Tensor([estimation, *self._leastsquares_params, model_capacity, len(trainset), subsets_results])
+            x = torch.Tensor([estimation, *self._leastsquares_params, model_capacity, trainset_size, subsets_results])
             if self._fit_using_hps:
                 # TODO: Process hyper-parameters into a distance-like hash/embedding
                 torch.cat(x, ...)

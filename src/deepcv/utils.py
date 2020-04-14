@@ -19,7 +19,7 @@ import numpy as np
 from pathlib import Path
 from types import SimpleNamespace
 from functools import singledispatch
-from typing import Union, Iterable, Optional, Dict, Any, List, Tuple
+from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence
 
 import torch
 from tqdm import tqdm
@@ -28,7 +28,8 @@ from kedro.io import DataCatalog
 from src.tests.tests_utils import test_module
 
 __all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts',
-           'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'human_readable_size', 'get_by_identifier', 'yolo']
+           'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'human_readable_size',
+           'is_roughtly_constant', 'get_by_identifier', 'yolo']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
@@ -191,6 +192,10 @@ def human_readable_size(size_bytes: int, format_to_str: bool = True) -> Union[st
 
     value, unit = (scale * sign * float(size_bytes) / p, size_units[i])
     return f'{value:.2f}{unit}' if format_to_str else (value, unit)
+
+
+def is_roughtly_constant(values: Sequence[Number], threshold: float = 0.01) -> bool:
+    return max(values) - min(values) < threshold * sum(map(math.abs, values)) / float(len(values))
 
 
 def get_by_identifier(identifier: str):

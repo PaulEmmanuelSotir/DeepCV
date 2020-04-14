@@ -3,16 +3,20 @@
 """ Hyperparameter search meta module - hpsearch.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-import numpy as np
-from typing import Sequence, Iterable
+from typing import Sequence, Iterable, Callable, Dict, Tuple, Any, Union
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
+from scipy.optimize import least_squares
+import numpy as np
+import hyperopt
+
+from data.datasets import get_random_subset_dataloader
 from ...tests.tests_utils import test_module
 
-__all__ = []
+__all__ = ['hp_search', 'get_subsets_dataloaders']
 __author__ = 'Paul-Emmanuel Sotir'
 
 # TODO: implement tools for NNI (https://github.com/microsoft/nni) usage (NNI Board and NNICTL) + MLFlow versionning and viz
@@ -20,7 +24,151 @@ __author__ = 'Paul-Emmanuel Sotir'
 # TODO: + make use of CONSTRUCTIVE PREDICTION OF THE GENERALIZATION ERROR ACROSS SCALES (https://openreview.net/pdf?id=ryenvpEKDr) in order to predict model accuracy for given hyperparameter set from training on small dataset subsets
 
 
-def get_dataset_subsets(data: DataLoader, subsets: Sequence[float]) -> Iterable[DataLoader]
+def hyperopt_search(hp_space: Dict[str, Any], evals: int, model: nn.Module, training_procedure: Callable, dataloaders: Union[Tuple[DataLoader], Sequence[Tuple[DataLoader]]]):
+    pred_across_subsets = not isinstance(dataloaders[0], DataLoader)
+
+    print(f'Running hyperparameter search on "{model.__name__}" model with {evals} hp_space samplings...')
+    if pred_across_subsets:
+        print('Using "prediction of model\'s generalization across scales" technique by performing hyperparameter search on dataset subsets.')
+
+    best_rslt = {}
+    generalization_params = init_generalization_across_subsets()
+    for e in range(evals):
+        # TODO: sample hp search space using hyperopt
+        raise NotImplementedError
+        hp = ...  # hyperopt.
+        print(f'\t> {e}th hyperparameter configuration trial...\nsampled_hp="{hp}"')
+        if pred_across_subsets:
+            rslts_across_subsets = [training_procedure(model, hp, subset) for subset in dataloaders]
+            # generalization_params, predicted_score = fit_generalization(generalization_params, rslts_across_subsets)  # TODO: prediction of generalization capability...
+            predicted_score = ...
+            if 'predicted_score' not in best_rslt or predicted_score < best_rslt['predicted_score']:
+                best_rslt = {'predicted_score': predicted_score, 'rslts_across_subsets': rslts_across_subsets, 'hp': hp}
+
+        else:
+            rslt = training_procedure(model, hp, dataloaders)
+            if 'best_valid_loss' not in best_rslt or rslt['best_valid_loss'] < best_rslt['best_valid_loss']:
+                best_rslt = {**rslt, 'hp': hp}
+
+    print('Hyperparameter search done!')
+    print(f'Best hyperparameter eval:\n{best_rslt}')
+    return best_rslt
+
+
+def nni_entry_point(hp: Dict[str, Any], model: nn.Module, training_procedure: Callable, datasets: Sequence[Dataset], **dataloader_kwargs):
+    if
+    dataloaders = (DataLoader(ds, **dataloader_kwargs) for ds in datasets)
+    training_procedure(model, hp, dataloaders)
+    raise NotImplementedError
+
+# TODO: remove this function or modify it to be integrated in kedro pipelines
+
+
+class GeneralizationAcrossScalesPredictor(nn.Module):
+    """ GeneralizationAcrossScalesPredictor
+    Improved implementation of [a constructive prediction of the generalization error across scales](https://arxiv.org/pdf/1909.12673.pdf), which can combine proposed paper's model with a two layer fully connected neural net to better predict valid loss (optional).
+    By default, validation error is predicted by performing a least squares regression of `GeneralizationAcrossScalesPredictor.error_landscape_estimation` enveloppe function which depends on a few parameters (max. 6 parameters to fit).
+    This lightweight model allows to predict model's best valid loss landscape from very few model training example. This can be usefull, for example, to perform a faster hyperparameter search by training a model a few times on small trainset subsets and estimate how hyperparmeters would perform on a full trainset training.
+    This model also takes into account the influence of simple model capacity changes over validation error landscape if regression is done on varying (model capacity/dataset size/best validation error) triplets.
+    We modified validation error landscape modeling in order to reduce it's parameter count if model capacity or dataset size doesn't change across given training results, which permits to perform less training results to accuralty regress on validation error landscape, depending on which use you make of this model.
+    Moreover, optional fully connected neural net can improve these validation error prediction across more diverse setups if given enought training data. This additional model can eventually take various dataset statistics, hyperparameter embedding, training loss curves (not only best valid/train losses) as input.
+    But in order to make efficient use of the fully connected model, you will need to fit it on much more training results than basic/lightweight model.
+    # TODO: scale neural net model based on how much training data is available
+    # TODO: predict best losses with their respective uncertainty in FC NN
+    """
+    SUBSETS_TRAINING_RESULTS_T = Sequence[Tuple[int, Dict[str, Number]]]
+
+    def __init__(self, datasets: Tuple[Dataset], subset_sizes: Sequence[float] = (2e-3, 4e-3, 7e-3, 1e-2, 15e-3, 25e-3), fit_using_hps: bool = False, fit_using_dataset_stats: bool = False, fit_using_loss_curves: bool = False, **dataloader_kwargs):
+        self._fit_using_hps = fit_using_hps
+        self._fit_using_dataset_stats = fit_using_dataset_stats
+        self._fit_using_loss_curves = fit_using_loss_curves
+        self._subsets = [(get_random_subset_dataloader(ds, ss, **dataloader_kwargs) for ss in subset_sizes) for ds in datasets]
+        # We initialize (α, eps0, c∞, η, β, b) parameters to regression results over CIDAR10 dataset with a ResNet architecture (values resulting from https://arxiv.org/pdf/1909.12673.pdf experiments)
+        self._leastsquares_params = np.array([0.66, 0.9, 7.14e-14, 19.77, 0.53, 5.87e-2])
+
+        self._use_additional_nn_model = any((fit_using_hps, fit_using_dataset_stats, fit_using_loss_curves))
+        if self._use_additional_nn_model:
+            # Define additional meta model which, combined with previous lightweight regression model, predicts generalization capability of a model over full dataset
+            # Default NN input data: Best train loss, best valid loss, trainset size and model size for each subsets (4 * subset_count) + leastsquares fitted model's parameter vector (self._leastsquares_params) and prediction (+1) + full dataset size, model parameter count (+2)
+            self._input_size = 4 * len(self._subsets) + len(self._leastsquares_params) + 3
+            if self._fit_using_hps:
+                self._input_size += ...  # + Input hyperparameter dict embedding/distance-like-hash to NN
+            if self._fit_using_dataset_stats:
+                self._input_size += ...  # + Input dataset stats like trainset/validset ratio, data shape, batch_size, mean;variance;quartiles;... of trainset targets, data-type
+            if self._fit_using_loss_curves:
+                self._input_size += ...  # + Validation and training losses evaluated during training iterations
+            linear1 = nn.Linear(in_features=self._input_size, out_features=64)
+            linear2 = nn.Linear(in_features=64, out_features=2)  # Outputs valid and train losses
+            self._nn_metamodel = nn.Sequential(linear1, nn.Tanh(), linear2, nn.Tanh())
+            nn.init.xavier_uniform_(self._nn_metamodel.weight.data, gain=nn.init.calculate_gain('tanh'))
+            self._nn_metamodel.bias.data.fill_(0.)
+
+    def fit_generalization_across_subsets(self, metaparams: torch.Tensor, rslts_across_subsets: SUBSETS_TRAINING_RESULTS_T):
+        cst_modelsize = deepcv.utils.is_roughtly_constant(model_capacities)
+        if cst_modelsize:
+            # If model capacity doesn't change, we can simplify model regression by removing 'b' and 'beta' parameters (constant term which can be modeled by 'cinf' parameter)
+            params = self._leastsquares_params[:-2]
+        cst_datasize = deepcv.utils.is_roughtly_constant(trainset_subset_sizes)
+        if cst_datasize:
+            # If traiset size doesn't change across results, we can simplify model regression by removing 'alpha' parameter (constant term which can be modeled by 'cinf' parameter)
+            params = params[1:]
+
+        # Fit basic `error_landscape_estimation` model over subsets training results using least squares regression of error estimates divergence
+        def _error_landscape_divergence(metaparms: np.array) -> float:
+            preds = [error_landscape_estimation(metaparms, None if cst_modelsize else m, None if cst_datasize else n)
+                     for m, n in zip(model_capacities, rslts_across_subsets.items())]
+            return [(pred - real) / real for pred, real in zip(preds, valid_losses)]
+
+        rslt = least_squares(_error_landscape_divergence, x0=params, jac='3-point', bounds=(0., 200), method='dogbox', loss='soft_l1')
+        self._leastsquares_params[1 if cst_datasize else None: -2 if cst_modelsize else None] = rslt.x  # TODO: smooth averaging window instead of pure update?
+
+        # Additional online training of fully connected model for better validation error landscape prediction
+        if self._use_additional_nn_model:
+            raise NotImplementedError
+            hhp = {...}
+            loss = torch.optim.RMSprop(self._nn_metamodel.params, lr=self.hhp['lr'], weight_decay=hhp['weight_decay'], momentum=hhp['momentum'])
+            # TODO: basic training procedure
+            # TODO: online training considerations
+            # TODO: create and train on 'meta' dataset from MLFlow?
+
+    def forward(self, rslts_across_subsets: SUBSETS_TRAINING_RESULTS_T, model: nn.Module = None, trainset: DataLoader = None, hp: Dict[str, Any] = None, loss_curves: Sequence[Tuple[int, float]] = None) -> float:
+        model_capacity = meta.nn.get_model_capacity(model)
+        estimation = error_landscape_estimation(self._leastsquares_params, model_capacity, len(trainset))
+
+        if self._use_additional_nn_model:
+            raise NotImplementedError
+            # By default our model takes best train loss, best valid loss, model capacity and dataset size for each dataset subsets along with full dataset size, model capacity and 'error_landscape_estimation' model parameter vector previously fitted with least-squares regression
+            x = torch.Tensor([estimation, *self._leastsquares_params, model_capacity, len(trainset), subsets_results])
+            if self._fit_using_hps:
+                # TODO: Process hyper-parameters into a distance-like hash/embedding
+                torch.cat(x, ...)
+            if self._fit_using_dataset_stats:
+                # TODO: Process trainset stats and feed it to our model
+                torch.cat(x, ...)
+            if self._fit_using_loss_curves:
+                # TODO: Append loss curves resulting from trainset and validset evaluations to metamodel input
+                torch.cat(x, ...)
+            # We apply fully connected NN with a residual link from valid error estimate of fitted 'error_landscape_estimation' model to NN's output
+            return torch.cat(self._nn_metamodel(inputs), torch.from_numy(np.array([estimation, 0.])))
+        return estimation
+
+    @staticmethod
+    def error_landscape_estimation(metaparms: np.array, m: Optional[int] = None, n: Optional[int] = None) -> float:
+        """ Enveloppe function modeling how best valid loss varies according to model size (m) and trainset size (n).
+        This simple model's parameters (metaparms) can be fitted on a few training results over trainset subsets (~5-6 subsets) in order to predict model's generealization capability over full trainset without having to train on whole dataset.
+        Thus, fitting this model during hyperparameter search can save time by estimating how promising is a hyperparmeter setup.
+        NOTE: if 'm' is None, model capacity is considered to be constant and 'b'/'beta' term will be zeroed/ignored; if 'n' is None, then trainset size is considered to be constant and 'a'/'alpha' term will be zeroed/ignored (allows to simplify model, as constant terms in 'emn' are redundant with 'cinf' parameter)
+        TODO: make bayesian estimate of least-squares regression uncertainty of this model by choosing appropriate à-prioris (+ combine this estimation with NN's uncertainty)
+        """
+        eps0, cinf, eta = metaparms[0 if n is None else 1:3]
+        emn = cinf
+        if n is not None:
+            a, alpha = 1., metaparms[0]  # 'a=1' because it is a redundant parameter: equivalent to divide 'emn' by 'a' with 'eta' value replaced by 'a * eta'
+            emn += a * np.power(float(n), -alpha)
+        if m is not None:
+            b, beta = metaparms[-2:]
+            emn += b * np.power(float(m), -beta)
+        return eps0 * np.absolute(emn / (emn - eta * 1j))  # Complex absolute, i.e. 2D L2 norm
 
 
 if __name__ == '__main__':

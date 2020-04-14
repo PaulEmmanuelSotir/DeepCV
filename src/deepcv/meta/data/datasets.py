@@ -16,11 +16,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.datasets
+from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
-import deepcv
+import deepcv.utils
 from ....tests.tests_utils import test_module
 
-__all__ = ['PytorchDatasetWarper', 'ImageDataset']
+__all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
 
 # path.glob("*.[jpg|jpeg]")
@@ -42,6 +43,20 @@ class PytorchDatasetWarper(kedro.io.AbstractDataSet):
     def _load(self): pass
     def _save(self): pass
     def _describe(self): return vars(self)
+
+
+def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int], **dataloader_kwargs) -> DataLoader:
+    """ Returns a random subset dataloader sampling data from given dataset, without replacement.
+    Args:
+        - dataset: PyTorch dataset from which random subset dataloader is sampling data.
+        - subset_size: Returned dataloader subsets size. If it is a float, then `subset_size` is intepreted as the subset size fraction of dataset size and should be between 0. and 1.; Otherwise, if it is an interger, `subset_size` is directly interpreted as absolute subset size should be between 0 and `len(dataset)`.
+        - dataloader_kwargs: Additional dataloader constructor kwargs, like batch_size, num_workers, pin_memory, ... (dataset, shuffle and sampler arguments are already specified by default)
+    """
+    if isinstance(subset_size, float):
+        assert subset_size > 0. and subset_size <= 1., 'ERROR: `subset_size` should be between 0. and 1. if it is a float.'
+        subset_size = max(1, min(len(dataset), int(subset_size * len(dataset) + 1)))
+    train_indices = torch.from_numpy(np.random.choice(len(dataset), size=(subset_size,), replace=False))
+    return DataLoader(dataset, sampler=SubsetRandomSampler(train_indices), shuffle=True, **dataloader_kwargs)
 
 
 # class ImageDataset(kedro.io.AbstractVersionedDataSet):

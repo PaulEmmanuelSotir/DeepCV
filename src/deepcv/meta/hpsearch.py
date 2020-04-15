@@ -48,35 +48,6 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
     print(f'######## NNI Hyperparameter search trial NO#{nni.get_trial_id()} done! ########')
 
 
-# valid_error_estimator = GeneralizationAcrossScalesPredictor()
-# best_trial_valid_loss, best_hps = float('inf'), None
-# subset_sizes = (2e-3, 4e-3, 7e-3, 1e-2, 15e-3, 25e-3)
-# subsets = [get_random_subset_dataloader(trainset, ss, batch_size=hp['batch_size'], num_workers=..., pin_memory=True) for ss in subset_sizes]
-# hp loop:
-#     hp = sample(hp_space)
-#     best_valid_loss = float('inf')
-#     for subset in subsets:
-#         best_valid_loss = float('inf')
-#         model = init()
-#         loss_curves = []
-#         train loop:
-#             train_loss = train_iter(model, trainset)
-#             valid_loss = evaluate(model, validset)
-#             loss_curves.append(trai_loss, valid_loss)
-#             if valid_loss < best_valid_loss:
-#                 best_valid_loss = valid_loss
-#         training_rslts.append({'loss_curves': loss_curves | | or | | 'best_valid_loss': best_valid_loss, 'best_train_loss': best_train_loss, 'model': model, 'trainset': subset, 'validset': validset, 'hp': hp})
-
-#     valid_error_estimator.fit_generalization(training_rslts)
-
-#     predicted_valid_loss = valid_error_estimator(model, trainset, ...)
-#     if predicted_valid_loss - threshold < best_trial_valid_loss:
-#         best_valid_loss = full_train_loop(trainset, model, ...)
-#         if best_valid_loss < best_trial_valid_loss:
-#             best_trial_valid_loss = best_valid_loss
-#             best_hps = hp
-
-
 class HyperparamsEmbedding(nn.Module):
     """ Hyper-parameter dict embedding module
     Given an hyper-parameter space (hp_space usually used during smpling of hyperopt's hyperparameter search), converts input hyperparameter dict into a vectorized representation.

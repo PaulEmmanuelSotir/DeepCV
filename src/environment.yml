@@ -28,6 +28,8 @@ dependencies:
         - click=7.1.*
         - hilbertcurve=1.0.*
         - tensorboardX=2.*
+        - networkx=2.*
         - pip:
                   - kedro
                   - kedro-viz
+                  - nni

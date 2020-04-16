@@ -3,11 +3,12 @@
 """ Training loop meta module - training_loop.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-import numpy as np
 import multiprocessing
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, Optional, Iterable, Tuple, Union, Type
+
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -24,10 +25,9 @@ from ignite.contrib.handlers import TensorboardLogger, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerParamsHandler, GradsHistHandler
 import ignite.contrib.handlers
 
-from ...tests.tests_utils import test_module
-from deepcv import utils
 from deepcv import meta
-import deepcv
+from deepcv import utils
+from ...tests.tests_utils import test_module
 
 __all__ = ['BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'

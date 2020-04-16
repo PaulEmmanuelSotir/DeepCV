@@ -3,12 +3,12 @@
 """ Object detection module - object.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-from typing import Any, Dict, Optional, Tuple, Callable, List, Iterable
-from pathlib import Path
-import multiprocessing
-from collections import OrderedDict
-import inspect
 import re
+import inspect
+import multiprocessing
+from pathlib import Path
+from collections import OrderedDict
+from typing import Any, Dict, Optional, Tuple, Callable, List, Iterable
 
 import numpy as np
 
@@ -17,13 +17,13 @@ import torch.nn as nn
 import torch.nn.parallel
 import torch.optim as optim
 import torch.distributed as dist
-from torch.utils.data import DataLoader
 from ignite.metrics import Accuracy
+from torch.utils.data import DataLoader
 from kedro.pipeline import Pipeline, node
 
-from tests.tests_utils import test_module
 import deepcv.meta as meta
 import deepcv.utils as utils
+from tests.tests_utils import test_module
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'

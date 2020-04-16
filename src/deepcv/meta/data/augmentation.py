@@ -14,5 +14,10 @@ __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
 
 
+# TODO: parse YAML parameters for augmentations reciepes
+# TODO: implement various augmentation operators: sharpness, crop, brightness, contrast, tweak_colors, gamma, noise, rotate, translate, scale, smooth_non_linear_deformation
+# TODO: implement augmentation based on distilled SinGAN model
+# TODO:
+
 if __name__ == '__main__':
     test_module(__file__)

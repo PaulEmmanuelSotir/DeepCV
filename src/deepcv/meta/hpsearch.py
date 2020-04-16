@@ -9,10 +9,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
-from scipy.optimize import least_squares
-import numpy as np
-import networkx
 import nni
+import networkx
+import numpy as np
+from scipy.optimize import least_squares
 
 from data.datasets import get_random_subset_dataloader
 from ...tests.tests_utils import test_module

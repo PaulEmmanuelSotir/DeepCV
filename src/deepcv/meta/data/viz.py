@@ -4,9 +4,10 @@
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import collections
-import numpy as np
 from pathlib import Path
 from typing import Optionnal, Union, Tuple, ModuleType
+
+import numpy as np
 
 import torch
 import torch.nn as nn

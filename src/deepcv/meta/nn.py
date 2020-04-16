@@ -7,11 +7,12 @@ Defines various neural network building blocks (layers, architectures parts, tra
 import copy
 import inspect
 import logging
-import numpy as np
 from enum import Enum, auto
 from types import SimpleNamespace
 from collections import OrderedDict
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
+
+import numpy as np
 
 import torch
 import torch.nn as nn

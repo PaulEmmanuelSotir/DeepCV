@@ -37,8 +37,9 @@ def sample_triplets(dataset: DataLoader) -> Tuple[torch.Tensor, torch.Tensor, to
     raise NotImplementedError
 
 
-JensenShannonDivergenceConsistencyLoss = func_to_module(jensen_shannon_divergence_consistency_loss, init_params=['net', 'reduction', 'log_target'])
+# NOTE: When training a model with triplet margin loss, try out to enable 'swap' option (swaps anchor and positive if distance between negative and positive is lower than distance between anchor and negative)
 TripletMarginLoss = nn.TripletMarginLoss
+JensenShannonDivergenceConsistencyLoss = func_to_module(jensen_shannon_divergence_consistency_loss, init_params=['net', 'reduction', 'log_target'])
 
 if __name__ == '__main__':
     test_module(__file__)

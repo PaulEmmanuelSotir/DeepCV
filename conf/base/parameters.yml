@@ -5,18 +5,24 @@ augmentations_recipes:
   - basic_augmentation: &basic_augmentation
     keep_same_input_shape: true # Whether augmented images will be croped their respective initial input image sizes or not
     random_transform_order: true
-    random_transform_dropout: 0.5 # Probability that each augmentation tranforms will be droped/ignored for a given image augmentation
+    random_transform_ops_range: [1, 4] # An augmentation transform chain can only contain of 1 to 4 augmentation operations
+    augmentations_per_image: [1, 3] # Uniform range of augmentation count to be performed per dataset images (thus augmented dataset size will be between 2 and 4 times thez size of original dataset)
     transforms:
       - crop: false
-      - brightness: 0.2 # Random brightness variance (assumes pixel data is normalized)
-      - contrast: 0.1 # Contrast transform variance
+      - brightness: 0.2 # Random brightness variance/severity (assumes pixel data is normalized)
+      - contrast: 0.1 # Contrast transform variance/severity
       - tweak_colors: 0.1
-      - gamma: 0.05 # gamma tweaking variance
+      - gamma: 0.05 # gamma tweaking variance/severity
       - noise: 0.1
       - rotate: [-0.4, 0.4] # e.g., `[-|a|, |b|]` rotation range means random rotation will be sampled from a gaussian distribution truncated between -180x|a|° and 180x|b|°, with gaussian variance beeing proportional to `|a|-|b|`
-      - translate: 0.2 # variance of image translation transform
+      - translate: 0.2 # variance/severity of image translation transform
       - scale: 0.2
-      - smooth_non_linear_deformation: false # Strenght of a non-linear image deformation (set to null, false or 0 to disable)
+      - smooth_non_linear_deformation: false # Strenght/severity of a non-linear image deformation (set to null, false or 0 to disable)
+  - mixed_augmentation:
+    mixing:
+      - mix_transform_chains_count: 3  # An augmented image will be the result of a mix of 3 transform chains
+      - mix_transform_chains_dirichlet: 0. # Dirichlt distribution parameter to sample k=3 mixing convex coeficients. (to be convex along each dimensions, dirichlet coefficents must be > 1.)
+      - mix_augmented_with_original: 0. # if strength/severity is greater than 0: final augmented image will be with it original image (given value discribes Beta distribution)
   - singan_augmentation: &singan_augmentation
     <<: *basic_augmentation
     transforms_additional:

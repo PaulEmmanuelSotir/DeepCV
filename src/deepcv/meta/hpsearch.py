@@ -3,6 +3,7 @@
 """ Hyperparameter search meta module - hpsearch.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
+import uuid
 from typing import Sequence, Iterable, Callable, Dict, Tuple, Any, Union
 
 import torch
@@ -21,6 +22,24 @@ __all__ = ['hp_search', 'GeneralizationAcrossScalesPredictor', 'HyperparamsEmbed
 __author__ = 'Paul-Emmanuel Sotir'
 
 # TODO: implement tools for NNI (https://github.com/microsoft/nni) usage (NNI Board and NNICTL) + MLFlow versionning and viz
+
+
+class HyperparameterSpace(TrainingMetaData):
+    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+        super(self.__class__).__init__(self, existing_uuid)
+        # TODO: implement
+
+    def get_hp_space_overlap(self, hp_space_2: HyperparameterSpace):
+        raise NotImplementedError
+        overlap = ...
+        return overlap
+
+
+class Hyperparameters(TrainingMetaData):
+    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+        super(self.__class__).__init__(self, existing_uuid)
+        # TODO: store hps (Hyperparameters class must be equivalent in usage as a Dict[str, Any]) + return embedding if needed
+        # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
 
 
 def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Callable, dataloaders: Tuple[DataLoader], pred_across_scales: bool = False):

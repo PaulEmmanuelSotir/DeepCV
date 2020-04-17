@@ -23,10 +23,9 @@ import deepcv.utils
 from deepcv.meta.data.training_metadata import TrainingMetaData
 from ....tests.tests_utils import test_module
 
-__all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'get_random_subset_dataloader']
+__all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'DatasetStats', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
 
-# path.glob("*.[jpg|jpeg]")
 
 TORCHVISION_DATASETS = {v.__class__.__name__: v for n, v in torchvision.datasets.__all__ if issubclass(v, torch.utils.data.Dataset)}
 
@@ -72,6 +71,7 @@ def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int
     return DataLoader(dataset, sampler=SubsetRandomSampler(train_indices), shuffle=True, **dataloader_kwargs)
 
 
+# path.glob("*.[jpg|jpeg]")
 # class ImageDataset(kedro.io.AbstractVersionedDataSet):
 #     """ Custom image dataset, for usage outside of pytorch dataset tooling or if versionning is needed.
 #     # TODO: refactor ImageIterator and ImageDataset (move some operator overload/methods from iterator to dataset iterable)

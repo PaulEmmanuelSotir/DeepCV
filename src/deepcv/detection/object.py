@@ -93,7 +93,7 @@ class ObjectDetector(meta.nn.DeepcvModule):
 
 
 def get_object_detector_pipelines():
-    p1 = Pipeline([node(utils.merge_dicts, name='merge_hyperparameters', inputs=['params:ignite_training', 'params:object_detector', 'params:cifar10'], outputs=['hp']),
+    p1 = Pipeline([node(utils.merge_dicts, name='merge_hyperparameters', inputs=['params:object_detector', 'params:cifar10'], outputs=['hp']),
                    node(meta.data.preprocess.preprocess_cifar, name='preprocess_cifar_dataset', inputs=['cifar10_train', 'cifar10_test', 'hp'], outputs=['dataset']),
                    node(create_model, name='create_object_detection_model', inputs=['dataset', 'hp'], outputs=['model']),
                    node(train, name='train_object_detector', inputs=['dataset', 'model', 'hp'], outputs=None)],

@@ -3,6 +3,7 @@
 """ Hyperparameter search meta module - hpsearch.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
+import collections
 import uuid
 from typing import Sequence, Iterable, Callable, Dict, Tuple, Any, Union
 
@@ -18,28 +19,10 @@ from scipy.optimize import least_squares
 from data.datasets import get_random_subset_dataloader
 from ...tests.tests_utils import test_module
 
-__all__ = ['hp_search', 'GeneralizationAcrossScalesPredictor', 'HyperparamsEmbedding']
+__all__ = ['hp_search', 'HyperparameterSpace', 'Hyperparameters', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor']
 __author__ = 'Paul-Emmanuel Sotir'
 
 # TODO: implement tools for NNI (https://github.com/microsoft/nni) usage (NNI Board and NNICTL) + MLFlow versionning and viz
-
-
-class HyperparameterSpace(TrainingMetaData):
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
-        super(self.__class__).__init__(self, existing_uuid)
-        # TODO: implement
-
-    def get_hp_space_overlap(self, hp_space_2: HyperparameterSpace):
-        raise NotImplementedError
-        overlap = ...
-        return overlap
-
-
-class Hyperparameters(TrainingMetaData):
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
-        super(self.__class__).__init__(self, existing_uuid)
-        # TODO: store hps (Hyperparameters class must be equivalent in usage as a Dict[str, Any]) + return embedding if needed
-        # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
 
 
 def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Callable, dataloaders: Tuple[DataLoader], pred_across_scales: bool = False):
@@ -67,18 +50,59 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
     print(f'######## NNI Hyperparameter search trial NO#{nni.get_trial_id()} done! ########')
 
 
+class HyperparameterSpace(TrainingMetaData):
+    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+        super(self.__class__).__init__(self, existing_uuid)
+        # TODO: implement
+
+    def get_hp_space_overlap(self, hp_space_2: HyperparameterSpace):
+        raise NotImplementedError
+        overlap = ...
+        return overlap
+
+
+class Hyperparameters(TrainingMetaData, collections.Mapping):
+    """ Hyperparameter frozen dict
+    Part of this code from [this StackOverflow thread](https://stackoverflow.com/questions/2703599/what-would-a-frozen-dict-be)
+    # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
+    """
+
+    def __init__(self, *args, existing_uuid: Optional[uuid.UUID] = None, **kwargs):
+        TrainingMetaData.__init__(self, existing_uuid)
+        collections.Mapping.__init__(self)
+        self._store = dict(*args, **kwargs)
+        self._hash = None
+
+    def __iter__(self):
+        return iter(self._store)
+
+    def __len__(self):
+        return len(self._store)
+
+    def __getitem__(self, key):
+        return self._store[key]
+
+    def __hash__(self):
+        if self._hash is None:
+            hash_ = 0
+            for pair in self.iteritems():
+                hash_ ^= hash(pair)
+            self._hash = hash_
+        return self._hash
+
+
 class HyperparamsEmbedding(nn.Module):
     """ Hyper-parameter dict embedding module
     Given an hyper-parameter space (hp_space usually used during smpling of hyperopt's hyperparameter search), converts input hyperparameter dict into a vectorized representation.
     Applied to a valid hp dict, returns a fixed-size vector embedding which can be interpreted as vectors in an euclidian space (final neural net layers are enforced by loss constraints to output embeddings in euclidian-like space)
     """
 
-    def __init__(self, embdding_size: int, hp_space: Dict[str, Any], intermediate_embedding_size: Optinal[int] = 128):
+    def __init__(self, embdding_size: int, intermediate_embedding_size: Optinal[int] = 128, hp_space: Optional[HyperparameterSpace] = None):
         self._embedding_size = embedding_size
-        self._hp_space = hp_space
         self._intermediate_embedding_size = max(embedding_size + 32, intermediate_embedding_size)
+        self._hp_space = hp_space
 
-        # Define shallow neural net architecture used to obtain final hyper-parameter embedding in appropriate space (euclidian space easier to interpret than space of `_from_hp_space(hp)` vector)
+        # Define a simple shallow neural net architecture used to obtain final hyper-parameter embedding in appropriate space (euclidian space easier to interpret than space of `_from_hp_space(hp)` vector)
         mean_embedding_size = sum(self._intermediate_embedding_size, self.embedding_size) // 2
         linear1 = nn.Linear(in_features=self._intermediate_embedding_size + 1, out_features=mean_embedding_size)  # + 1 for hp dict hash input
         linear2 = nn.Linear(in_features=mean_embedding_size, out_features=min(mean_embedding_size, self.embedding_size * 2))
@@ -89,9 +113,10 @@ class HyperparamsEmbedding(nn.Module):
         # Unsupervised training to learn 3-layers fully connected NN for hp embedding in euclidian-like space
         raise NotImplementedError
 
-    def forward(self, hp: Dict[str, Any]) -> torch.Tensor:
+    def forward(self, hp: Hyperparameters) -> torch.Tensor:
         # Parse hp_space to deduce hyperparameter dict's position in hp_space: returns an array of relative positions (or None value(s) if hp_space defines choice(s)/range(s) which are not present in input hp dict)
-        hp_repr = _from_hp_space(hp)
+        if self._hp_space is not None:
+            hp_repr = _from_hp_space(hp)
 
         # Concat binary representations of all relative positions of hp_repr into a vector of size 'embdding_size'
         bits_per_position = 32 * self._intermediate_embedding_size // len(hp_repr)  # TODO: replace 32 with sizeof(int)
@@ -113,11 +138,13 @@ class HyperparamsEmbedding(nn.Module):
 
     def _from_hp_space(self, hp: Dict[str, Any]):
         # TODO: parse hp space and append as much as possible (so that whole repr fits in 'embedding_size') binary representation of each relative positions in hp_space ranges/choices
+        # TODO: refactor this code (use NNI's hp_space generated YAML file instead of hyperopt)
         for node in hyperopt.vectorize.uniq(hyperopt.vectorize.toposort(self._hp_space)):
-            if isinstance(node, hyperopt.tpe.pyll.rec_eval
+            if isinstance(node, hyperopt.tpe.pyll.rec_eval):
+                pass
         if not hp_repr:
             # First call of recursion over hp_space dict
-            hp_repr=np.array([])
+            hp_repr = np.array([])
         for n, v in hp:
             if issubclass(v, Dict):
                 hp_rerp.append(_from_hp_space(v, hp_repr))
@@ -126,11 +153,12 @@ class HyperparamsEmbedding(nn.Module):
         return torch.from_numpy(hp_repr)
 
     def _topologic_hp_embedding(self, hp: Dict[str, Any], topo_embedding_size=32):
-        G=nx.DiGraph()
-        nodes=hyperopt.vectorize.dfs(expr)
-        hyperopt.pyll_utils.
-        nodes_dict=networkx.spectral_layout(G, center=(0, 0), dim=2)
-        topo_embedding=np.array([], dtype=np.float32)
+        # TODO: refactor this code (use NNI's hp_space generated YAML file instead of hyperopt)
+        G = nx.DiGraph()
+        nodes = hyperopt.vectorize.dfs(expr)
+
+        nodes_dict = networkx.spectral_layout(G, center=(0, 0), dim=2)
+        topo_embedding = np.array([], dtype=np.float32)
         for n, v in nodes_dict:
             topo_embedding.append()
         return topo_embedding
@@ -149,68 +177,68 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
     # TODO: predict best losses with their respective uncertainty in FC NN
     """
 
-    def __init__(self, fit_using_hps: Optional[HyperparamsEmbedding]=None, fit_using_dataset_stats: bool=False, fit_using_loss_curves: bool=False, **dataloader_kwargs):
-        self._fit_using_hps=fit_using_hps
-        self._fit_using_dataset_stats=fit_using_dataset_stats
-        self._fit_using_loss_curves=fit_using_loss_curves
+    def __init__(self, fit_using_hps: Optional[HyperparamsEmbedding] = None, fit_using_dataset_stats: bool = False, fit_using_loss_curves: bool = False, **dataloader_kwargs):
+        self._fit_using_hps = fit_using_hps
+        self._fit_using_dataset_stats = fit_using_dataset_stats
+        self._fit_using_loss_curves = fit_using_loss_curves
         # We initialize (α, eps0, c∞, η, β, b) parameters to regression results over CIDAR10 dataset with a ResNet architecture (values resulting from https://arxiv.org/pdf/1909.12673.pdf experiments)
-        self._leastsquares_params=np.array([0.66, 0.9, 7.14e-14, 19.77, 0.53, 5.87e-2])
+        self._leastsquares_params = np.array([0.66, 0.9, 7.14e-14, 19.77, 0.53, 5.87e-2])
 
-        self._use_additional_nn_model=any((fit_using_hps, fit_using_dataset_stats, fit_using_loss_curves))
+        self._use_additional_nn_model = any((fit_using_hps, fit_using_dataset_stats, fit_using_loss_curves))
         if self._use_additional_nn_model:
             # Define additional meta model which, combined with previous lightweight regression model, predicts generalization capability of a model over full dataset
             # Default NN input data: Best train loss, best valid loss, trainset size and model size for each subsets (4 * subset_count) + leastsquares fitted model's parameter vector (self._leastsquares_params) and prediction (+1) + full dataset size, model parameter count (+2)
-            self._input_size=4 * len(self._subsets) + len(self._leastsquares_params) + 3  # TODO: change NN input to be constant sized (not depending on subset count)?
+            self._input_size = 4 * len(self._subsets) + len(self._leastsquares_params) + 3  # TODO: change NN input to be constant sized (not depending on subset count)?
             if self._fit_using_hps is not None:
                 self._input_size += self._fit_using_hps.embedding_size  # + Input hyperparameter dict embedding/distance-like-hash to NN
             if self._fit_using_dataset_stats:
                 self._input_size += ...  # + Input dataset stats like trainset/validset ratio, data shape, batch_size, mean;variance;quartiles;... of trainset targets, data-type #TODO: see https://arxiv.org/pdf/1810.06305.pdf for interesting dataset embedding/stats
             if self._fit_using_loss_curves:
                 self._input_size += ...  # + Validation and training losses evaluated during training iterations
-            linear1=nn.Linear(in_features=self._input_size, out_features=64)
-            linear2=nn.Linear(in_features=64, out_features=2)  # Outputs valid and train losses
-            self._nn_metamodel=nn.Sequential(linear1, nn.Tanh(), linear2, nn.Tanh())
+            linear1 = nn.Linear(in_features=self._input_size, out_features=64)
+            linear2 = nn.Linear(in_features=64, out_features=2)  # Outputs valid and train losses
+            self._nn_metamodel = nn.Sequential(linear1, nn.Tanh(), linear2, nn.Tanh())
             nn.init.xavier_uniform_(self._nn_metamodel.weight.data, gain=nn.init.calculate_gain('tanh'))
             self._nn_metamodel.bias.data.fill_(0.)
 
     def fit_generalization(self, training_rslts: Dict[str, Any]):
-        model_capacities=...training_rslts
-        cst_modelsize=deepcv.utils.is_roughtly_constant(model_capacities)
+        model_capacities = ...training_rslts
+        cst_modelsize = deepcv.utils.is_roughtly_constant(model_capacities)
         if cst_modelsize:
             # If model capacity doesn't change, we can simplify model regression by removing 'b' and 'beta' parameters (constant term which can be modeled by 'cinf' parameter)
-            params=self._leastsquares_params[:-2]
-        cst_datasize=deepcv.utils.is_roughtly_constant(trainset_subset_sizes)
+            params = self._leastsquares_params[:-2]
+        cst_datasize = deepcv.utils.is_roughtly_constant(trainset_subset_sizes)
         if cst_datasize:
             # If traiset size doesn't change across results, we can simplify model regression by removing 'alpha' parameter (constant term which can be modeled by 'cinf' parameter)
-            params=params[1:]
+            params = params[1:]
 
         # Fit basic `error_landscape_estimation` model over subsets training results using least squares regression of error estimates divergence
         def _error_landscape_divergence(metaparms: np.array) -> float:
-            preds=[error_landscape_estimation(metaparms, None if cst_modelsize else m, None if cst_datasize else n)
+            preds = [error_landscape_estimation(metaparms, None if cst_modelsize else m, None if cst_datasize else n)
                      for m, n in zip(model_capacities, training_rslts.items())]
             return [(pred - real) / real for pred, real in zip(preds, valid_losses)]
 
-        rslt=least_squares(_error_landscape_divergence, x0=params, jac='3-point', bounds=(0., 200), method='dogbox', loss='soft_l1')
-        self._leastsquares_params[1 if cst_datasize else None: -2 if cst_modelsize else None]=rslt.x  # TODO: smooth averaging window instead of pure update?
+        rslt = least_squares(_error_landscape_divergence, x0=params, jac='3-point', bounds=(0., 200), method='dogbox', loss='soft_l1')
+        self._leastsquares_params[1 if cst_datasize else None: -2 if cst_modelsize else None] = rslt.x  # TODO: smooth averaging window instead of pure update?
 
         # Additional online training of fully connected model for better validation error landscape prediction
         if self._use_additional_nn_model:
             raise NotImplementedError
-            hhp={...}
-            loss=torch.optim.RMSprop(self._nn_metamodel.params, lr=self.hhp['lr'], weight_decay=hhp['weight_decay'], momentum=hhp['momentum'])
+            hhp = {...}
+            loss = torch.optim.RMSprop(self._nn_metamodel.params, lr=self.hhp['lr'], weight_decay=hhp['weight_decay'], momentum=hhp['momentum'])
             # TODO: basic training procedure
             # TODO: online training considerations
             # TODO: create and train on 'meta' dataset from MLFlow?
 
     def forward(self, model: Union[nn.Module, int], trainset: Union[DataLoader, int]) -> float:
-        model_capacity=meta.nn.get_model_capacity(model) if issubclass(model, nn.Module) else model
-        trainset_size=trainset if issubclass(trainset, int) else len(trainset)
-        estimation=error_landscape_estimation(self._leastsquares_params, model_capacity, trainset_size)
+        model_capacity = meta.nn.get_model_capacity(model) if issubclass(model, nn.Module) else model
+        trainset_size = trainset if issubclass(trainset, int) else len(trainset)
+        estimation = error_landscape_estimation(self._leastsquares_params, model_capacity, trainset_size)
 
         if self._use_additional_nn_model:
             raise NotImplementedError
             # By default our model takes best train loss, best valid loss, model capacity and dataset size for each dataset subsets along with full dataset size, model capacity and 'error_landscape_estimation' model parameter vector previously fitted with least-squares regression
-            x=torch.Tensor([estimation, *self._leastsquares_params, model_capacity, trainset_size, subsets_results])
+            x = torch.Tensor([estimation, *self._leastsquares_params, model_capacity, trainset_size, subsets_results])
             if self._fit_using_hps:
                 # TODO: Process hyper-parameters into a distance-like hash/embedding
                 torch.cat(x, ...)
@@ -225,20 +253,20 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
         return estimation
 
     @staticmethod
-    def error_landscape_estimation(metaparms: np.array, m: Optional[int]=None, n: Optional[int]=None) -> float:
+    def error_landscape_estimation(metaparms: np.array, m: Optional[int] = None, n: Optional[int] = None) -> float:
         """ Enveloppe function modeling how best valid loss varies according to model size (m) and trainset size (n).
         This simple model's parameters (metaparms) can be fitted on a few training results over trainset subsets (~5-6 subsets) in order to predict model's generealization capability over full trainset without having to train on whole dataset.
         Thus, fitting this model during hyperparameter search can save time by estimating how promising is a hyperparmeter setup.
         NOTE: if 'm' is None, model capacity is considered to be constant and 'b'/'beta' term will be zeroed/ignored; if 'n' is None, then trainset size is considered to be constant and 'a'/'alpha' term will be zeroed/ignored (allows to simplify model, as constant terms in 'emn' are redundant with 'cinf' parameter)
         TODO: make bayesian estimate of least-squares regression uncertainty of this model by choosing appropriate à-prioris (+ combine this estimation with NN's uncertainty)
         """
-        eps0, cinf, eta=metaparms[0 if n is None else 1:3]
-        emn=cinf
+        eps0, cinf, eta = metaparms[0 if n is None else 1:3]
+        emn = cinf
         if n is not None:
-            a, alpha=1., metaparms[0]  # 'a=1' because it is a redundant parameter: equivalent to divide 'emn' by 'a' with 'eta' value replaced by 'a * eta'
+            a, alpha = 1., metaparms[0]  # 'a=1' because it is a redundant parameter: equivalent to divide 'emn' by 'a' with 'eta' value replaced by 'a * eta'
             emn += a * np.power(float(n), -alpha)
         if m is not None:
-            b, beta=metaparms[-2:]
+            b, beta = metaparms[-2:]
             emn += b * np.power(float(m), -beta)
         return eps0 * np.absolute(emn / (emn - eta * 1j))  # Complex absolute, i.e. 2D L2 norm
 

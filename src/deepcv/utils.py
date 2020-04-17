@@ -15,14 +15,15 @@ import logging
 import builtins
 import threading
 import importlib
-import numpy as np
 from pathlib import Path
 from types import SimpleNamespace
 from functools import singledispatch
 from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence
 
-import torch
+import numpy as np
 from tqdm import tqdm
+
+import torch
 from kedro.io import DataCatalog
 
 from src.tests.tests_utils import test_module

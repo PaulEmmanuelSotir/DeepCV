@@ -37,7 +37,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 class ObjectDetector(meta.nn.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Size, module_creators: Dict[str, Callable], hp: Dict[str, Any]):
+    def __init__(self, input_shape: torch.Size, module_creators: Dict[str, Callable], hp: meta.hyperparams.Hyperparameters):
         super(ObjectDetector, self).__init__(input_shape, hp)
         self._xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(self._hp['act_fn']))
         self._features_shapes = [self.input_shape]
@@ -93,16 +93,16 @@ class ObjectDetector(meta.nn.DeepcvModule):
 
 
 def get_object_detector_pipelines():
-    p1 = Pipeline([node(utils.merge_dicts, name='merge_hyperparameters', inputs=['params:object_detector', 'params:cifar10'], outputs=['hp']),
-                   node(meta.data.preprocess.preprocess_cifar, name='preprocess_cifar_dataset', inputs=['cifar10_train', 'cifar10_test', 'hp'], outputs=['dataset']),
+    p1 = Pipeline([node(meta.hyperparams.merge_hyperparameters, name='merge_hyperparameters', inputs=['params:object_detector', 'params:cifar10_preprocessing'], outputs=['hp']),
+                   node(meta.data.preprocess.preprocess, name='preprocess_cifar_dataset', inputs=['trainset', 'testset', 'hp'], outputs=['dataset']),
                    node(create_model, name='create_object_detection_model', inputs=['dataset', 'hp'], outputs=['model']),
                    node(train, name='train_object_detector', inputs=['dataset', 'model', 'hp'], outputs=None)],
                   name='object_detector_training')
     return [p1]
 
 
-def create_model(trainset: DataLoader, hp: Dict[str, Any]):
-    dummy_img, dummy_target = trainset[0][0]
+def create_model(dataset: Dict[str, DataLoader], hp: meta.hyperparams.Hyperparameters):
+    dummy_img, dummy_target = dataset['train_loader'][0][0]
     input_shape = dummy_img.shape
     hp['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
@@ -111,7 +111,7 @@ def create_model(trainset: DataLoader, hp: Dict[str, Any]):
     return model
 
 
-def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: Dict[str, Any]):
+def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: meta.hyperparams.Hyperparameters):
     backend_conf = meta.ignite_training.BackendConfig(dist_backend=hp['dist_backend'], dist_url=hp['dist_url'], local_rank=hp['local_rank'])
     metrics = {'accuracy': Accuracy(device='cuda:{backend_conf.local_rank}' if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()
@@ -127,7 +127,7 @@ def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: Dict[
     return meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
 
 
-def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]) -> nn.Module:
+def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
     prev_dim = len(prev_shapes[1:])
     if prev_dim >= 4:
         return nn.AvgPool3d(**layer_params)
@@ -136,13 +136,13 @@ def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Si
     return nn.AvgPool1d(**layer_params)
 
 
-def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]) -> nn.Module:
+def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
     layer_params['in_channels'] = prev_shapes[-1][1]
     layer = meta.nn.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
     return layer
 
 
-def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: Dict[str, Any]) -> nn.Module:
+def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
     layer_params['in_features'] = np.prod(prev_shapes[-1][1:])  # We assume here that features/inputs are given in batches
     if 'out_features' not in layer_params:
         # Handle last fully connected layer (no dropout nor batch normalization for this layer)

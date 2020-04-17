@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Hyperparameter search meta module - hpsearch.py - `DeepCV`__
+""" Hyperparameter search meta module - hyperparams.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import collections
@@ -269,6 +269,12 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             b, beta = metaparms[-2:]
             emn += b * np.power(float(m), -beta)
         return eps0 * np.absolute(emn / (emn - eta * 1j))  # Complex absolute, i.e. 2D L2 norm
+
+
+def merge_hyperparameters(*dicts: Iterable[Dict[str, Any]]) -> Hyperparameters:
+    """ Utils function used to merge given dictionnaries into a `hyperparams.Hyperparameters` class instance """
+    merged = utils.merge_dicts(*dicts)
+    return Hyperparameters(*merged)
 
 
 if __name__ == '__main__':

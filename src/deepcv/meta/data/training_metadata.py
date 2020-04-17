@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 
 from deepcv import utils
-import deepcv.meta.hpsearch as hpsearch
+import deepcv.meta.hyperparams as hyperparams
 import deepcv.meta.data.datasets as datasets
 from ...tests.tests_utils import test_module
 
@@ -62,14 +62,14 @@ class MetaTracker:
 
     def store_dataset_stats(self, trainset: datasets.PytorchDatasetWarper, dataset_name: str = ''):
         """ Store train dataset statistics and name """
-        dataset_stats = tainset.get_dataset_stats()
+        dataset_stats = trainset.get_dataset_stats()
         raise NotImplementedError
         return dataset_stats
 
     def update_experiments_from_mlflow(self):
         raise NotImplementedError
 
-    def remove_entry(entry_id: Union[uuid.UUID, datasets.DatasetStats, Experiment, Task, hpsearch.NNI_HP_SPACE_T, hpsearch.HP_T]):
+    def remove_entry(entry_id: Union[uuid.UUID, datasets.DatasetStats, Experiment, Task, hyperparams.HyperparameterSpace, hyperparams.Hyperparameters]):
         """ Removes metadata entry from metadataset by its UUID """
         raise NotImplementedError
 
@@ -81,9 +81,9 @@ class MetaTracker:
         is_str = isinstance(entry_type, str)
         if is_str and entry_type == 'Task' or entry_type is Task:
             ...
-        elif is_str and entry_type == 'HyperparameterSpace' or entry_type is hpsearch.HyperparameterSpace:
+        elif is_str and entry_type == 'HyperparameterSpace' or entry_type is hyperparams.HyperparameterSpace:
             ...
-        elif is_str and entry_type == 'Hyperparameters' or entry_type is hpsearch.Hyperparameters:
+        elif is_str and entry_type == 'Hyperparameters' or entry_type is hyperparams.Hyperparameters:
             ...
         elif is_str and entry_type == 'Experiment' or entry_type is Experiment:
             ...

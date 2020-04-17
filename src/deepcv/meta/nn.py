@@ -34,6 +34,7 @@ class DeepcvModule(nn.Module):
     """ DeepCV PyTorch Module model base class
     Handles hyperparameter defaults and basic shared convolution block for transfert learning between all DeepCV models
     # TODO: implement basic conv block shared by all DeepcvModules (frozen weights by default, and allow forking of these weights to be specific to a given model)
+    # TODO: move code from ObjectDetector into DeepcvModule and move DeepcvModule to its own python src file
     """
 
     HP_DEFAULTS = ...

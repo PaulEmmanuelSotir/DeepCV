@@ -20,6 +20,7 @@ import torchvision.datasets
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
 import deepcv.utils
+import deepcv.meta.hyperparams as hyperparams
 from deepcv.meta.data.training_metadata import TrainingMetaData
 from ....tests.tests_utils import test_module
 
@@ -55,6 +56,11 @@ class DatasetStats(TrainingMetaData):
     def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
         super(self.__class__).__init__(self, existing_uuid)
         # TODO: store dataset datas
+
+
+def create_validset(trainset: PytorchDatasetWarper, hp: hyperparams.Hyperparameters) -> PytorchDatasetWarper:
+    raise NotImplementedError
+    return None
 
 
 def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int], **dataloader_kwargs) -> DataLoader:

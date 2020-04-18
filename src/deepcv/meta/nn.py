@@ -9,7 +9,6 @@ import inspect
 import logging
 from enum import Enum, auto
 from types import SimpleNamespace
-from collections import OrderedDict
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
 
 import numpy as np
@@ -21,93 +20,17 @@ import torch.distributions as tdist
 from hilbertcurve.hilbertcurve import HilbertCurve
 
 from deepcv import utils
+import deepcv.meta as meta
 from ...tests.tests_utils import test_module
 
-__all__ = ['DeepcvModule', 'HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
+__all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
            'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'type_or_instance_is', 'is_fully_connected',
            'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class DeepcvModule(nn.Module):
-    """ DeepCV PyTorch Module model base class
-    Handles hyperparameter defaults and basic shared convolution block for transfert learning between all DeepCV models
-    # TODO: implement basic conv block shared by all DeepcvModules (frozen weights by default, and allow forking of these weights to be specific to a given model)
-    # TODO: move code from ObjectDetector into DeepcvModule and move DeepcvModule to its own python src file
-    """
-
-    HP_DEFAULTS = ...
-    SHARED_BLOCK_DISABLED_WARNING_MSG = 'Warning: `DeepcvModule.{}` called while `self._enable_shared_image_embedding_block` is `False` (Shared image embedding block disabled for this model)'
-
-    def __init__(self, input_shape: torch.Size, hp: Dict[str, Any], enable_shared_block: bool = True, freeze_shared_block: bool = True):
-        super(DeepcvModule, self).__init__()
-        assert HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
-
-        self._input_shape = input_shape
-        self._hp = {n: v for n, v in hp if n in HP_DEFAULTS}
-        self._hp.update({n: v for n, v in HP_DEFAULTS if n not in hp and v != ...})
-        missing_hyperparams = [n for n in HP_DEFAULTS if n not in self.hyper_params]
-
-        self._forked = False
-        self._enable_shared_image_embedding_block = enable_shared_block
-        self.freeze_shared_image_embedding_block = freeze_shared_block
-        if enable_shared_block and not 'shared_image_embedding_block' in self.__class__.__dict__:
-            # If class haven't been instanciated yet, define common/shared DeepcvModule image embedding block
-            self.__class__._define_shared_image_embedding_block()
-
-        assert len(missing_hyperparams) > 0, f'Error: Missing required hyper-parameter in "{self.__class__.__name__}" module parameters'
-
-    @property
-    def freeze_shared_image_embedding_block(self) -> bool:
-        return self._freeze_shared_image_embedding_block
-
-    @property.setter
-    def set_freeze_shared_image_embedding_block(self, freeze_weights: bool):
-        if self._enable_shared_image_embedding_block:
-            self._freeze_shared_image_embedding_block = freeze_weights
-            # TODO: freeze/unfreeze weights...
-            # TODO: handle concurency between different models training at the same time with unfreezed shared weights
-        else:
-            logging.warn(SHARED_BLOCK_DISABLED_WARNING_MSG.format('set_freeze_shared_image_embedding_block'))
-
-    def fork_shared_image_embedding_block(self) -> bool:
-        """ Copies/forks basic image embedding convolution block's shared weights to be specific to current model (won't be shared anymore)
-        Returns whether shared image embedding block have been sucefully forked in current model.
-        # TODO: Implementation
-        """
-        if self._enable_shared_image_embedding_block:
-            raise NotImplementedError
-            self._forked = True
-            return True
-        else:
-            logging.warn(SHARED_BLOCK_DISABLED_WARNING_MSG.format('fork_shared_image_embedding_block'))
-        return False
-
-    def merge_shared_image_embedding_block(self):
-        """ Merges current model image embedding block's forked weights with shared weights among all DeepCV model
-        Won't do anyhthing if image embedding block haven't been forked previously or if they haven't been modified.
-        Once image embedding block parameters have been merged with shared ones, current model image embedding block won't be forked anymore (shared weights).
-        Returns whether forked image embedding block have been sucefully merged with shared parameters.
-        # TODO: Implementation
-        """
-        if self._enable_shared_image_embedding_block:
-            raise NotImplementedError
-            self._forked = False
-            return True
-        else:
-            logging.warn(SHARED_BLOCK_DISABLED_WARNING_MSG.format('merge_shared_image_embedding_block'))
-        return False
-
-    @classmethod
-    def _define_shared_image_embedding_block(cls):
-        logging.info('Creating shared image embedding block of DeepcvModule models...')
-        raise NotImplementedError
-        layers = []
-        cls.shared_image_embedding_block = nn.Sequential(OrderedDict(layers))
-
-
-class HybridConnectivityGatedNet(DeepcvModule):
+class HybridConnectivityGatedNet(meta.base_module.DeepcvModule):
     """ Implementation of Hybrid Connectivity Gated Net (HCGN), residual/dense conv block architecture from the following paper: https://arxiv.org/pdf/1908.09699.pdf """
     HP_DEFAULTS = {'modules': ..., 'batch_norm': None, 'dropout_prob': 0.}
 
@@ -134,7 +57,7 @@ class HybridConnectivityGatedNet(DeepcvModule):
         return self.net(x)
 
 
-def to_multiscale_inputs_model(model: DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
+def to_multiscale_inputs_model(model: meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
     """ Turns a given deepcv module to a similar models which takes `scales` inputs at different layer depth instead of one input at first layer.
     Each new inputs are downscaled by a 2 factor, thus if you input `model` takes a 3x100x100 image the returned model will take 3 images of these respective shapes: (3x100x100; 3x50x50, 3x25x25) (assuming we have `no_downscale_dims=(0,)` and `scales=3`)
     Args:
@@ -160,7 +83,7 @@ def to_multiscale_inputs_model(model: DeepcvModule, scales: int = 3, no_downscal
     return type(model)(model._input_shape, new_hp)
 
 
-def to_multiscale_outputs_model(model: DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
+def to_multiscale_outputs_model(model: meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
     """
     TODO: similar implementation than to_multiscale_inputs_model
     """

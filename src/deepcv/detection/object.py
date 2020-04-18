@@ -34,7 +34,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 # TODO: make this model fully generic and move it to meta.nn (allow module_creators to be extended and/or overriden)
 
 
-class ObjectDetector(meta.nn.DeepcvModule):
+class ObjectDetector(meta.base_module.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
     def __init__(self, input_shape: torch.Size, module_creators: Dict[str, Callable], hp: meta.hyperparams.Hyperparameters):

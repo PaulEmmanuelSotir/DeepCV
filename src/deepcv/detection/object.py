@@ -4,7 +4,6 @@
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import re
-import inspect
 import multiprocessing
 from pathlib import Path
 from collections import OrderedDict
@@ -37,59 +36,13 @@ __author__ = 'Paul-Emmanuel Sotir'
 class ObjectDetector(meta.base_module.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Size, module_creators: Dict[str, Callable], hp: meta.hyperparams.Hyperparameters):
-        super(ObjectDetector, self).__init__(input_shape, hp)
-        self._xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(self._hp['act_fn']))
-        self._features_shapes = [self.input_shape]
-        self._hp['architecture'] = list(self._hp['architecture'])
-
-        # Define neural network architecture
-        modules = []
-        for i, (name, params) in enumerate(self._hp['architecture']):
-            # Create layer/block module from module_creators function dict
-            fn = module_creators.get(name)
-            if not fn:
-                # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
-                try:
-                    fn = utils.get_by_identifier(name)
-                except Exception as e:
-                    raise RuntimeError(f'Error: Could not locate module/function named "{name}" given module creators: "{module_creators.keys()}"') from e
-            available_params = {'layer_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
-            modules.append((f'module_{i}', fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})))
-
-            # Get neural network output features shapes by performing a dummy forward
-            with torch.no_grad():
-                dummy_batch_x = torch.unsqueeze(torch.zeros(self._input_shape), dim=0)
-                self._features_shapes.append(nn.Sequential(*modules)(dummy_batch_x).shape)
-        self._net = nn.Sequential(OrderedDict(modules))
-        self.apply(self._initialize_weights)
+    def __init__(self, input_shape: torch.Size, submodule_creators: Dict[str, Callable], hp: meta.hyperparams.Hyperparameters):
+        super(self.__class__).__init__(self, input_shape, hp)
+        self._net = self._define_nn_architecture(self._hp['architecture'], submodule_creators)
+        self._initialize_parameters(self._hp['act_fn'])
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return self._net(x)  # Apply whole neural net architecture
-
-    def __str__(self) -> str:
-        capacity = utils.human_readable_size(meta.nn.get_model_capacity(self))
-        modules_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}' for (n, p), s in zip(self._hp['architecture'], self._features_shapes)])
-        return f'{self.__class__.__name__} (capacity={capacity}):\n\t{modules_str}'
-
-    def get_inputs(self) -> Iterable[torch.Tensor]:
-        raise NotImplementedError
-
-    def get_outputs(self) -> Iterable[torch.Tensor]:
-        raise NotImplementedError
-
-    def _initialize_weights(self, module: nn.Module):
-        if meta.nn.is_conv(module):
-            nn.init.xavier_normal_(module.weight.data, gain=self._xavier_gain)
-            module.bias.data.fill_(0.)
-        elif utils.is_fully_connected(module):
-            nn.init.xavier_uniform_(module.weight.data, gain=self._xavier_gain)
-            module.bias.data.fill_(0.)
-        elif type(module).__module__ == nn.BatchNorm2d.__module__:
-            nn.init.uniform_(module.weight.data)  # gamma == weight here
-            module.bias.data.fill_(0.)  # beta == bias here
-        elif list(module.parameters(recurse=False)) and list(module.children()):
-            raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
 
 
 def get_object_detector_pipelines():

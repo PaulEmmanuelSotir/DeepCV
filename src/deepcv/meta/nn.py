@@ -265,7 +265,7 @@ def meta_layer(input_feature_shape: torch.Size, target_module: nn.Parameter):
     return nn.Sequential(OrderedDict(ops))
 
 
-def get_gain_name(act_fn: type) -> str:
+def get_gain_name(act_fn: Type[nn.Module]) -> str:
     """ Intended to be used with nn.init.calculate_gain(str):
     .. Example: nn.init.calculate_gain(get_gain_act_name(nn.ReLU))
     """

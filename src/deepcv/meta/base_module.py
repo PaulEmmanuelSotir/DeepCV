@@ -143,8 +143,8 @@ class DeepcvModule(nn.Module):
                 except Exception as e:
                     raise RuntimeError(f'Error: Could not locate module/function named "{name}" given module creators: "{submodule_creators.keys()}"') from e
             available_params = {'layer_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
-            module = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters}))
-                modules.append((f'module_{i}', module)
+            module = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})
+            modules.append(f'module_{i}', module)
             self._submodules_capacities.append(meta.nn.get_model_capacity(module))
 
             # Get neural network output features shapes by performing a dummy forward

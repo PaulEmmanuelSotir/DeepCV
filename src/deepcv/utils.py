@@ -200,9 +200,10 @@ def is_roughtly_constant(values: Sequence[Number], threshold: float = 0.01) -> b
 
 
 def get_by_identifier(identifier: str):
-    if re.fullmatch(r'[\w\.]*\w', identifier):
+    regex = r'[\w\.]*\w'
+    if re.fullmatch(regex, identifier):
         *module_str, name = identifier.split('.')
-        module_str = '.'.join(*module_str)
+        module_str = '.'.join(module_str)
         if module_str:
             module = importlib.import_module(module_str)
             return module.__getattribute__(name)
@@ -210,7 +211,9 @@ def get_by_identifier(identifier: str):
             return globals()[name]
         elif name in locals():
             return locals()[name]
-        raise RuntimeError(f'Error: can\'t find ``{name}`` identifier (you may have to specify its module)')
+        raise RuntimeError(f'Error: can\'t find ``{identifier}`` identifier (you may have to specify its module)')
+    else:
+        raise ValueError(f'Error: bad identifier given in `utils.get_by_identifier` function (identifier="{identifier}" must match "{regex}" regex)')
 
 
 def yolo(self: DataCatalog, *search_terms):

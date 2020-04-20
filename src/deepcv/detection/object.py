@@ -36,9 +36,9 @@ __author__ = 'Paul-Emmanuel Sotir'
 class ObjectDetector(meta.base_module.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Size, submodule_creators: Dict[str, Callable], hp: meta.hyperparams.Hyperparameters):
+    def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters):
         super(self.__class__).__init__(self, input_shape, hp)
-        self._net = self._define_nn_architecture(self._hp['architecture'], submodule_creators)
+        self._net = self._define_nn_architecture(self._hp['architecture'])
         self._initialize_parameters(self._hp['act_fn'])
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -59,8 +59,7 @@ def create_model(dataset: Dict[str, DataLoader], hp: meta.hyperparams.Hyperparam
     input_shape = dummy_img.shape
     hp['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
-    module_creators = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected, 'flatten': _create_flatten}
-    model = ObjectDetector(input_shape, module_creators, hp['model'])
+    model = ObjectDetector(input_shape, hp['model'])
     return model
 
 
@@ -78,30 +77,6 @@ def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: meta.
     dataloaders = (DataLoader(ds, hp['batch_size'], shuffle=True if i == 0 else False, num_workers=workers) for i, ds in enumerate(datasets))
 
     return meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
-
-
-def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
-    prev_dim = len(prev_shapes[1:])
-    if prev_dim >= 4:
-        return nn.AvgPool3d(**layer_params)
-    elif prev_dim >= 2:
-        return nn.AvgPool2d(**layer_params)
-    return nn.AvgPool1d(**layer_params)
-
-
-def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
-    layer_params['in_channels'] = prev_shapes[-1][1]
-    layer = meta.nn.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
-    return layer
-
-
-def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
-    layer_params['in_features'] = np.prod(prev_shapes[-1][1:])  # We assume here that features/inputs are given in batches
-    if 'out_features' not in layer_params:
-        # Handle last fully connected layer (no dropout nor batch normalization for this layer)
-        layer_params['out_features'] = self._output_size  # TODO: handle output layer elsewhere
-        return meta.nn.fc_layer(layer_params)
-    return meta.nn.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
 
 
 if __name__ == '__main__':

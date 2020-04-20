@@ -32,29 +32,37 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 class HybridConnectivityGatedNet(meta.base_module.DeepcvModule):
     """ Implementation of Hybrid Connectivity Gated Net (HCGN), residual/dense conv block architecture from the following paper: https://arxiv.org/pdf/1908.09699.pdf """
-    HP_DEFAULTS = {'modules': ..., 'batch_norm': None, 'dropout_prob': 0.}
+    HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
     def __init__(self, input_shape: torch.Size, hp: Dict[str, Any]):
         """ HybridConnectivityGatedNet __init__ function
         Args:
             hp: Hyperparameters
         """
-        super(HybridConnectivityGatedNet, self).__init__(input_shape, hp)
-        smg_modules = []
-        for i, module_opts in enumerate(hp['modules']):
-            prev_module = smg_modules[-1]
-            gating = 'TODO'  # TODO: !!
-            raise NotImplementedError
-            ops = [('cell1', squeeze_cell(hp)), ('cell2', multiscale_exitation_cell(hp)), ('gating', gating)]
-            smg_modules.append((f'smg_module_{i}', nn.Sequential(OrderedDict(ops))))
-        self.net = nn.Sequential(OrderedDict(smg_modules))
+        super(self.__class__, self).__init__(input_shape, hp)
+        submodule_creators = meta.base_module.BASIC_SUBMODULE_CREATORS.update({'smg_module': self._smg_module_creator})
+        self._net = self._define_nn_architecture(hp['architecture'], submodule_creators)
+        self._initialize_parameters(hp['act_fn'])
+
+        # smg_modules = []
+        # for i, module_opts in enumerate(hp['modules']):
+        #     prev_module = smg_modules[-1]
+        #     gating = 'TODO'  # TODO: !!
+        #     raise NotImplementedError
+        #     ops = [('cell1', squeeze_cell(hp)), ('cell2', multiscale_exitation_cell(hp)), ('gating', gating)]
+        #     smg_modules.append((f'smg_module_{i}', nn.Sequential(OrderedDict(ops))))
+        # self.net = nn.Sequential(OrderedDict(smg_modules))
 
     def forward(self, x: torch.Tensor):
-        """ Forward propagation of given input tensor through conv neural network
+        """ Forward propagation of given input tensor through conv hybrid gated neural network
         Args:
             - input: Input tensor fed to convolutional neural network (must be of shape (N, C, W, H))
         """
-        return self.net(x)
+        return self._net(x)
+
+    @staticmethod
+    def _smg_module_creator():
+        raise NotImplementedError
 
 
 def to_multiscale_inputs_model(model: meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):

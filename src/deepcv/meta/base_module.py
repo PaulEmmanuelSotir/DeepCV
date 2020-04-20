@@ -4,6 +4,7 @@
 Defines DeepCV model base class
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
+import types
 import inspect
 import logging
 from collections import OrderedDict
@@ -12,12 +13,16 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 import torch
 import torch.nn as nn
 
+import numpy as np
+
 import deepcv.meta as meta
 import deepcv.utils as utils
 from tests.tests_utils import test_module
 
-__all__ = ['DeepcvModule']
+__all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleDescriptor']
 __author__ = 'Paul-Emmanuel Sotir'
+
+BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected}
 
 
 class DeepcvModule(nn.Module):
@@ -25,7 +30,9 @@ class DeepcvModule(nn.Module):
     Handles hyperparameter defaults, NN architecture definition tooling and basic shared convolution block for transfert learning between all DeepCV models
     Child class must define `HP_DEFAULTS` class attribute, with at least the following keys: `{'architecture': ..., 'act_fn': ...}` and other needed hyperparameters deepending on which sub-module are specified in `architecture` definition
     For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule._define_nn_architecture`.
-    # TODO: implement basic conv block shared by all DeepcvModules (frozen weights by default, and allow forking of these weights to be specific to a given model)
+    NOTE: in order `_features_shapes`, `_submodules_capacities` and `self._architecture_spec` attributes to be defined and contain NN sumbmodules informations, you need to call `DeepcvModule._define_nn_architecture` or update it by yourslef according to your NN architecture.
+    NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self._define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` or self._hp['architecture'] contains architecture definition (similar value than `self._define_nn_architecture`'s `architecture_spec` argument would have).
+    # TODO: implement basic conv block shared by all DeepcvModules (frozen weights by default, and allow forking of these weights to be specific to a given model) + update architecture_spec/features_shapes
     # TODO: move code from ObjectDetector into DeepcvModule
     """
 
@@ -37,13 +44,11 @@ class DeepcvModule(nn.Module):
 
         # Process module hyperparameters
         assert self.__class__.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
-        self.HP_DEFAULTS.update(_BASE_DEECV_MODULE_DEFAULTS)
         self._hp, missing_hyperparams = hp.with_defaults(self.__class__.HP_DEFAULTS)
         assert len(missing_hyperparams) > 0, f'Error: Missing required hyper-parameter in "{self.__class__.__name__}" module parameters. (missing: "{missing_hyperparams}")'
 
         self._input_shape = input_shape
         self._shared_block_forked = False
-        self._features_shapes = [self.input_shape]
         self._enable_shared_image_embedding_block = enable_shared_block
 
         self.freeze_shared_image_embedding_block = freeze_shared_block
@@ -52,9 +57,16 @@ class DeepcvModule(nn.Module):
             self.__class__._define_shared_image_embedding_block()
 
     def __str__(self) -> str:
-        capacity = utils.human_readable_size(meta.nn.get_model_capacity(self))
-        modules_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}' for (n, p), s in zip(self._hp['architecture'], self._features_shapes)])
-        return f'{self.__class__.__name__} (capacity={capacity}):\n\t{modules_str}'
+        """ Describes DeepCV module in a human readable text string, see `DeepcvModule.describe()` function or `DeepcvModuleDescriptor` class for more details """
+        return str(self.describe())
+
+    def describe(self) -> DeepcvModuleDescriptor:
+        """ Describes DeepCV module with its architecture, capacity and features shapes at sub-modules level.
+        Args:
+            - to_string: Whether deepcv NN module should be described by a human-readable text string or a NamedTuple of various informations which, for example, makes easier to visualize model's sub-modules capacities or features shapes...
+        Returns a `DeepcvModuleDescriptor` which contains model name, capacity, and eventually submodules names, feature shapes/dims/sizes and capacities...
+        """
+        return DeepcvModuleDescriptor(self)
 
     def get_inputs(self) -> Iterable[torch.Tensor]:
         raise NotImplementedError
@@ -103,8 +115,23 @@ class DeepcvModule(nn.Module):
             logging.warn(self.__class__.SHARED_BLOCK_DISABLED_WARNING_MSG.format('merge_shared_image_embedding_block'))
         return False
 
-    def _define_nn_architecture(self, architecture_spec, submodule_creators: Dict[str, Callable]):
-        """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly """
+    def _define_nn_architecture(self, architecture_spec, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
+        """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
+        NOTE: defines `self._features_shapes`, `self._submodules_capacities` and `self._architecture_spec` attributes (usefull for debuging and `self.__str__` and `self.describe` functions)
+        Args:
+            - architecture_spec: Neural net architecture definition listing submodules to be created with their respective parameters (probably from hyperparameters of `conf/base/parameters.yml` configuration file)
+            - submodule_creators: Dict of possible architecture sub-modules associated with their respective module creators. If None, then defaults to `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS`.
+            - extend_basic_submodule_creators_dict: Boolean indicating whether `submodule_creators` argument will be extended with `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS` dict or not. i.e. whether `submodule_creators` defines additionnal sub-modules or all existing sub-modules. (if `True` and some submodule name(s) (i.e. Dict key(s)) are both present in `submodule_creators` and  `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS`, then `submodule_creators` dict values (submodule creator(s) Callable(s)) will override defaults/basic one(s)).
+        """
+        self._features_shapes = [self._input_shape]
+        self._architecture_spec = architecture_spec
+        self._submodules_capacities = []
+
+        if submodule_creators is None:
+            submodule_creators = BASIC_SUBMODULE_CREATORS
+        elif extend_basic_submodule_creators_dict:
+            submodule_creators = {**BASIC_SUBMODULE_CREATORS, **submodule_creators}
+
         modules = []
         for i, (name, params) in enumerate(architecture_spec):
             # Create layer/block module from module_creators function dict
@@ -116,7 +143,9 @@ class DeepcvModule(nn.Module):
                 except Exception as e:
                     raise RuntimeError(f'Error: Could not locate module/function named "{name}" given module creators: "{submodule_creators.keys()}"') from e
             available_params = {'layer_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
-            modules.append((f'module_{i}', fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})))
+            module = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters}))
+                modules.append((f'module_{i}', module)
+            self._submodules_capacities.append(meta.nn.get_model_capacity(module))
 
             # Get neural network output features shapes by performing a dummy forward
             with torch.no_grad():
@@ -154,6 +183,74 @@ class DeepcvModule(nn.Module):
         raise NotImplementedError
         layers = []
         cls.shared_image_embedding_block = nn.Sequential(OrderedDict(layers))
+
+
+class DeepcvModuleDescriptor:
+    """ Describes DeepCV module with its architecture, capacity and features shapes at sub-modules level """
+
+    def __init__(self, module: DeepcvModule):
+        self.module = module
+
+        if '_architecture_spec' in module.__dict__:
+            # NOTE: `module.architecture_spec` attribute will be defined if `module._define_nn_architecture` is called
+            architecture_spec = module._architecture_spec
+        elif 'architecture' in module._hp:
+            # otherwise, we try to look for architecture/sub-modules configuration in hyperparameters dict
+            architecture_spec = module._hp['architecture']
+        else:
+            architecture_spec = None
+            logging.warn(f"Warning: `{self.__class__.__name__}({module.__class__})`: cant find NN architecture, no `module.architecture_spec` attr. nor `architecture` in `module._hp`")
+
+        # Fills and return a DeepCV module descriptor
+        self.capacity = meta.nn.get_model_capacity(module)
+        self.human_readable_capacity = utils.human_readable_size(capacity)
+        self.model_class = module.__class__
+        self.model_class_name = module.__class__.__name__
+
+        if '_features_shapes' in module.__dict__:
+            self.submodules_features_shapes = module._features_shapes
+            self.submodules_features_dims = map(len, module._features_shapes)
+            self.submodules_features_sizes = map(np.prod, module._features_shapes)
+        if architecture_spec is not None:
+            self.architecture = architecture_spec
+            self.submodules_types = [n for n, v in architecture_spec]
+        if '_submodules_capacities' in module.__dict__:
+            self.submodules_capacities = module._submodules_capacities
+            self.human_readable_capacities = map(utils.human_readable_size, module._submodules_capacities)
+
+    def __str__(self) -> str:
+        """ Ouput a human-readable string representation of the deepcv module based on its descriptor """
+        if self.architecture is not None:
+            features_shapes = self._features_shapes if '_features_shapes'
+            capas = map(utils.human_readable_size, self._submodules_capacities) if '_submodules_capacities' in self.__dict__ else ['UNKNOWN'] * len(architecture_spec)
+            modules_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(architecture_spec, features_shapes, capas)])
+        else:
+            modules_str = '(No architecture informations to describe)'
+        return f'{self.__class__.__name__} (capacity={capacity_str}):\n\t{modules_str}'
+
+
+def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+    prev_dim = len(prev_shapes[1:])
+    if prev_dim >= 4:
+        return nn.AvgPool3d(**layer_params)
+    elif prev_dim >= 2:
+        return nn.AvgPool2d(**layer_params)
+    return nn.AvgPool1d(**layer_params)
+
+
+def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+    layer_params['in_channels'] = prev_shapes[-1][1]
+    layer = meta.nn.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+    return layer
+
+
+def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+    layer_params['in_features'] = np.prod(prev_shapes[-1][1:])  # We assume here that features/inputs are given in batches
+    if 'out_features' not in layer_params:
+        # Handle last fully connected layer (no dropout nor batch normalization for this layer)
+        layer_params['out_features'] = self._output_size  # TODO: handle output layer elsewhere
+        return meta.nn.fc_layer(layer_params)
+    return meta.nn.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
 
 
 if __name__ == '__main__':

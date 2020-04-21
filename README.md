@@ -5,11 +5,14 @@ _This project is under Open Source MIT License, see [./LICENSE](./LICENSE) or mo
 
 __WIP: This Project is still under active developement, at an early stage of developement__  
 
-DeepCV is a small project which aims to simplify implementation of simple vision tasks. DeepCV allows to easily define vision processing pipelines by leveraging recent DeepLearning algorithms along with usual OpenCV tools.  
+DeepCV is a Kedro PyTorch project which aims to simplify implementation of simple vision tasks. DeepCV allows to easily define vision processing pipelines by leveraging recent DeepLearning algorithms along with usual OpenCV tools.  
 
 Some of DeepCV main features includes:
 - Custom lossless Image and video compression codec using learned arithmetic encoder policy to minimize images and video sizes (which means faster streaming, faster reading from disk, lower storage size) 
 - Feature extraction and matching using lightweight CNNs, allowing better reliability and reproducibility of image processing pipelines compared to implementation relying on classical feature  extractors like SIFT, ORB, ...
+- [`deepcv.meta`](./src/deepcv/meta) python module contains various utilities to make easier to [define models](./src/deepcv/meta/base_module.py), [train models with ignite](./src/deepcv/meta/ignite_training.py), [search hyperparameters with NNI](./src/deepcv/meta/hyperparams.py), follow and visualize training experiments with MLFlow/kedro/TensorboardX..., [preprocess](./src/deepcv/meta/data/preprocess.py) and [augment data](./src/deepcv/meta/data/augmentation.py), schedule learning rate(s) with [One Cycle policy](./src/deepcv/meta/one_cycle.py), perform meta-learning thanks to various tools like [`HyperparametersEmbedding`](./src/deepcv/meta/hyperparams.py) and thanks to meta deep-learning abstractions (e.g. [`Experiment`, `DatasetStats`, `Task`, `Hyperparameters`, `HyperparameterSpace`](./src/deepcv/meta/data/training_metadata.py)) stored at each experiments in a 'metadataset', ...
+- [`deepcv.meta.base_module.DeepcvModule`](./src/deepcv/meta/base_module.py) Base class for easier DeepCV model defintion: model sub-modules (NN blocks or layers) can be defined in a simple and generic manner in [`./conf/base/parameters.yml`](./conf/base/parameters.yml) and a shared image embedding block of a few convolution layers can allow transfert learning between any DeepCV image models by sharing, training, forking and/or merging these shared weights.
+- [`./conf/base/parameters.yml`] can also specify data augmentation and preprocessing recipes
 - ...
 
 ## Install instructions

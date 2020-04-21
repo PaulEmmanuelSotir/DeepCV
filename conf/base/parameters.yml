@@ -95,20 +95,20 @@ object_detector:
     dropout_prob: 0.0
     batch_norm: { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
     architecture:
-      - "conv2d": &input1 { kernel_size: [3, 3], out_channels: 4, padding: 0 }
       - "conv2d": { kernel_size: [3, 3], out_channels: 4, padding: 0 }
       - "conv2d": { kernel_size: [3, 3], out_channels: 4, padding: 0 }
-      - "avg_pooling": &reidual1 { kernel_size: [2, 2], stride: [2, 2] }
+      - "conv2d": { kernel_size: [3, 3], out_channels: 4, padding: 0 }
+      - "avg_pooling": ["residual1", { kernel_size: [2, 2], stride: [2, 2]}]
       - "conv2d": { kernel_size: [5, 5], out_channels: 16, padding: 0 }
       - "conv2d": { kernel_size: [5, 5], out_channels: 16, padding: 0 }
       - "avg_pooling": { kernel_size: [2, 2], stride: [2, 2] }
-      - "append": "residual1"
+      - "residual_link": { from: "residual1" }
       - "conv2d": { kernel_size: [5, 5], out_channels: 32, padding: 2 }
       - "conv2d": { kernel_size: [7, 7], out_channels: 32, padding: 3 }
       - "avg_pooling": { kernel_size: [2, 2], stride: [2, 2] }
       - "conv2d": { kernel_size: [5, 5], out_channels: 64, padding: 2 }
       - !py!deepcv.meta.nn.Flatten: null
-      - "fully_connected": &output1 null
+      - "fully_connected": {out_features: 10}
 
 # object_detector_hp_search:
 #   cross_validation: false

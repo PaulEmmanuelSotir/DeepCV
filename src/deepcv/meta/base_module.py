@@ -22,7 +22,10 @@ from tests.tests_utils import test_module
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleDescriptor']
 __author__ = 'Paul-Emmanuel Sotir'
 
-BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected}
+BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected,
+                            'residual_link': _residual_dense_link(is_residual=True), 'dense_link': _residual_dense_link(is_residual=False)}
+MODULE_CREATOR_CALLBACK_RETURN_T = Callable[[torch.Tensor, Dict[str, torch.Tensor]], torch.Tensor]
+MODULE_CREATOR_MODULE_RETURN_T = nn.Module
 
 
 class DeepcvModule(nn.Module):
@@ -32,8 +35,9 @@ class DeepcvModule(nn.Module):
     For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule._define_nn_architecture`.
     NOTE: in order `_features_shapes`, `_submodules_capacities` and `self._architecture_spec` attributes to be defined and contain NN sumbmodules informations, you need to call `DeepcvModule._define_nn_architecture` or update it by yourslef according to your NN architecture.
     NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self._define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` or self._hp['architecture'] contains architecture definition (similar value than `self._define_nn_architecture`'s `architecture_spec` argument would have).
-    # TODO: implement basic conv block shared by all DeepcvModules (frozen weights by default, and allow forking of these weights to be specific to a given model) + update architecture_spec/features_shapes
-    # TODO: move code from ObjectDetector into DeepcvModule
+    NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which is preferable for residual/dense links for example.
+    .. See examples of Deepcv model sub-modules architecture definition in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
+    # TODO: implement basic conv block shared by all DeepcvModules (shallow convs with zero-padding, output_shape must be same as input shape except for channel dim) (frozen weights by default, and allow forking of these weights to be specific to a given model) + update architecture_spec/features_shapes
     """
 
     HP_DEFAULTS = ...
@@ -55,6 +59,24 @@ class DeepcvModule(nn.Module):
         if enable_shared_block and not 'shared_image_embedding_block' in self.__class__.__dict__:
             # If class haven't been instanciated yet, define common/shared DeepcvModule image embedding block
             self.__class__._define_shared_image_embedding_block()
+
+    def forward(self, intput_img: torch.Tensor, channel_dim: int = 3):
+        # Apply shared image embedding block and combine it's output with input image (concats features over channel dimension)
+        x = torch.cat([intput_img, self.shared_image_embedding_block(intput_img)], dim=channel_dim)
+
+        # Apply object detector neural net architecture on top of shared image embedding features and input image
+        if len(self._forward_callbacks) > 0:
+            # TODO: find a better mechanism to avoid storage of all submodules output features during forward pass in case of residual/dense links (without too much added complexity)
+            prev_features_tensors = {}
+            for name, subm in self._submodules:
+                if name in self._forward_callbacks:
+                    x = self._forward_callbacks(x, prev_features_tensors)
+                else:
+                    x = subm(x)
+                prev_features_tensors[name] = x
+                return x
+        else:
+            return self._net(x)
 
     def __str__(self) -> str:
         """ Describes DeepCV module in a human readable text string, see `DeepcvModule.describe()` function or `DeepcvModuleDescriptor` class for more details """
@@ -117,7 +139,7 @@ class DeepcvModule(nn.Module):
 
     def _define_nn_architecture(self, architecture_spec, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
         """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
-        NOTE: defines `self._features_shapes`, `self._submodules_capacities` and `self._architecture_spec` attributes (usefull for debuging and `self.__str__` and `self.describe` functions)
+        NOTE: defines `self._features_shapes`, `self._submodules_capacities`, `self._forward_callbacks`, `self._submodules` and `self._architecture_spec` attributes (usefull for debuging and `self.__str__` and `self.describe` functions)
         Args:
             - architecture_spec: Neural net architecture definition listing submodules to be created with their respective parameters (probably from hyperparameters of `conf/base/parameters.yml` configuration file)
             - submodule_creators: Dict of possible architecture sub-modules associated with their respective module creators. If None, then defaults to `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS`.
@@ -126,32 +148,56 @@ class DeepcvModule(nn.Module):
         self._features_shapes = [self._input_shape]
         self._architecture_spec = architecture_spec
         self._submodules_capacities = []
+        self._forward_callbacks = {}
+        self._submodules = {}
 
         if submodule_creators is None:
             submodule_creators = BASIC_SUBMODULE_CREATORS
         elif extend_basic_submodule_creators_dict:
             submodule_creators = {**BASIC_SUBMODULE_CREATORS, **submodule_creators}
 
-        modules = []
-        for i, (name, params) in enumerate(architecture_spec):
-            # Create layer/block module from module_creators function dict
-            fn = submodule_creators.get(name)
+        submodules = []
+        for i, (submodule_type, params) in enumerate(architecture_spec):
+            submodule_name = f'submodule_{i}'
+            if issubclass(params, List) or issubclass(params, Tuple):
+                # Architecture definition specifies a sub-module name explicitly
+                submodule_name, params = *params
+            elif issubclass(params, str):
+                # Architecture definition specifies a sub-module name explicitly without any other sub-module parameters
+                submodule_name = params
+                params = {}
+            elif not issubclass(params, Dict):
+                raise RuntimeError(f'Error: Architecture sub-module spec. must either be a parameters Dict, or a submodule name along with parameters Dict, but got: "{params}".')
+
+            # Try to find sub-module creator or nn.Module which matches `submodule_type`
+            fn = submodule_creators.get(submodule_type)
             if not fn:
                 # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
                 try:
-                    fn = utils.get_by_identifier(name)
+                    fn = utils.get_by_identifier(submodule_type)
                 except Exception as e:
-                    raise RuntimeError(f'Error: Could not locate module/function named "{name}" given module creators: "{submodule_creators.keys()}"') from e
-            available_params = {'layer_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
-            module = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})
-            modules.append(f'module_{i}', module)
-            self._submodules_capacities.append(meta.nn.get_model_capacity(module))
+                    raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
 
-            # Get neural network output features shapes by performing a dummy forward
-            with torch.no_grad():
-                dummy_batch_x = torch.unsqueeze(torch.zeros(self._input_shape), dim=0)
-                self._features_shapes.append(nn.Sequential(*modules)(dummy_batch_x).shape)
-        return nn.Sequential(OrderedDict(modules))
+            # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn)
+            available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
+            module_or_callback = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})
+
+            # Figure out fn's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (see self.forward for more details about these callbacks)
+            if issubclass(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
+                self._forward_callbacks[submodule_name] = module_or_callback
+                submodules.append((submodule_name, None))
+            elif issubclass(module_or_callback, nn.Module):
+                submodules.append((submodule_name, module_or_callback))
+            else:
+                msg = f'Error: Wrong sub-module creator function/class __init__ return type (must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.'
+                raise RuntimeError(msg)
+
+                # Get neural network submodules capacity and output features shapes
+                self._submodules_capacities.append(meta.nn.get_model_capacity(module))
+                self._features_shapes.append(meta.nn.get_out_features_shape(nn.Sequential(*submodules)))
+
+        self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
+        self._submodules = dict(*submodules)
 
     def _initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
         xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(act_fn)) if act_fn else None
@@ -178,10 +224,13 @@ class DeepcvModule(nn.Module):
         self.apply(_xavier_init)
 
     @classmethod
-    def _define_shared_image_embedding_block(cls):
+    def _define_shared_image_embedding_block(cls, in_channels: int = 3):
         logging.info('Creating shared image embedding block of DeepcvModule models...')
-        raise NotImplementedError
-        layers = []
+        conv_opts = {'act_fn': nn.ReLU, 'batch_norm': {'affine': True, 'eps': 1e-05, 'momentum': 0.0736}}
+        layers = [meta.nn.conv_layer(conv2d={'in_channels': in_channels, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts),
+                  meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 16, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts),
+                  meta.nn.conv_layer(conv2d={'in_channels': 16, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts),
+                  meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 4, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)]
         cls.shared_image_embedding_block = nn.Sequential(OrderedDict(layers))
 
 
@@ -229,28 +278,44 @@ class DeepcvModuleDescriptor:
         return f'{self.__class__.__name__} (capacity={capacity_str}):\n\t{modules_str}'
 
 
-def _create_avg_pooling(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
     prev_dim = len(prev_shapes[1:])
     if prev_dim >= 4:
-        return nn.AvgPool3d(**layer_params)
+        return nn.AvgPool3d(**submodule_params)
     elif prev_dim >= 2:
-        return nn.AvgPool2d(**layer_params)
-    return nn.AvgPool1d(**layer_params)
+        return nn.AvgPool2d(**submodule_params)
+    return nn.AvgPool1d(**submodule_params)
 
 
-def _create_conv2d(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
-    layer_params['in_channels'] = prev_shapes[-1][1]
-    layer = meta.nn.conv_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
-    return layer
+def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters, channel_dim: int = -3) -> nn.Module:
+    """ Creates a convolutional NN layer with dropout and batch norm support
+    NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
+    """
+    submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
+    return meta.nn.conv_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
 
 
-def _create_fully_connected(layer_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
-    layer_params['in_features'] = np.prod(prev_shapes[-1][1:])  # We assume here that features/inputs are given in batches
-    if 'out_features' not in layer_params:
-        # Handle last fully connected layer (no dropout nor batch normalization for this layer)
-        layer_params['out_features'] = self._output_size  # TODO: handle output layer elsewhere
-        return meta.nn.fc_layer(layer_params)
-    return meta.nn.fc_layer(layer_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+    """ Creates a fully connected NN layer with dropout and batch norm support
+    NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
+    """
+    submodule_params['in_features'] = np.prod(prev_shapes[-1][1:])
+    return meta.nn.fc_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+
+
+def _residual_dense_link(is_residual: bool = True):
+    """ Creates a residual or dense link sub-module which concatenates or adds features from direct previous sub-module and another sub-module
+    Output features shapes of these two submodules must be the same, except for the channels/filters dimension if this is a dense link.
+    `submodule_params` Argument must contain a `from` entry giving the other sub-module reference (sub-module name) from which output is added to previous sub-module output.
+    Returns a callback which is called during forwarding of sub-modules.
+    """
+    def _create_link_submodule(submodule_params, prev_named_submodules: Dict[str, nn.Module], prev_submodules: List[nn.Module], channel_dim: int = -3) -> MODULE_CREATOR_CALLBACK_RETURN_T:
+        def _forward_callback(x: torch.Tensor, prev_named_submodules_out: Dict[str, torch.Tensor]):
+            if submodule_params['from'] not in prev_named_submodules:
+                raise ValueError(f"Error: Couldn't find previous sub-module name reference '{submodule_params['from']}' in NN architecture.")
+            y = prev_named_submodules[submodule_params['from']]
+            return x + y if is_residual else torch.cat([x, y], dim=channel_dim)
+        return _forward_callback
 
 
 if __name__ == '__main__':

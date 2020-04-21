@@ -25,8 +25,8 @@ from ...tests.tests_utils import test_module
 
 __all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
-           'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'type_or_instance_is', 'is_fully_connected',
-           'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
+           'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'type_or_instance_is',
+           'is_fully_connected', 'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -224,11 +224,11 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
     return tuple(filter(lambda x: x is None, ops))
 
 
-def conv_layer(conv2d: dict, act_fn: type = nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None) -> nn.Module:
+def conv_layer(conv2d: dict, act_fn: type = nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> nn.Module:
     return nn.Sequential(*layer(nn.Conv2d(**conv2d), act_fn(), dropout_prob, batch_norm))
 
 
-def fc_layer(linear: dict, act_fn: type = nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None) -> nn.Module:
+def fc_layer(linear: dict, act_fn: type = nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> nn.Module:
     return nn.Sequential(*layer(nn.Linear(**linear), act_fn(), dropout_prob, batch_norm))
 
 
@@ -316,8 +316,7 @@ def is_data_parallelization_usefull_heuristic(model: nn.Module, batch_shape: tor
     heuristic = capacity_score + batch_score + gpus_score
     if print_msg:
         negation, lt_gt_op = ('not', '>') if heuristic > 0.5 else ('', '<')
-        p
-        rint((f'DataParallelization may {negation} be helpfull to improve training performances: heuristic {lt_gt_op} 0.5 (heuristic = capacity_score({capacity_score:.3f}) + batch_score({batch_score:.3f}) + gpus_score({gpus_score}) = {heuristic:.3f})')
+        print(f'DataParallelization may {negation} be helpfull to improve training performances: heuristic {lt_gt_op} 0.5 (heuristic = capacity_score({capacity_score:.3f}) + batch_score({batch_score:.3f}) + gpus_score({gpus_score}) = {heuristic:.3f})')
     return heuristic > 0.5
 
 
@@ -358,6 +357,14 @@ def mean_batch_loss(loss: nn.loss._Loss, batch_loss: torch.Tensor, batch_size=1)
 
 def get_model_capacity(model: nn.Module):
     return sum([np.prod(param.shape) for name, param in model.parameters(recurse=True)])
+
+
+def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_batches: bool=True) -> torch.Size:
+    """ Performs a forward pass with a dummy input tensor to figure out module's output shape """
+    features_shapes=[]
+    with torch.no_grad():
+        dummy_batch_x=torch.unsqueeze(torch.zeros(input_shape), dim=0) if input_batches else torch.zeros(input_shape)
+        return module(dummy_batch_x).shape
 
 
 def type_or_instance_is(op_t: Any, type_to_check: Type) -> bool:

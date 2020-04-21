@@ -38,11 +38,8 @@ class ObjectDetector(meta.base_module.DeepcvModule):
 
     def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters):
         super(self.__class__).__init__(self, input_shape, hp)
-        self._net = self._define_nn_architecture(self._hp['architecture'])
+        self._define_nn_architecture(self._hp['architecture'])
         self._initialize_parameters(self._hp['act_fn'])
-
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self._net(x)  # Apply whole neural net architecture
 
 
 def get_object_detector_pipelines():

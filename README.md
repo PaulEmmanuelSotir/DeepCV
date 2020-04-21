@@ -1,4 +1,4 @@
-# WIP: DeepCV README.md
+# DeepCV README.md (_Work In Progress_)
 
 __By Paul-Emmanuel SOTIR <paulemmanuel.sotir@oultook.com>__  
 _This project is under Open Source MIT License, see [./LICENSE](./LICENSE) or more details._

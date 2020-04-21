@@ -8,7 +8,7 @@ import types
 import inspect
 import logging
 from collections import OrderedDict
-from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
+from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
 
 import torch
 import torch.nn as nn
@@ -60,9 +60,10 @@ class DeepcvModule(nn.Module):
             # If class haven't been instanciated yet, define common/shared DeepcvModule image embedding block
             self.__class__._define_shared_image_embedding_block()
 
-    def forward(self, intput_img: torch.Tensor, channel_dim: int = 3):
-        # Apply shared image embedding block and combine it's output with input image (concats features over channel dimension)
-        x = torch.cat([intput_img, self.shared_image_embedding_block(intput_img)], dim=channel_dim)
+    def forward(self, x: torch.Tensor, channel_dim: int = 3):
+        if self._enable_shared_image_embedding_block:
+            # Apply shared image embedding block and combine it's output with input image (concats features over channel dimension)
+            x = torch.cat([x, self.shared_image_embedding_block(x)], dim=channel_dim)
 
         # Apply object detector neural net architecture on top of shared image embedding features and input image
         if len(self._forward_callbacks) > 0:
@@ -70,7 +71,7 @@ class DeepcvModule(nn.Module):
             prev_features_tensors = {}
             for name, subm in self._submodules:
                 if name in self._forward_callbacks:
-                    x = self._forward_callbacks(x, prev_features_tensors)
+                    x = self._forward_callbacks[name](x, prev_features_tensors)
                 else:
                     x = subm(x)
                 prev_features_tensors[name] = x
@@ -192,11 +193,11 @@ class DeepcvModule(nn.Module):
                 msg = f'Error: Wrong sub-module creator function/class __init__ return type (must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.'
                 raise RuntimeError(msg)
 
-                # Get neural network submodules capacity and output features shapes
-                self._submodules_capacities.append(meta.nn.get_model_capacity(module))
-                self._features_shapes.append(meta.nn.get_out_features_shape(nn.Sequential(*submodules)))
+            # Get neural network submodules capacity and output features shapes
+            self._submodules_capacities.append(meta.nn.get_model_capacity(submodules[-1]))
+            self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
+            self._features_shapes.append(meta.nn.get_out_features_shape(self._net))
 
-        self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
         self._submodules = dict(*submodules)
 
     def _initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
@@ -227,11 +228,11 @@ class DeepcvModule(nn.Module):
     def _define_shared_image_embedding_block(cls, in_channels: int = 3):
         logging.info('Creating shared image embedding block of DeepcvModule models...')
         conv_opts = {'act_fn': nn.ReLU, 'batch_norm': {'affine': True, 'eps': 1e-05, 'momentum': 0.0736}}
-        layers = [meta.nn.conv_layer(conv2d={'in_channels': in_channels, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts),
-                  meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 16, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts),
-                  meta.nn.conv_layer(conv2d={'in_channels': 16, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts),
-                  meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 4, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)]
-        cls.shared_image_embedding_block = nn.Sequential(OrderedDict(layers))
+        layers = [('shared_block_conv_1', meta.nn.conv_layer(conv2d={'in_channels': in_channels, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
+                  ('shared_block_conv_2', meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 16, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
+                  ('shared_block_conv_3', meta.nn.conv_layer(conv2d={'in_channels': 16, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
+                  ('shared_block_conv_4', meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 4, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts))]
+        cls.shared_image_embedding_block = nn.Sequential(OrderedDict(*layers))
 
 
 class DeepcvModuleDescriptor:
@@ -255,6 +256,10 @@ class DeepcvModuleDescriptor:
         self.human_readable_capacity = utils.human_readable_size(capacity)
         self.model_class = module.__class__
         self.model_class_name = module.__class__.__name__
+        self.uses_shared_block = module._enable_shared_image_embedding_block
+        self.did_forked_shared_block = module._shared_block_forked
+        self.freezed_shared_block = module._freeze_shared_image_embedding_block
+        assert not self.did_forked_shared_block or self.uses_shared_block, 'Error: DeepCVModule have inconsistent flags: `_shared_block_forked` cant be True if `_enable_shared_image_embedding_block` is False'
 
         if '_features_shapes' in module.__dict__:
             self.submodules_features_shapes = module._features_shapes
@@ -272,10 +277,24 @@ class DeepcvModuleDescriptor:
         if self.architecture is not None:
             features = self.submodules_features_shapes if 'submodules_features_shapes' in self.__dict__ else ['UNKNOWN'] * len(self.architecture)
             capas = self.human_readable_capacities if 'human_readable_capacities' in self.__dict__ else ['UNKNOWN'] * len(self.architecture)
-            modules_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(self.architecture, features, capas)])
+            desc_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(self.architecture, features, capas)])
         else:
-            modules_str = '(No architecture informations to describe)'
-        return f'{self.model_class_name} (capacity={self.human_readable_capacity}):\n\t{modules_str}'
+            desc_str = '(No submodule architecture informations to describe)'
+
+        desc_str += '\n SIEB (Shared Image Embedding Block) usage:'
+        if self.uses_shared_block:
+            desc_str += 'This module makes use of shared image embedding block applied to input image:'
+            if self.did_forked_shared_block:
+                desc_str += "\n\t- FORKED=True: Shared image embedding block parameters have been forked, SGD updates from other models wont impact this model's weights and SGD updates of this model wont change shared weights of other models until the are eventually merged"
+            else:
+                desc_str += '\n\t- FORKED=False: Shared image embedding block parameters are still shared, any non-forked/non-freezed DeepcvModule SGD uptates will have an impact on these parameters.'
+            if self.freezed_shared_block:
+                desc_str += '\n\t- SHARED=True: Shared image embedding block parameters have been freezed and wont be taken in account in gradient descent training of this module.'
+            else:
+                desc_str += '\n\t- SHARED=False: Shared image embedding block parameters are not freezed and will be learned/fine-tuned during gradient descent training of this model.'
+        else:
+            desc_str = ' This module doesnt use shared image embedding block.'
+        return f'{self.model_class_name} (capacity={self.human_readable_capacity}):\n\t{desc_str}'
 
 
 def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:

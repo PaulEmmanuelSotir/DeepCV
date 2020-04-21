@@ -3,21 +3,21 @@
 __By Paul-Emmanuel SOTIR <paulemmanuel.sotir@oultook.com>__  
 _This project is under Open Source MIT License, see [./LICENSE](./LICENSE) or more details._
 
-__WIP: This Project is still under active developement, at an early stage of developement__  
+__WIP: This Project is still under active development, and at an early stage of development__  
 
-DeepCV is a Kedro PyTorch project which aims to simplify implementation of simple vision tasks. DeepCV allows to easily define vision processing pipelines by leveraging recent DeepLearning algorithms along with usual OpenCV tools.  
+DeepCV is a Kedro PyTorch project which aims to simplify the implementation of simple vision tasks. DeepCV allows you to easily define vision processing pipelines by leveraging recent DeepLearning algorithms along with the usual OpenCV tools.  
 
-Some of DeepCV main features includes:
-- Custom lossless Image and video compression codec using learned arithmetic encoder policy to minimize images and video sizes (which means faster streaming, faster reading from disk, lower storage size) 
-- Feature extraction and matching using lightweight CNNs, allowing better reliability and reproducibility of image processing pipelines compared to implementation relying on classical feature  extractors like SIFT, ORB, ...
-- [`deepcv.meta`](./src/deepcv/meta) python module contains various utilities to make easier to [define models](./src/deepcv/meta/base_module.py), [train models with ignite](./src/deepcv/meta/ignite_training.py), [search hyperparameters with NNI](./src/deepcv/meta/hyperparams.py), follow and visualize training experiments with MLFlow/kedro/TensorboardX..., [preprocess](./src/deepcv/meta/data/preprocess.py) and [augment data](./src/deepcv/meta/data/augmentation.py), schedule learning rate(s) with [One Cycle policy](./src/deepcv/meta/one_cycle.py), perform meta-learning thanks to various tools like [`HyperparametersEmbedding`](./src/deepcv/meta/hyperparams.py) and thanks to meta deep-learning abstractions (e.g. [`Experiment`, `DatasetStats`, `Task`, `Hyperparameters`, `HyperparameterSpace`](./src/deepcv/meta/data/training_metadata.py)) stored at each experiments in a 'metadataset', ...
-- [`deepcv.meta.base_module.DeepcvModule`](./src/deepcv/meta/base_module.py) Base class for easier DeepCV model defintion: model sub-modules (NN blocks or layers) can be defined in a simple and generic manner in [`./conf/base/parameters.yml`](./conf/base/parameters.yml) and a shared image embedding block of a few convolution layers can allow transfert learning between any DeepCV image models by sharing, training, forking and/or merging these shared weights.
-- [`./conf/base/parameters.yml`] can also specify data augmentation and preprocessing recipes
+Some of DeepCV's main features are:
+- Custom lossless Image and video compression codec using learned arithmetic encoder policies to minimize image and video sizes (which means faster streaming, faster reading from disk, lower storage size) 
+- Feature extraction and matching using lightweight CNNs, improving the reliability and reproducibility of image processing pipelines compared to implementations that rely on classical feature extractors such as SIFT, ORB, ...
+- The [`deepcv.meta`](./src/deepcv/meta) python module contains various utilities to make it easier to [define models](./src/deepcv/meta/base_module.py), [train models with ignite](./src/deepcv/meta/ignite_training.py), [search hyperparameters with NNI](./src/deepcv/meta/hyperparams.py), follow and visualize training experiments with MLFlow/kedro/TensorboardX..., [preprocess](./src/deepcv/meta/data/preprocess.py) and [augment data](./src/deepcv/meta/data/augmentation.py), schedule learning rate(s) with [One Cycle policy](./src/deepcv/meta/one_cycle.py), perform meta-learning thanks to various tools like [`HyperparametersEmbedding`](./src/deepcv/meta/hyperparams.py) and as well as meta deep-learning abstractions (e.g. [`Experiment`, `DatasetStats`, `Task`, `Hyperparameters`, `HyperparameterSpace`](./src/deepcv/meta/data/training_metadata.py)) stored for each experiments in a 'metadataset', ...
+- [`deepcv.meta.base_module.DeepcvModule`](./src/deepcv/meta/base_module.py) A base class for easier DeepCV model definition: model sub-modules (NN blocks or layers) can be defined in a simple and generic manner in [`./conf/base/parameters.yml`](./conf/base/parameters.yml) and a shared image embedding block of a few convolution layers can allow learning to be transferred between any DeepCV image models by sharing, training, forking and/or merging these shared weights.
+- [`./conf/base/parameters.yml`] can also specify data augmentation and preprocessing recipes.
 - ...
 
 ## Install instructions
 
-### Alternative #1: Install from this repository
+### Method #1: Install from this repository
 ``` shell
 git clone ...
 ...
@@ -25,7 +25,7 @@ git clone ...
 python tests/test1.py
 ```
 
-### Alternative #1: Install our package from Anaconda repository
+### Method #2: Install our package from Anaconda repository
 TODO: ...
 
 ## Usage example
@@ -56,12 +56,12 @@ TODO: bla bla
 
 ## TODO List
 
-__Interesting third party project which could be integrated into this project__
+__Interesting third party projects which could be integrated into this project__
 
 Eventually create submodule(s) for the following github projects under third_party directory (see https://git-scm.com/book/fr/v2/Utilitaires-Git-Sous-modules + script to update submodule to latest release commit?):
 - ImageNetV2  
 - Detectron2  
-- Apex (https://github.com/NVIDIA/apex): need to be installed manually along with PyProf (Optionnal)  
+- Apex (https://github.com/NVIDIA/apex): needs to be installed manually along with PyProf (optional)  
 - Use pytorch-OpCounter for pytorch model memory/FLOPs profiling: https://github.com/Lyken17/pytorch-OpCounter
 - SinGAN pytorch implementation: https://github.com/tamarott/SinGAN
 - https://github.com/MegviiDetection/video_analyst
@@ -73,21 +73,21 @@ kedro/mlflow/ignite/pytorch/tensorboard//NNI/Apex/Scikit-learn/Numpy/pandas/Jupy
 <details>
   <summary><b> DeepCV Features TODO list</b></summary>
 <ul>
-    <li> Implement continuous integration with travis CI</li>
+    <li> Implement continuous integration using Travis CI</li>
     <li> Create or find an ECA implementation: channel attention gate on convolution gate using sigmoid of 1D convolution output as attention gate (element-wise multiplication of each channels with their respective gating scale) (kernel size of 1D conv: k << ChannelCount with k=Func(C)) </li>
-    <li> Add image completion/reconstruction/generation/combination (could be used as data augmentation trick) to DeepCV (see paper about one shot image completion/combination/reconstruction and distill+quantize it and combine it with usual and simple augmentation reciepes when used for data augmentation)</li>
+    <li> Add image completion/reconstruction/generation/combination (could be used as data augmentation trick) to DeepCV (see paper about one shot image completion/combination/reconstruction and distill+quantize it and combine it with usual and simple augmentation recipes when used for data augmentation)</li>
     <li> Implement basic image feature matching and compare it against shitty approaches like SIFT, ORB, ...</li>
-    <li> Implement pipeline for video stiching and add support for video stabilization, audio-and/or-visual synchronization, image compression (lossless or loo	sy), watermark removal, visual tracking, pose estimation + simplify usage: (scikit compliant models, warpers over pipelined models for easier usage along with DeepCV, package it like a pluggin to DeepCV, fine-tuning framework for easier training of whole pipelines on custom data)</li>
-    <li> Implement (fork lepton and L3C for better AC and DC compression using deterministic shallow-NN prediction from context) or add better jpeg and mpeg compression cocdecs (for use cases where storage-size/bandwidth is the priority, e.g. for faster video/image processing or streaming pipelines, or smaller media storage (= priority to size, then, priotirize decompression time vs compression time)) and/or look for algorithms which could be applied directly on compressed images/frames (see [Lepton](https://dropbox.tech/infrastructure/lepton-image-compression-saving-22-losslessly-from-images-at-15mbs) and [L3C](https://arxiv.org/pdf/1811.12817v3.pdf)) + utilities to convert files to our codec for faster processing:
+    <li> Implement a pipeline for video stiching and add support for video stabilization, audio-and/or-visual synchronization, image compression (lossless or lossy), watermark removal, visual tracking, pose estimation + simplify usage: (scikit compliant models, warpers over pipelined models for easier usage along with DeepCV, package it like a plugin to DeepCV, fine-tuning the framework for easier training of whole pipelines on custom data)</li>
+    <li> Implement (fork lepton and L3C for better AC and DC compression using deterministic shallow-NN prediction from context) or add better jpeg and mpeg compression codecs (for use cases where storage-size/bandwidth is the priority, e.g. for faster video/image processing or streaming pipelines, or smaller media storage (= priority to size, then, prioritize decompression time vs compression time)) and/or look for algorithms which could be applied directly on compressed images/frames (see [Lepton](https://dropbox.tech/infrastructure/lepton-image-compression-saving-22-losslessly-from-images-at-15mbs) and [L3C](https://arxiv.org/pdf/1811.12817v3.pdf) ) + utilities to convert files to our codec for faster processing:
     <ul>
-        <li> must be lossless to preserve visual quality whe encoding back to jpeg, but should take benefit from any existing lossy jpeg compression (e.g. losseless algorithm built on top of jpeg's tiles)</li>
-        <li> keep in mind possibility of progressive image/frame loading/streaming future implementation</li>
+        <li> must be lossless to preserve visual quality when encoding back to jpeg, but should match the benefits from any existing lossy jpeg compression (e.g. lossless algorithm built on top of jpeg's tiles)</li>
+        <li> keep in mind the possibility of progressive image/frame loading/streaming in a future implementation</li>
         <li> benchmark performances on imagenet, compare speed and size with L3C (use benchmarking code from https://github.com/fab-jul/L3C-PyTorch) </li></ul></li>
     <li> implement distillation/quantization  + Apex</li>
-    <li> add a simple open-source implementation of wave funcion collapsing, optimize it
-        -> Future work : Procedural Content Generation: Use a GAN to generates slots (learn scenes manifold by semantic clusters) used by Wave Function Collapse (+ Growing Grids as space filling algorithm to determine tiles shape) </li>
+    <li> add a simple open-source implementation of wave function collapsing, optimize it
+        -> Future work : Procedural Content Generation: Use a GAN to generates slots (learn scenes manifold by semantic clusters) used by Wave Function Collapse (+ Growing Grids as space filling algorithm to determine tile shapes) </li>
     <li> add uncertainty estimation tools on deep learning models</li>
-    <li> Implement unary and feature tests </li>
+    <li> Implement unit and feature tests </li>
 </ul>
 </details>
 

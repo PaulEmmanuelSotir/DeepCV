@@ -68,7 +68,7 @@ def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: meta.
 
     # Create dataloaders from dataset
     if backend_conf.ngpus_current_node > 0 and backend_conf.distributed:
-        workers = max(1, (backend_conf.ncpu_per_node - 1) // backend_conf.ngpus_current_node)
+        workers = max(1, (backend_conf.ncpu - 1) // backend_conf.ngpus_current_node)
     else:
         workers = max(1, multiprocessing.cpu_count() - 1)
     dataloaders = (DataLoader(ds, hp['batch_size'], shuffle=True if i == 0 else False, num_workers=workers) for i, ds in enumerate(datasets))

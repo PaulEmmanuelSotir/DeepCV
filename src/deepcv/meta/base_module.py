@@ -270,12 +270,12 @@ class DeepcvModuleDescriptor:
     def __str__(self) -> str:
         """ Ouput a human-readable string representation of the deepcv module based on its descriptor """
         if self.architecture is not None:
-            features_shapes = self._features_shapes if '_features_shapes'
-            capas = map(utils.human_readable_size, self._submodules_capacities) if '_submodules_capacities' in self.__dict__ else ['UNKNOWN'] * len(architecture_spec)
-            modules_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(architecture_spec, features_shapes, capas)])
+            features = self.submodules_features_shapes if 'submodules_features_shapes' in self.__dict__ else ['UNKNOWN'] * len(self.architecture)
+            capas = self.human_readable_capacities if 'human_readable_capacities' in self.__dict__ else ['UNKNOWN'] * len(self.architecture)
+            modules_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(self.architecture, features, capas)])
         else:
             modules_str = '(No architecture informations to describe)'
-        return f'{self.__class__.__name__} (capacity={capacity_str}):\n\t{modules_str}'
+        return f'{self.model_class_name} (capacity={self.human_readable_capacity}):\n\t{modules_str}'
 
 
 def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:

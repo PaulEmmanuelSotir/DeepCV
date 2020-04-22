@@ -91,7 +91,7 @@ kedro build-docs
 ## Contribution guide
 
 Any contribution are welcome, but keep in mind this project is still at a very early stage of development.  
-Feel free to submit issues if you have any feature suggestion, ideas, 
+Feel free to submit issues if you have any feature suggestion, ideas, application areas, or if you have difficulties to reuse it.
 
 ## 📝TODO List📝
 

@@ -1,8 +1,8 @@
 # DeepCV README.md (_Work In Progress_)
 
 _This project is under Open Source MIT License, see [./LICENSE](./LICENSE) or more details._  
-__By Paul-Emmanuel SOTIR <paulemmanuel.sotir@oultook.com>__  
 
+__By Paul-Emmanuel SOTIR <paulemmanuel.sotir@oultook.com>__  
 __WIP: This Project is still under active development, and at an early stage of development__  
 
 DeepCV is a Kedro PyTorch project which aims to simplify the implementation of simple vision tasks. DeepCV allows you to easily define vision processing pipelines by leveraging recent DeepLearning algorithms along with the usual OpenCV tools.  

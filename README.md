@@ -106,6 +106,7 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 - ♻process augmentation recipes from parameters.yml
 - 👍make possible to specify dense and/or residual links in NN architecture configuration ([parameters.yml](./conf/bas/parameters.yml)) and process it accordingly in forward method of [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) model base class
 - ♻Improve dense/residual link support by reducing its memory footprint: store [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) sub-modules output features only if they are actually needed by a residual/dense link deeper in NN architecture
+- ♻Improve [deepcv.meta.base_module.DeepcvModule](.src/deepcv/meta/base_module.py) model base class to parse YAML NN architecture definition of [parameters.yml](./conf/base/parameters.yml) in a more powerfull/generic way to allow siamese NNs, residual/dense links down/up-sampling, attention gates, multi-scale/depth inputs/outputs, ... (for now, [DeepcvModule](.src/deepcv/meta/base_module.py) only support YAML NN architecture definition made of a list of sub-modules with eventual residual-dense links.
 - 💤Setup and download various torchvision datasets ( at least CIFAR10/100 and ImageNet32 datasets)
 - ♻fix tests/deepcv module imports (make 'tests' like a third party module appart from deepcv or move 'tests' into deepcv module)
 - ♻fix code and YAML config files in order to be able to run basic kedro pipelines and build documentation

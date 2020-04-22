@@ -12,6 +12,7 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import numpy as np
 
@@ -37,7 +38,7 @@ class DeepcvModule(nn.Module):
     NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self._define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` or self._hp['architecture'] contains architecture definition (similar value than `self._define_nn_architecture`'s `architecture_spec` argument would have).
     NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which is preferable for residual/dense links for example.
     .. See examples of Deepcv model sub-modules architecture definition in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
-    # TODO: implement basic conv block shared by all DeepcvModules (shallow convs with zero-padding, output_shape must be same as input shape except for channel dim) (frozen weights by default, and allow forking of these weights to be specific to a given model) + update architecture_spec/features_shapes
+    TODO: Try to unfreeze batch_norm parameters of shared image embedding block (with its other parameters freezed) and compare performances across various tasks
     """
 
     HP_DEFAULTS = ...
@@ -105,6 +106,8 @@ class DeepcvModule(nn.Module):
     def set_freeze_shared_image_embedding_block(self, freeze_weights: bool):
         if self._enable_shared_image_embedding_block:
             self._freeze_shared_image_embedding_block = freeze_weights
+            for p in self.shared_image_embedding_block.parameters():
+                p.requires_grad = False
             # TODO: freeze/unfreeze weights...
             # TODO: handle concurency between different models training at the same time with unfreezed shared weights
         else:
@@ -253,7 +256,7 @@ class DeepcvModuleDescriptor:
 
         # Fills and return a DeepCV module descriptor
         self.capacity = meta.nn.get_model_capacity(module)
-        self.human_readable_capacity = utils.human_readable_size(capacity)
+        self.human_readable_capacity = utils.human_readable_size(self.capacity)
         self.model_class = module.__class__
         self.model_class_name = module.__class__.__name__
         self.uses_shared_block = module._enable_shared_image_embedding_block
@@ -327,14 +330,30 @@ def _residual_dense_link(is_residual: bool = True):
     Output features shapes of these two submodules must be the same, except for the channels/filters dimension if this is a dense link.
     `submodule_params` Argument must contain a `from` entry giving the other sub-module reference (sub-module name) from which output is added to previous sub-module output.
     Returns a callback which is called during forwarding of sub-modules.
+    If `submodule_params` contains a 'allow_scaling' entry, then if residual/dense features have different shape on dimension(s) following `channel_dim`, it will be scaled (upscaled or downscaled) using [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
+    By default interpolation is 'linear'; If needed you can specify a `scaling_mode` parameter in `submodule_params` to change algorithm used for upsampling (valid values: 'nearest' | 'linear' | 'bilinear' | 'bicubic' | 'trilinear' | 'area').
+    Note that scaling/interpolation of residual/dense tensors is only supported for 1D, 2D and 3D features, without taking into account channel and minibatch dimensions. Also note that `minibatch` dimension is required by [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
     """
     def _create_link_submodule(submodule_params, prev_named_submodules: Dict[str, nn.Module], prev_submodules: List[nn.Module], channel_dim: int = -3) -> MODULE_CREATOR_CALLBACK_RETURN_T:
         def _forward_callback(x: torch.Tensor, prev_named_submodules_out: Dict[str, torch.Tensor]):
             if submodule_params['from'] not in prev_named_submodules:
                 raise ValueError(f"Error: Couldn't find previous sub-module name reference '{submodule_params['from']}' in NN architecture.")
             y = prev_named_submodules[submodule_params['from']]
+
+            # If target output shape (which is the same as `x` features shape) is different from `y` features shapes, we perform a down or up scaling (interpolation) if allowed
+            if x.shape[channel_dim:] != y.shape[channel_dim:]:
+                if 'allow_scaling' in submodule_params and submodule_params['allow_scaling']:
+                    # Resize y features tensor to be of the same shape as x along dimensions after channel dim (scaling performed with bilinear interpolation)
+                    y = F.interpolate(y, x.shape[channel_dim:], mode='linear' if 'scaling_mode' not in submodule_params else submodule_params['scaling_mode'])
+                else:
+                    msg = f"Error: Couldn't forward throught {'residual' if is_residual else 'dense'} link: features from link doesn't have the same shape as previous module's output shape, can't concatenate or add them. (did you forgot to allow residual/dense features to be scaled using `allow_scaling: true` parameter?). residual_shape='{y.shape}' != prev_features_shape='{x.shape}' "
+                    raise RuntimeError(msg)
+
+            # Add or concatenate previous sub-module output features with residual or dense features
             return x + y if is_residual else torch.cat([x, y], dim=channel_dim)
         return _forward_callback
+
+    _create_link_submodule.__doc__ = _residual_dense_link.__doc__
 
 
 if __name__ == '__main__':

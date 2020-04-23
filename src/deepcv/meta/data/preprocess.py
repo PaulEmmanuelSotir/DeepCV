@@ -11,17 +11,25 @@ import torchvision
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-from .datasets import PytorchDatasetWarper
+import deepcv.meta as meta
+import deepcv.utils as utils
 from ....tests.tests_utils import test_module
-import deepcv.meta.hyperparams as hyperparams
-import deepcv.meta.data.augmentation as augmentation
 
 __all__ = ['preprocess']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-def preprocess(hp: hyperparams.Hyperparameters, trainset: PytorchDatasetWarper, testset: PytorchDatasetWarper, validset: Optional[PytorchDatasetWarper] = None) -> Dict[str, DataLoader]:
-    """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `hp` (from `parameters.yml`) """
+def preprocess(hp: meta.hyperparams.Hyperparameters, trainset: meta.data.datasets.PytorchDatasetWarper, testset: meta.data.datasets.PytorchDatasetWarper, validset: Optional[meta.data.datasets.PytorchDatasetWarper] = None) -> Dict[str, DataLoader]:
+    """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `hp` (from `parameters.yml`)
+    # TODO: create dataloader to preprocess/augment data by batches?
+    Args:
+        - hp:
+        - trainset:
+        - testset:
+        - validset:
+    Returns a dict which contains preprocessed and/or augmented 'trainset', 'testset' and 'validset' datasets
+    """
+    logging.info('Starting pytorch dataset preprocessing procedure...')
     if 'validset_ratio' in hp:
         if validset is not None:
             logging.warn('Warning: validset is already provided to preprocessing procedure, ignoring `validset_ratio` parameter in preprocessing parameters.')
@@ -29,19 +37,22 @@ def preprocess(hp: hyperparams.Hyperparameters, trainset: PytorchDatasetWarper, 
             # Create a validset from trainset
             validset_ratio = hp['validset_ratio']
             validset = ...
+            raise NotImplementedError
             # TODO: ...
 
-    # Create trainset and testset dataloaders
-    # TODO: ...
+    hp, missings = hp.with_defaults({})
+    if len(missings) > 0:
+        logging.error(f'Error: Missing mandatory (hyper)parameter(s) in `hp` argument of {utils.get_str_repr(preprocess, __file__)} procedure: Missing parameters: {missings}')
 
     # Data augmentation
     # TODO: follow augmentation recipes and preprocessing transforms specified in parameters.yml (hp)
     for dl in (trainset, validset, testset):
         if not len(dl) > 0:
-            raise RuntimeError(f'Error: empty dataloader `{dl}` in preprocessing_procedure')
+            raise RuntimeError(f'Error: empty dataloader `{dl}` in {utils.get_str_repr(preprocess, __file__)}')
 
         if 'augmentations' in hp:
-            dl = augmentation.apply_augmentation(hp['augmentations'], dl)
+            logging.info(f'Applying dataset augmentation reciepe ')
+            dl = meta.data.augmentation.apply_augmentation_reciepe(hp['augmentations'], dl)
 
         # Preprocess images
         transforms = _get_img_transforms(hp, trainset)
@@ -50,16 +61,17 @@ def preprocess(hp: hyperparams.Hyperparameters, trainset: PytorchDatasetWarper, 
         # Preprocess targets
         dl.target_transform = _get_target_transforms
 
-    return {'train_loader': trainset, 'test_loader': testset} + ({'valid_loader': validset} if validset is not None else {})
+    logging.info(f'Pytorch Dataset preprocessing procedure done, returning preprocessed/augmented Dataset(s) ({utils.get_str_repr(preprocess, __file__)}).')
+    return {'trainset': trainset, 'testset': testset} + ({'validset': validset} if validset is not None else {})
 
 
-def _get_img_transforms(hp: hyperparams.Hyperparameters, dataloader: DataLoader) -> torchvision.transforms.Compose:
+def _get_img_transforms(hp: meta.hyperparams.Hyperparameters, dataloader: DataLoader) -> torchvision.transforms.Compose:
     transforms = []
     # TODO: ...
     return torchvision.transforms.Compose(transforms)
 
 
-def _get_target_transforms(hp: hyperparams.Hyperparameters, dataloader: DataLoader) -> Callable:
+def _get_target_transforms(hp: meta.hyperparams.Hyperparameters, dataloader: DataLoader) -> Callable:
     # TODO: ...
     def _target_transform(target: torch.Tensor) -> torch.Tensor:
         return target

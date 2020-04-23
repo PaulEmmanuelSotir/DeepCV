@@ -25,8 +25,8 @@ from ...tests.tests_utils import test_module
 
 __all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
-           'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'type_or_instance_is',
-           'is_fully_connected', 'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
+           'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'find_best_eval_batch_size', 'get_model_capacity',
+           'get_out_features_shape', 'type_or_instance_is', 'is_fully_connected', 'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -354,6 +354,47 @@ def mean_batch_loss(loss: nn.loss._Loss, batch_loss: torch.Tensor, batch_size=1)
 
 #     def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 #         return self.forward(input, target)
+
+def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Iterable[torch.Size], model: Optional[nn.Module], safety_margin: float = 0.75, trial_growth_factor: float = 1.2, device=utils.get_device(), **model_kwargs):
+    """ Finds largest `batch_size` which could fit in video memory without issues in an evaluation setup (no backprop).
+    This function is usefull to estimate best evaluation `batch_size`. If `model` argument is given, then 
+    This gives an estimate/advice of maximal `batch_size` in a non-distributed setup, assuming you are training given model on current device.
+    Otherwise, in distributed setup, you could call `find_best_eval_batch_size` in each training nodes and either use different eval `batch_size` in each nodes or take minimal returned value.
+    Args:
+        - data_shape: Input data tensor shape which will be contained in minibatches during evaluation
+        - other_data_shapes: Other data tensor shapes which would be in minibatches dunring evaluation (e.g. targets minibatch). However, this argument can safely be ignored if your other/target data shapes are far smaller than input data size.
+        - model: Optional model to be evaluated on batches
+        - safety_margin: Factor applied to maximal `batch_size` estimate to make sure there is a safety margin in video memory usage
+        - trial_growth_factor: `batch_size` exponential growth factor for each `batch_size` trials. (tries greater and greater `batch_size`s until memory overflow occurs)
+        - model_kwargs: keyword arguments needed when calling optional `torch.nn.module` model (passed during forward pass along with a minibatch of dummy tensors of `data_shape` shape as input data)
+    """
+    assert safety_margin < 1. and safety_margin > 0., 'Error: `margin` argument should be comprised between 0. and 1..'
+    assert trial_growth_factor > 1., 'Error: `trial_growth_factor` argument should be greater than 1.'
+
+    max_batch_size = 1
+    while True:
+        try:
+            max_batch_size = int(max_batch_size ** trial_growth_factor)
+            x = torch.zeros((max_batch_size, input_shape)).to(device)
+            others = [torch.zeros((max_batch_size, shape)).to(device) for shape in other_data_shapes]
+            if model:
+                model = model.to(device).eval()
+                y = model(x, **model_kwargs)
+        except RuntimeError as e:
+            if 'out of memory' in str(e):
+                # Ran out of memory: Free up memory
+                if x:
+                    del x
+                if others:
+                    del others
+                if y:
+                    del y
+                torch.cuda.empty_cache()  # TODO: make sure this is a good idea to do this?
+            else:
+                raise e
+
+    return safety_margin * max_batch_size
+
 
 def get_model_capacity(model: nn.Module):
     return sum([np.prod(param.shape) for name, param in model.parameters(recurse=True)])

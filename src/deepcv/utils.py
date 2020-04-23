@@ -11,6 +11,7 @@ import time
 import math
 import types
 import random
+import inspect
 import logging
 import builtins
 import threading
@@ -18,7 +19,7 @@ import importlib
 from pathlib import Path
 from types import SimpleNamespace
 from functools import singledispatch
-from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence
+from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence, Callable, Type
 
 import numpy as np
 from tqdm import tqdm
@@ -28,9 +29,10 @@ from kedro.io import DataCatalog
 
 from src.tests.tests_utils import test_module
 
+
 __all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts',
            'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'human_readable_size',
-           'is_roughtly_constant', 'get_by_identifier', 'yolo']
+           'is_roughtly_constant', 'get_by_identifier', 'get_str_repr', 'yolo']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
@@ -214,6 +216,12 @@ def get_by_identifier(identifier: str):
         raise RuntimeError(f'Error: can\'t find ``{identifier}`` identifier (you may have to specify its module)')
     else:
         raise ValueError(f'Error: bad identifier given in `utils.get_by_identifier` function (identifier="{identifier}" must match "{regex}" regex)')
+
+
+def get_str_repr(fn_or_type: Union[Type, Callable], src_file: Optional[str] = None):
+    src_file_without_suffix = '.'.join(Path(src_file).parents + [Path(src_file).stem, ]) + '.' if src_file else ''
+    signature = inspect.signature(fn_or_type) if isinstance(fn_or_type, Callable) else ''
+    return f'`{src_file_without_suffix}{fn_or_type.__name__}{signature}`'
 
 
 def yolo(self: DataCatalog, *search_terms):

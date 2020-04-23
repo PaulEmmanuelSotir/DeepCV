@@ -20,7 +20,7 @@ import torch.nn as nn
 import deepcv.meta.hyperparams as hyperparams
 from ....tests.tests_utils import test_module
 
-__all__ = ['AugMixDataset', 'augment_and_mix', 'apply_augmentation']
+__all__ = ['AugMixDataset', 'augment_and_mix', 'apply_augmentation_reciepe']
 __author__ = 'Paul-Emmanuel Sotir'
 
 augmentations = [autocontrast, equalize, posterize, rotate, solarize, shear_x, shear_y, translate_x, translate_y, color, contrast, brightness, sharpness]
@@ -78,7 +78,16 @@ def augment_and_mix(image: Image, mixture_width: int = 3, mixture_depth: Union[i
         return (1 - m) * image_tensor + m * mix
 
 
-def apply_augmentation(dataloader: torch.utils.data.DataLoader, hp: hyperparams.Hyperparameters):
+def apply_augmentation_reciepe(dataloader: torch.utils.data.DataLoader, hp: hyperparams.Hyperparameters):
+    """ Applies listed augmentation transforms with given configuration from `hp` Dict.
+    .. See [deepcv/conf/base/parameters.yml](./conf/base/parameters.yml) for examples of augmentation reciepe specification
+    Args:
+        - dataloader: Dataset dataloader on which data augmnetation is performed
+        - hp: 
+    Returns a new torch.utils.data.DataLoader which samples data from newly created augmented dataset
+    """
+    hp, missing_hyperparams = hp.with_defaults({'': ...})
+
     pass
 
 

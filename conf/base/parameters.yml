@@ -36,7 +36,7 @@ basic_preprocessing_procedure: &basic_preprocessing_procedure
   preprocessing:
     - pil_to_tensor
     - normalize
-  augmentations: [*basic_augmentation]
+  augmentation_reciepe: *basic_augmentation
 
 mnist_preprocessing:
   <<: *basic_preprocessing_procedure
@@ -103,7 +103,7 @@ object_detector:
         - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
         - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
       - siamese1:
-        - dense_link: [dense1, { from: pooling1 }]
+        - dense_link: [dense1, { from: pooling1, allow_scaling: true }]
         - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
         - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
         - avg_pooling: [pooling2, { kernel_size: [2, 2], stride: [2, 2] }]

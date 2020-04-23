@@ -17,7 +17,7 @@ import torch.nn.parallel
 import torch.optim as optim
 import torch.distributed as dist
 from ignite.metrics import Accuracy
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from kedro.pipeline import Pipeline, node
 
 import deepcv.meta as meta
@@ -44,15 +44,15 @@ class ObjectDetector(meta.base_module.DeepcvModule):
 
 def get_object_detector_pipelines():
     p1 = Pipeline([node(meta.hyperparams.merge_hyperparameters, name='merge_hyperparameters', inputs=['params:object_detector', 'params:cifar10_preprocessing'], outputs=['hp']),
-                   node(meta.data.preprocess.preprocess, name='preprocess_cifar_dataset', inputs=['trainset', 'testset', 'hp'], outputs=['dataset']),
-                   node(create_model, name='create_object_detection_model', inputs=['dataset', 'hp'], outputs=['model']),
-                   node(train, name='train_object_detector', inputs=['dataset', 'model', 'hp'], outputs=None)],
+                   node(meta.data.preprocess.preprocess, name='preprocess_cifar_dataset', inputs=['trainset', 'testset', 'hp'], outputs=['datasets']),
+                   node(create_model, name='create_object_detection_model', inputs=['datasets', 'hp'], outputs=['model']),
+                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'hp'], outputs=None)],
                   name='object_detector_training')
     return [p1]
 
 
-def create_model(dataset: Dict[str, DataLoader], hp: meta.hyperparams.Hyperparameters):
-    dummy_img, dummy_target = dataset['train_loader'][0][0]
+def create_model(datasets: Dict[str, Dataset], hp: meta.hyperparams.Hyperparameters):
+    dummy_img, dummy_target = datasets['train_loader'][0][0]
     input_shape = dummy_img.shape
     hp['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
@@ -60,7 +60,8 @@ def create_model(dataset: Dict[str, DataLoader], hp: meta.hyperparams.Hyperparam
     return model
 
 
-def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: meta.hyperparams.Hyperparameters):
+def train(datasets: Dict[str, Dataset], model: nn.Module, hp: meta.hyperparams.Hyperparameters):
+    # TODO: decide whether we take Datasets or Dataloaders arguments here
     backend_conf = meta.ignite_training.BackendConfig(dist_backend=hp['dist_backend'], dist_url=hp['dist_url'], local_rank=hp['local_rank'])
     metrics = {'accuracy': Accuracy(device='cuda:{backend_conf.local_rank}' if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()
@@ -71,7 +72,14 @@ def train(datasets: Tuple[torch.utils.data.Dataset], model: nn.Module, hp: meta.
         workers = max(1, (backend_conf.ncpu - 1) // backend_conf.ngpus_current_node)
     else:
         workers = max(1, multiprocessing.cpu_count() - 1)
-    dataloaders = (DataLoader(ds, hp['batch_size'], shuffle=True if i == 0 else False, num_workers=workers) for i, ds in enumerate(datasets))
+
+    max_eval_batch_size = meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=model, device=backend_conf.device)
+
+    dataloaders = []
+    for n, ds in datasets:
+        shuffle = True if n == 'trainset' else False
+        batch_size = hp['batch_size'] if n == 'trainset' else max_eval_batch_size
+        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers))
 
     return meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
 

@@ -63,18 +63,19 @@ def augment_and_mix(image: Image, mixture_width: int = 3, mixture_depth: Union[i
     ws = np.random.dirichlet([alpha] * mixture_width).astype(np.float32)
     m = np.float32(np.random.beta(alpha, alpha))
 
-    image_tensor = pil2tensor(image)
-    mix = torch.zeros_like(image_tensor)
-    for i in range(mixture_width):
-        image_aug = image.copy()
-        depth = np.random.randint(*mixture_depth) if isinstance(mixture_depth, tuple) else mixture_depth
-        for _ in range(depth):
-            op = np.random.choice(augmentations)
-            image_aug = op(image_aug, severity)
-        # TODO: avoid convertion to torch.Tensor here and find a way to multiply and combine PIL images without cumbersome convertions to np.ndarray to torch.Tensor
-        mix += ws[i] * pil2tensor(image_aug)
+    with torch.no_grad():
+        image_tensor = pil2tensor(image)
+        mix = torch.zeros_like(image_tensor)
+        for i in range(mixture_width):
+            image_aug = image.copy()
+            depth = np.random.randint(*mixture_depth) if isinstance(mixture_depth, tuple) else mixture_depth
+            for _ in range(depth):
+                op = np.random.choice(augmentations)
+                image_aug = op(image_aug, severity)
+            # TODO: avoid convertion to torch.Tensor here and find a way to multiply and combine PIL images without cumbersome convertions
+            mix += ws[i] * pil2tensor(image_aug)
 
-    return (1 - m) * image_tensor + m * mix
+        return (1 - m) * image_tensor + m * mix
 
 
 def apply_augmentation(dataloader: torch.utils.data.DataLoader, hp: hyperparams.Hyperparameters):

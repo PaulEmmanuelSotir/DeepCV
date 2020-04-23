@@ -359,11 +359,11 @@ def get_model_capacity(model: nn.Module):
     return sum([np.prod(param.shape) for name, param in model.parameters(recurse=True)])
 
 
-def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_batches: bool=True) -> torch.Size:
+def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_batches: bool = True) -> torch.Size:
     """ Performs a forward pass with a dummy input tensor to figure out module's output shape """
-    features_shapes=[]
+    features_shapes = []
     with torch.no_grad():
-        dummy_batch_x=torch.unsqueeze(torch.zeros(input_shape), dim=0) if input_batches else torch.zeros(input_shape)
+        dummy_batch_x = torch.unsqueeze(torch.zeros(input_shape), dim=0) if input_batches else torch.zeros(input_shape)
         return module(dummy_batch_x).shape
 
 
@@ -392,14 +392,14 @@ def contains_only_convs(op_t: Union[nn.Module, Type]) -> bool:
     raise NotImplementedError
 
 
-def parameter_summary(op_t: Union[nn.Module, Type], pprint: bool=False) -> dict:
+def parameter_summary(op_t: Union[nn.Module, Type], pprint: bool = False) -> dict:
     raise NotImplementedError
 
 
 class TestNNMetaModule:
     def test_is_conv(self):
-        convs=[nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d, nn.Conv2d(3, 16, (3, 3))]
-        not_convs=[nn.Linear, nn.Linear(32, 32), tuple(), int, 54, torch.Tensor(), nn.Fold, nn.Conv2d(3, 16, (3, 3)).weight]
+        convs = [nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d, nn.Conv2d(3, 16, (3, 3))]
+        not_convs = [nn.Linear, nn.Linear(32, 32), tuple(), int, 54, torch.Tensor(), nn.Fold, nn.Conv2d(3, 16, (3, 3)).weight]
         assert all(map(is_conv, convs)), 'TEST ERROR: is_conv function failed to be true for at least one torch.nn convolution type or instance.'
         assert not any(map(is_conv, not_convs)), 'TEST ERROR: is_conv function failed to be false for at least one non-convolution type or instance.'
 
@@ -409,20 +409,20 @@ class TestNNMetaModule:
         def _case3(param1, param2=3): assert param1 == 3 and param2 == 3
         def _case4(param1: torch.Tensor, **kwparams): return kwparams
 
-        M1=func_to_module('M1')(_case1)
-        M2=func_to_module('M2')(_case2)
-        M3=func_to_module('M3')(_case3)
-        M4=func_to_module('M4', ['truc', 'bidule'])(_case4)
+        M1 = func_to_module('M1')(_case1)
+        M2 = func_to_module('M2')(_case2)
+        M3 = func_to_module('M3')(_case3)
+        M4 = func_to_module('M4', ['truc', 'bidule'])(_case4)
 
-        m4=M4(truc='1', bidule=2)
+        m4 = M4(truc='1', bidule=2)
         assert m4.forward(torch.zeros((16, 16))) == {'truc': '1', 'bidule': 2}
 
         @func_to_module('M5')
         def _case5(a: torch.Tensor): return a
         @func_to_module('M6')
-        def _case6(param: str='test'): assert param == 'test'
+        def _case6(param: str = 'test'): assert param == 'test'
 
-        m6=_case6()
+        m6 = _case6()
         m6.forward()
 
 

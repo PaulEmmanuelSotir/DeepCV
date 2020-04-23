@@ -20,7 +20,7 @@ from ...tests.tests_utils import test_module
 __all__ = ['jensen_shannon_divergence_consistency_loss', 'sample_triplets', 'JensenShannonDivergenceConsistencyLoss', 'TripletMarginLoss']
 __author__ = 'Paul-Emmanuel Sotir'
 
-# TODO: investigate triplet network training as a special case of distillation (include this tooling in distillation frameork?)
+# TODO: investigate triplet network training as a special case of distillation (include this tooling in distillation framework?)
 # TODO: implement various contrastive learning tooling/losses
 
 

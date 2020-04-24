@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 """ Data augmentation meta module - augmentation.py - `DeepCV`__
 Some of this python module code is a modified version of [official AugMix implementation](https://github.com/google-research/augmix), under [Apache License 2.0 License](https://github.com/google-research/augmix/blob/master/LICENSE).
+.. See Google Research/DeepMind [ICLR 2020 AugMix paper](https://arxiv.org/pdf/1912.02781.pdf)
 # TODO: parse YAML parameters for augmentations reciepes
 # TODO: implement various augmentation operators: sharpness, crop, brightness, contrast, tweak_colors, gamma, noise, rotate, translate, scale, smooth_non_linear_deformation
 # TODO: implement augmentation based on distilled SinGAN model
 # TODO: AugMix augmentation recipe implementation? (see https://arxiv.org/pdf/1912.02781.pdf and parameters.yml)
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-from typing import Union, Tuple, Callable
+from typing import Union, Tuple, Callable, Mapping
 
 import numpy as np
 from PIL import Image, ImageOps, ImageEnhance
@@ -20,38 +21,43 @@ import torch.nn as nn
 import deepcv.meta.hyperparams as hyperparams
 from ....tests.tests_utils import test_module
 
-__all__ = ['AugMixDataset', 'augment_and_mix', 'apply_augmentation_reciepe', 'autocontrast', 'equalize', 'posterize',
+__all__ = ['apply_augmentation_reciepe', 'augment_and_mix', 'autocontrast', 'equalize', 'posterize',
            'rotate', 'solarize', 'shear_x', 'shear_y', 'translate_x', 'translate_y', 'color', 'contrast', 'brightness', 'sharpness']
 __author__ = 'Paul-Emmanuel Sotir'
 
 AUGMENTATION_OPS = [autocontrast, equalize, posterize, rotate, solarize, shear_x, shear_y, translate_x, translate_y, color, contrast, brightness, sharpness]
 
 
-class AugMixDataset(torch.utils.data.Dataset):
-    """Dataset wrapper to perform AugMix augmentation."""
+def apply_augmentation_reciepe(dataloader: torch.utils.data.DataLoader, hp: Union[hyperparams.Hyperparameters, Mapping]):
+    """ Applies listed augmentation transforms with given configuration from `hp` Dict.
+    .. See [deepcv/conf/base/parameters.yml](./conf/base/parameters.yml) for examples of augmentation reciepe specification
+    Args:
+        - dataloader: Dataset dataloader on which data augmnetation is performed
+        - hp: Augmentation hyperparameters (Mapping or hyperparams.Hyperparameters object), must at least contain `transforms` entry, see `hp.with_defaults({...})` in this function code or [augmentation reciepes spec. in ./conf/base/parameters.yml](./conf/base/parameters.yml)
+    Returns a new torch.utils.data.DataLoader which samples data from newly created augmented dataset
+    """
+    # Parse hyperparameters
+    if not isinstance(hp, hyperparams.Hyperparameters):
+        hp = hyperparams.Hyperparameters(**hp)
+    hp, missing_hyperparams = hp.with_defaults({'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
+                                                'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
+    if hp.get('augmix'):
+        augmix_defaults = {'augmentation_chains_count': ..., 'transform_chains_dirichlet': ..., 'mix_with_original_beta_distr': ...}
+        augmix_params = hyperparams.Hyperparameters(hp['augmix']).with_defaults(augmix_defaults)
 
-    def __init__(self, dataset, preprocess, no_jsd=False):
-        self.dataset = dataset
-        self.preprocess = preprocess
-        self.no_jsd = no_jsd
+    transforms = hp['transforms']
 
-    def __getitem__(self, i) -> torch.Tensor:
-        x, y = self.dataset[i]
-        if self.no_jsd:
-            return aug(x, self.preprocess), y
-        else:
-            im_tuple = (self.preprocess(x), augment_and_mix(x, self.preprocess), augment_and_mix(x, self.preprocess))
-            return im_tuple, y
-
-    def __len__(self):
-        return len(self.dataset)
+    if hp['keep_same_input_shape']:
+        # TODO: resize (scale and/or crop?) output image to its original size
+    raise NotImplementedError
 
 
 def augment_and_mix(image: Image, mixture_width: int = 3, mixture_depth: Union[int, Tuple[int, int]] = [1, 3], severity: int = 0.3, alpha: float = 1.) -> torch.Tensor:
-    """Perform AugMix augmentations and compute mixture
+    """Perform AugMix augmentations on PIL images and compute mixture
     This augmentation procedure should probably be applied before any preprocessing steps like normalization.
+    NOTE: AugMix augmentation reciepe is often used along with JSD (Jensen-Shannon-Divergence, implemented in [deepcv.meta.contrastive module](./src/deepcv/meta/contrastive.py)). JSD is a contrastive loss proposed in [ICLR 2020 AugMix paper](https://arxiv.org/pdf/1912.02781.pdf) which enforces trained model to be invariant to augmentation transforms as long as target remains unchanged.
     Args:
-        image: input image
+        image: input PIL image to augment
         severity: Severity of underlying augmentation operators (between 0. and 1.).
         width: Width of augmentation chain
         depth: Depth of augmentation chain. Can either be a constant value or a range of values from which depth is sampled uniformly
@@ -81,19 +87,6 @@ def augment_and_mix(image: Image, mixture_width: int = 3, mixture_depth: Union[i
             mix += ws[i] * pil2tensor(image_aug)
 
         return (1 - m) * image_tensor + m * mix
-
-
-def apply_augmentation_reciepe(dataloader: torch.utils.data.DataLoader, hp: hyperparams.Hyperparameters):
-    """ Applies listed augmentation transforms with given configuration from `hp` Dict.
-    .. See [deepcv/conf/base/parameters.yml](./conf/base/parameters.yml) for examples of augmentation reciepe specification
-    Args:
-        - dataloader: Dataset dataloader on which data augmnetation is performed
-        - hp:
-    Returns a new torch.utils.data.DataLoader which samples data from newly created augmented dataset
-    """
-    hp, missing_hyperparams = hp.with_defaults({'': ...})
-    raise NotImplementedError
-    pass
 
 
 def autocontrast(pil_img: Image, _):

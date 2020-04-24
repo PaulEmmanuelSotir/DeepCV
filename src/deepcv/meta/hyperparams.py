@@ -17,6 +17,7 @@ import networkx
 import numpy as np
 from scipy.optimize import least_squares
 
+import deepcv.utils
 from data.datasets import get_random_subset_dataloader
 from ...tests.tests_utils import test_module
 
@@ -68,10 +69,10 @@ class Hyperparameters(TrainingMetaData, collections.Mapping):
     # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
     """
 
-    def __init__(self, *args, existing_uuid: Optional[uuid.UUID] = None, **kwargs):
+    def __init__(self, existing_uuid: Optional[uuid.UUID] = None, **kwargs):
         TrainingMetaData.__init__(self, existing_uuid)
         collections.Mapping.__init__(self)
-        self._store = dict(*args, **kwargs)
+        self._store = dict(**kwargs)
         self._hash = None
 
     def __iter__(self):

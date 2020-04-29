@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 """ Contrastive learning meta module - contrastive.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
+
+## To-Do List:
+# TODO: investigate triplet network training as a special case of distillation (include this tooling in distillation framework?)
+# TODO: implement various contrastive learning tooling/losses
 """
 import functools
 from typing import Tuple, Union
@@ -19,9 +23,6 @@ from ...tests.tests_utils import test_module
 
 __all__ = ['jensen_shannon_divergence_consistency_loss', 'sample_triplets', 'JensenShannonDivergenceConsistencyLoss', 'TripletMarginLoss']
 __author__ = 'Paul-Emmanuel Sotir'
-
-# TODO: investigate triplet network training as a special case of distillation (include this tooling in distillation framework?)
-# TODO: implement various contrastive learning tooling/losses
 
 
 def jensen_shannon_divergence_consistency_loss(net: nn.Module, original: torch.Tensor, *augmented_n, reduction: str = 'batchmean', log_target: bool = False):

@@ -2,6 +2,10 @@
 # -*- coding: utf-8 -*-
 """ Hyperparameter search meta module - hyperparams.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
+
+## To-Do List
+# TODO: implement tools for NNI (https://github.com/microsoft/nni) usage (NNI Board and NNICTL) + MLFlow versionning and viz
+# TODO: For hyperparameter embedding: read about graph embedding techniques like: https://github.com/google-research/google-research/tree/master/graph_embedding/ddgk and https://github.com/google-research/google-research/tree/master/graph_embedding/watch_your_step
 """
 import uuid
 import types
@@ -23,8 +27,6 @@ from ...tests.tests_utils import test_module
 
 __all__ = ['hp_search', 'HyperparameterSpace', 'Hyperparameters', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor']
 __author__ = 'Paul-Emmanuel Sotir'
-
-# TODO: implement tools for NNI (https://github.com/microsoft/nni) usage (NNI Board and NNICTL) + MLFlow versionning and viz
 
 
 def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Callable, dataloaders: Tuple[DataLoader], pred_across_scales: bool = False):

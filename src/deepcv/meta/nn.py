@@ -3,6 +3,9 @@
 """ Neural Network meta module - nn.py - `DeepCV`__
 Defines various neural network building blocks (layers, architectures parts, transforms, loss terms, ...)
 .. moduleauthor:: Paul-Emmanuel Sotir
+
+## To-Do List:
+TODO: Add EvoNorm_B0 and EvoNorm_S0 layer implentations (from deepmind neural architecture search results for normalized-activation conv layers)
 """
 import copy
 import inspect

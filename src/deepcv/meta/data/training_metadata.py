@@ -4,6 +4,9 @@
 Utilities to keep track of training tasks, hyperparameters (and their eventual hyperparameter space), dataset statistics and experiments from MLFlow.
 Builds a training meta-dataset and allows a unified treatment and understanding of models, training procedures, datasets and tasks.
 .. moduleauthor:: Paul-Emmanuel Sotir
+
+## To-Do list:
+TODO: Read more in depth Google's approach to meta-datasets: https://github.com/google-research/meta-dataset from this paper: https://arxiv.org/abs/1903.03096 and decide whether it could be relevent to use similar abstractions in meta.data.training_tracker
 """
 import uuid
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence

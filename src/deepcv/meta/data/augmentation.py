@@ -3,11 +3,13 @@
 """ Data augmentation meta module - augmentation.py - `DeepCV`__
 Some of this python module code is a modified version of [official AugMix implementation](https://github.com/google-research/augmix), under [Apache License 2.0 License](https://github.com/google-research/augmix/blob/master/LICENSE).
 .. See Google Research/DeepMind [ICLR 2020 AugMix paper](https://arxiv.org/pdf/1912.02781.pdf)
+.. moduleauthor:: Paul-Emmanuel Sotir
+
+## To-Do list:
 # TODO: parse YAML parameters for augmentations reciepes
 # TODO: implement various augmentation operators: sharpness, crop, brightness, contrast, tweak_colors, gamma, noise, rotate, translate, scale, smooth_non_linear_deformation
 # TODO: implement augmentation based on distilled SinGAN model
 # TODO: AugMix augmentation recipe implementation? (see https://arxiv.org/pdf/1912.02781.pdf and parameters.yml)
-.. moduleauthor:: Paul-Emmanuel Sotir
 """
 from typing import Union, Tuple, Callable, Mapping
 

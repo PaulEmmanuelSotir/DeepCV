@@ -35,19 +35,18 @@ MODULE_CREATOR_MODULE_RETURN_T = nn.Module
 
 class DeepcvModule(nn.Module):
     """ DeepCV PyTorch Module model base class
-    Handles hyperparameter defaults, NN architecture definition tooling and basic shared convolution block for transfert learning between all DeepCV models
+    Handles NN architecture definition tooling for easier model definition (e.g. from a YAML configuration file), model intialization and required/defaults hyperparameters logic.
     Child class must define `HP_DEFAULTS` class attribute, with at least the following keys: `{'architecture': ..., 'act_fn': ...}` and other needed hyperparameters deepending on which sub-module are specified in `architecture` definition
     For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule._define_nn_architecture`.
     NOTE: in order `_features_shapes`, `_submodules_capacities` and `self._architecture_spec` attributes to be defined and contain NN sumbmodules informations, you need to call `DeepcvModule._define_nn_architecture` or update it by yourslef according to your NN architecture.
     NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self._define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` or self._hp['architecture'] contains architecture definition (similar value than `self._define_nn_architecture`'s `architecture_spec` argument would have).
-    NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which is preferable for residual/dense links for example.
+    NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which, for example, allows you to define residual/dense links.
     .. See examples of Deepcv model sub-modules architecture definition in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
     """
 
     HP_DEFAULTS = ...
-    SHARED_BLOCK_DISABLED_WARNING_MSG = r'Warning: `DeepcvModule.{}` called while `self._enable_shared_image_embedding_block` is `False` (Shared image embedding block disabled for this model)'
 
-    def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
+    def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters):
         super(self.__class__).__init__(self)
         self._input_shape = input_shape
 
@@ -195,6 +194,12 @@ class DeepcvModule(nn.Module):
 
 
 class DeepcvModuleWithSharedImageBlock(DeepcvModule):
+    """ Deepcv Module With Shared Image Block model base class
+    Appends to DeepcvModule a basic shared convolution block allowing transfert learning between all DeepCV models on images.
+    """
+
+    SHARED_BLOCK_DISABLED_WARNING_MSG = r'Warning: `DeepcvModule.{}` called while `self._enable_shared_image_embedding_block` is `False` (Shared image embedding block disabled for this model)'
+
     def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
         super(self.__class__).__init__(self, input_shape, hp)
 

@@ -24,7 +24,7 @@ import deepcv.meta as meta
 import deepcv.utils as utils
 from tests.tests_utils import test_module
 
-__all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleDescriptor']
+__all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
 __author__ = 'Paul-Emmanuel Sotir'
 
 BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected,
@@ -49,26 +49,14 @@ class DeepcvModule(nn.Module):
 
     def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
         super(self.__class__).__init__(self)
+        self._input_shape = input_shape
 
         # Process module hyperparameters
         assert self.__class__.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
         self._hp, missing_hyperparams = hp.with_defaults(self.__class__.HP_DEFAULTS)
         assert len(missing_hyperparams) > 0, f'Error: Missing required hyper-parameter in "{self.__class__.__name__}" module parameters. (missing: "{missing_hyperparams}")'
 
-        self._input_shape = input_shape
-        self._shared_block_forked = False
-        self._enable_shared_image_embedding_block = enable_shared_block
-
-        self.freeze_shared_image_embedding_block = freeze_shared_block
-        if enable_shared_block and not 'shared_image_embedding_block' in self.__class__.__dict__:
-            # If class haven't been instanciated yet, define common/shared DeepcvModule image embedding block
-            self.__class__._define_shared_image_embedding_block()
-
-    def forward(self, x: torch.Tensor, channel_dim: int = 3):
-        if self._enable_shared_image_embedding_block:
-            # Apply shared image embedding block and combine it's output with input image (concats features over channel dimension)
-            x = torch.cat([x, self.shared_image_embedding_block(x)], dim=channel_dim)
-
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Apply object detector neural net architecture on top of shared image embedding features and input image
         if len(self._forward_callbacks) > 0:
             # TODO: find a better mechanism to avoid storage of all submodules output features during forward pass in case of residual/dense links (without too much added complexity)
@@ -95,11 +83,134 @@ class DeepcvModule(nn.Module):
         """
         return DeepcvModuleDescriptor(self)
 
-    def get_inputs(self) -> Iterable[torch.Tensor]:
-        raise NotImplementedError
+    def _define_nn_architecture(self, architecture_spec, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
+        """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
+        NOTE: defines `self._features_shapes`, `self._submodules_capacities`, `self._forward_callbacks`, `self._submodules` and `self._architecture_spec` attributes (usefull for debuging and `self.__str__` and `self.describe` functions)
+        Args:
+            - architecture_spec: Neural net architecture definition listing submodules to be created with their respective parameters (probably from hyperparameters of `conf/base/parameters.yml` configuration file)
+            - submodule_creators: Dict of possible architecture sub-modules associated with their respective module creators. If None, then defaults to `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS`.
+            - extend_basic_submodule_creators_dict: Boolean indicating whether `submodule_creators` argument will be extended with `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS` dict or not. i.e. whether `submodule_creators` defines additionnal sub-modules or all existing sub-modules. (if `True` and some submodule name(s) (i.e. Dict key(s)) are both present in `submodule_creators` and  `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS`, then `submodule_creators` dict values (submodule creator(s) Callable(s)) will override defaults/basic one(s)).
+        """
+        self._features_shapes = [self._input_shape]
+        self._architecture_spec = architecture_spec
+        self._submodules_capacities = []
+        self._forward_callbacks = {}
+        self._submodules = {}
 
-    def get_outputs(self) -> Iterable[torch.Tensor]:
-        raise NotImplementedError
+        if submodule_creators is None:
+            submodule_creators = BASIC_SUBMODULE_CREATORS
+        elif extend_basic_submodule_creators_dict:
+            submodule_creators = {**BASIC_SUBMODULE_CREATORS, **submodule_creators}
+
+        # Preliminar parsing of submodule NN architecture spec in order to find submodule references (e.g. residual links) and determine NN siamese architecture
+        submodule_labels, submodule_references = set(), set()
+        for i, (submodule_type, params) in enumerate(architecture_spec):
+            submodule_name = None
+            if (issubclass(params, List) or issubclass(params, Tuple)) and len(params) == 2:
+                # Architecture definition specifies a sub-module name explicitly
+                submodule_name, params = params[0], params[1]
+            elif issubclass(params, str):
+                # Architecture definition specifies a sub-module name explicitly without any other sub-module parameters
+                submodule_name, params = params, dict()
+            elif issubclass(params, Dict) and (issubclass(params.values()[0], List) or issubclass(params.values()[0], Tuple)):
+                # Nested DeepCV sub-module (siamese NN branch, see 'deepcv/conf/base/parameters.yml' for a full example of NN submodules architecture definition)
+
+            if not issubclass(params, Dict):
+                raise RuntimeError(f'Error: Architecture sub-module spec. must either be a parameters Dict, or a submodule name along with parameters Dict, but got: "{params}".')
+
+            # Store any sub-module label or references
+            if '_from' in params:
+                submodule_references.add(params['_from'])
+            if submodule_name is not None:
+                if submodule_name in submodule_labels or submodule_labels == r'' or not isinstance(submodule_name, str):
+                    raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
+                submodule_labels.add(submodule_name)
+
+        # Make sure all referenced sub-module exists (i.e. that there is a matching submodule name/label)
+        if not submodule_references.issubset(submodule_labels):
+            raise ValueError(f"Error: Invalid sub-module reference(s), can't find following sub-module name(s)/label(s): {submodule_references.difference(submodule_labels)}")
+
+        # Re-Parse submodule NN architecture spec in order to define PyTorch model's submodules accordingly
+        submodules = []
+        for i, (submodule_type, params) in enumerate(architecture_spec):
+            submodule_name = f'submodule_{i}'
+            if issubclass(params, List) or issubclass(params, Tuple):
+                submodule_name, params = params[0], params[1]
+            elif issubclass(params, str):
+                submodule_name, params = params, dict()
+
+            # Try to find sub-module creator or nn.Module which matches `submodule_type`
+            fn = submodule_creators.get(submodule_type)
+            if not fn:
+                # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
+                try:
+                    fn = utils.get_by_identifier(submodule_type)
+                except Exception as e:
+                    raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
+
+            # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn)
+            available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
+            module_or_callback = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})
+
+            # Figure out fn's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
+            if issubclass(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
+                self._forward_callbacks[submodule_name] = module_or_callback
+                submodules.append((submodule_name, None))
+            elif issubclass(module_or_callback, nn.Module):
+                submodules.append((submodule_name, module_or_callback))
+            else:
+                msg = f'Error: Wrong sub-module creator function/class __init__ return type (must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.'
+                raise RuntimeError(msg)
+
+            # Get neural network submodules capacity and output features shapes
+            self._submodules_capacities.append(meta.nn.get_model_capacity(submodules[-1]))
+            self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
+            self._features_shapes.append(meta.nn.get_out_features_shape(self._net))
+
+        self._submodules = dict(*submodules)
+
+    def _initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
+        xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(act_fn)) if act_fn else None
+
+        def _raise_if_no_act_fn(sub_module_name: str):
+            if xavier_gain is None:
+                msg = f'Error: Must specify  in `DeepcvModule.initialize_parameters` function in order to initialize {sub_module_name} layer sub-module with xavier initialization.'
+                raise RuntimeError(msg)
+
+        def _xavier_init(module: nn.Module):
+            if meta.nn.is_conv(module):
+                _raise_if_no_act_fn('convolution')
+                nn.init.xavier_normal_(module.weight.data, gain=xavier_gain)
+                module.bias.data.fill_(0.)
+            elif utils.is_fully_connected(module):
+                _raise_if_no_act_fn('fully connected')
+                nn.init.xavier_uniform_(module.weight.data, gain=xavier_gain)
+                module.bias.data.fill_(0.)
+            elif type(module).__module__ == nn.BatchNorm2d.__module__:
+                nn.init.uniform_(module.weight.data)  # gamma == weight here
+                module.bias.data.fill_(0.)  # beta == bias here
+            elif list(module.parameters(recurse=False)) and list(module.children()):
+                raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
+        self.apply(_xavier_init)
+
+
+class DeepcvModuleWithSharedImageBlock(DeepcvModule):
+    def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
+        super(self.__class__).__init__(self, input_shape, hp)
+
+        self._shared_block_forked = False
+        self._enable_shared_image_embedding_block = enable_shared_block
+        self.freeze_shared_image_embedding_block = freeze_shared_block
+
+        if enable_shared_block and not 'shared_image_embedding_block' in self.__class__.__dict__:
+            # If class haven't been instanciated yet, define common/shared DeepcvModule image embedding block
+            self.__class__._define_shared_image_embedding_block()
+
+    def forward(self, x: torch.Tensor, channel_dim: int = 3) -> torch.Tensor:
+        if self._enable_shared_image_embedding_block:
+            # Apply shared image embedding block and combine it's output with input image (concats features over channel dimension)
+            x = torch.cat([x, self.shared_image_embedding_block(x)], dim=channel_dim)
+        return super(self.__class__).forward(self, x)
 
     @property
     def freeze_shared_image_embedding_block(self) -> bool:
@@ -144,116 +255,6 @@ class DeepcvModule(nn.Module):
             logging.warn(self.__class__.SHARED_BLOCK_DISABLED_WARNING_MSG.format('merge_shared_image_embedding_block'))
         return False
 
-    def _define_nn_architecture(self, architecture_spec, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
-        """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
-        NOTE: defines `self._features_shapes`, `self._submodules_capacities`, `self._forward_callbacks`, `self._submodules` and `self._architecture_spec` attributes (usefull for debuging and `self.__str__` and `self.describe` functions)
-        Args:
-            - architecture_spec: Neural net architecture definition listing submodules to be created with their respective parameters (probably from hyperparameters of `conf/base/parameters.yml` configuration file)
-            - submodule_creators: Dict of possible architecture sub-modules associated with their respective module creators. If None, then defaults to `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS`.
-            - extend_basic_submodule_creators_dict: Boolean indicating whether `submodule_creators` argument will be extended with `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS` dict or not. i.e. whether `submodule_creators` defines additionnal sub-modules or all existing sub-modules. (if `True` and some submodule name(s) (i.e. Dict key(s)) are both present in `submodule_creators` and  `deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS`, then `submodule_creators` dict values (submodule creator(s) Callable(s)) will override defaults/basic one(s)).
-        """
-        self._features_shapes = [self._input_shape]
-        self._architecture_spec = architecture_spec
-        self._submodules_capacities = []
-        self._forward_callbacks = {}
-        self._submodules = {}
-
-        if submodule_creators is None:
-            submodule_creators = BASIC_SUBMODULE_CREATORS
-        elif extend_basic_submodule_creators_dict:
-            submodule_creators = {**BASIC_SUBMODULE_CREATORS, **submodule_creators}
-
-        # Preliminar parsing of submodule NN architecture spec in order to find submodule references (e.g. residual links) and determine NN siamese architecture
-        submodule_labels, submodule_references = set(), set()
-        for i, (submodule_type, params) in enumerate(architecture_spec):
-            submodule_name = None
-            if (issubclass(params, List) or issubclass(params, Tuple)) and len(params) == 2:
-                # Architecture definition specifies a sub-module name explicitly
-                submodule_name, params = params[0], params[1]
-            elif issubclass(params, str):
-                # Architecture definition specifies a sub-module name explicitly without any other sub-module parameters
-                submodule_name, params = params, dict()
-            elif issubclass(params, Dict) and (issubclass(params.values()[0], List) or issubclass(params.values()[0], Tuple)):
-                # Nested
-
-            if not issubclass(params, Dict):
-                raise RuntimeError(f'Error: Architecture sub-module spec. must either be a parameters Dict, or a submodule name along with parameters Dict, but got: "{params}".')
-
-            # Store any sub-module label or references
-            if '_from' in params:
-                submodule_references.add(params['_from'])
-            if submodule_name is not None:
-                if submodule_name in submodule_labels or submodule_labels == r'' or not isinstance(submodule_name, str):
-                    raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
-                submodule_labels.add(submodule_name)
-
-        # Make sure all referenced sub-module exists (i.e. that there is a matching submodule name/label)
-        if not submodule_references.issubset(submodule_labels):
-            raise ValueError(f"Error: Invalid sub-module reference(s), can't find following sub-module name(s)/label(s): {submodule_references.difference(submodule_labels)}")
-
-        # Re-Parse submodule NN architecture spec in order to define PyTorch model's submodules accordingly
-        submodules = []
-        for i, (submodule_type, params) in enumerate(architecture_spec):
-            submodule_name = f'submodule_{i}'
-            if issubclass(params, List) or issubclass(params, Tuple):
-                submodule_name, params = params[0], params[1]
-            elif issubclass(params, str):
-                submodule_name, params = params, dict()
-
-            # Try to find sub-module creator or nn.Module which matches `submodule_type`
-            fn = submodule_creators.get(submodule_type)
-            if not fn:
-                # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
-                try:
-                    fn = utils.get_by_identifier(submodule_type)
-                except Exception as e:
-                    raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
-
-            # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn)
-            available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
-            module_or_callback = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})
-
-            # Figure out fn's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (see self.forward for more details about these callbacks)
-            if issubclass(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
-                self._forward_callbacks[submodule_name] = module_or_callback
-                submodules.append((submodule_name, None))
-            elif issubclass(module_or_callback, nn.Module):
-                submodules.append((submodule_name, module_or_callback))
-            else:
-                msg = f'Error: Wrong sub-module creator function/class __init__ return type (must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.'
-                raise RuntimeError(msg)
-
-            # Get neural network submodules capacity and output features shapes
-            self._submodules_capacities.append(meta.nn.get_model_capacity(submodules[-1]))
-            self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
-            self._features_shapes.append(meta.nn.get_out_features_shape(self._net))
-
-        self._submodules = dict(*submodules)
-
-    def _initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
-        xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(act_fn)) if act_fn else None
-
-        def _raise_if_no_act_fn(sub_module_name: str):
-            if xavier_gain is None:
-                msg = f'Error: Must specify  in `DeepcvModule.initialize_parameters` function in order to initialize {sub_module_name} layer sub-module with xavier initialization.'
-                raise RuntimeError(msg)
-
-        def _xavier_init(module: nn.Module):
-            if meta.nn.is_conv(module):
-                _raise_if_no_act_fn('convolution')
-                nn.init.xavier_normal_(module.weight.data, gain=xavier_gain)
-                module.bias.data.fill_(0.)
-            elif utils.is_fully_connected(module):
-                _raise_if_no_act_fn('fully connected')
-                nn.init.xavier_uniform_(module.weight.data, gain=xavier_gain)
-                module.bias.data.fill_(0.)
-            elif type(module).__module__ == nn.BatchNorm2d.__module__:
-                nn.init.uniform_(module.weight.data)  # gamma == weight here
-                module.bias.data.fill_(0.)  # beta == bias here
-            elif list(module.parameters(recurse=False)) and list(module.children()):
-                raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
-        self.apply(_xavier_init)
-
     @classmethod
     def _define_shared_image_embedding_block(cls, in_channels: int = 3):
         logging.info('Creating shared image embedding block of DeepcvModule models...')
@@ -286,10 +287,11 @@ class DeepcvModuleDescriptor:
         self.human_readable_capacity = utils.human_readable_size(self.capacity)
         self.model_class = module.__class__
         self.model_class_name = module.__class__.__name__
-        self.uses_shared_block = module._enable_shared_image_embedding_block
-        self.did_forked_shared_block = module._shared_block_forked
-        self.freezed_shared_block = module._freeze_shared_image_embedding_block
-        assert not self.did_forked_shared_block or self.uses_shared_block, 'Error: DeepCVModule have inconsistent flags: `_shared_block_forked` cant be True if `_enable_shared_image_embedding_block` is False'
+        if isinstance(module, DeepcvModuleWithSharedImageBlock):
+            self.uses_shared_block = module._enable_shared_image_embedding_block
+            self.did_forked_shared_block = module._shared_block_forked
+            self.freezed_shared_block = module._freeze_shared_image_embedding_block
+            assert not self.did_forked_shared_block or self.uses_shared_block, 'Error: DeepCVModule have inconsistent flags: `_shared_block_forked` cant be True if `_enable_shared_image_embedding_block` is False'
 
         if '_features_shapes' in module.__dict__:
             self.submodules_features_shapes = module._features_shapes
@@ -311,19 +313,20 @@ class DeepcvModuleDescriptor:
         else:
             desc_str = '(No submodule architecture informations to describe)'
 
-        desc_str += '\n SIEB (Shared Image Embedding Block) usage:'
-        if self.uses_shared_block:
-            desc_str += 'This module makes use of shared image embedding block applied to input image:'
-            if self.did_forked_shared_block:
-                desc_str += "\n\t- FORKED=True: Shared image embedding block parameters have been forked, SGD updates from other models wont impact this model's weights and SGD updates of this model wont change shared weights of other models until the are eventually merged"
+        if isinstance(module, DeepcvModuleWithSharedImageBlock):
+            desc_str += '\n SIEB (Shared Image Embedding Block) usage:'
+            if self.uses_shared_block:
+                desc_str += 'This module makes use of shared image embedding block applied to input image:'
+                if self.did_forked_shared_block:
+                    desc_str += "\n\t- FORKED=True: Shared image embedding block parameters have been forked, SGD updates from other models wont impact this model's weights and SGD updates of this model wont change shared weights of other models until the are eventually merged"
+                else:
+                    desc_str += '\n\t- FORKED=False: Shared image embedding block parameters are still shared, any non-forked/non-freezed DeepcvModule SGD uptates will have an impact on these parameters.'
+                if self.freezed_shared_block:
+                    desc_str += '\n\t- SHARED=True: Shared image embedding block parameters have been freezed and wont be taken in account in gradient descent training of this module.'
+                else:
+                    desc_str += '\n\t- SHARED=False: Shared image embedding block parameters are not freezed and will be learned/fine-tuned during gradient descent training of this model.'
             else:
-                desc_str += '\n\t- FORKED=False: Shared image embedding block parameters are still shared, any non-forked/non-freezed DeepcvModule SGD uptates will have an impact on these parameters.'
-            if self.freezed_shared_block:
-                desc_str += '\n\t- SHARED=True: Shared image embedding block parameters have been freezed and wont be taken in account in gradient descent training of this module.'
-            else:
-                desc_str += '\n\t- SHARED=False: Shared image embedding block parameters are not freezed and will be learned/fine-tuned during gradient descent training of this model.'
-        else:
-            desc_str = ' This module doesnt use shared image embedding block.'
+                desc_str = ' This module doesnt use shared image embedding block.'
         return f'{self.model_class_name} (capacity={self.human_readable_capacity}):\n\t{desc_str}'
 
 

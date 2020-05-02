@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 """ Object detection module - object.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
+
+## To-Do List:
+# TODO: refactor to handle test and/or valid sets + handle cross validation
 """
 import re
 import multiprocessing
@@ -26,11 +29,6 @@ from tests.tests_utils import test_module
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
-
-
-# TODO: refactor to handle test and/or valid sets + handle cross validation
-# TODO: add support for residual/dense links
-# TODO: make this model fully generic and move it to meta.nn (allow module_creators to be extended and/or overriden)
 
 
 class ObjectDetector(meta.base_module.DeepcvModule):

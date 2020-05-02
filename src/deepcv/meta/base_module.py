@@ -3,6 +3,10 @@
 """ DeepCV model base class meta module - base_module.py - `DeepCV`__
 Defines DeepCV model base class
 .. moduleauthor:: Paul-Emmanuel Sotir
+
+# To-Do List:
+# TODO: optimize support for residual/dense links
+# TODO: Try to unfreeze batch_norm parameters of shared image embedding block (with its other parameters freezed) and compare performances across various tasks
 """
 import types
 import inspect
@@ -38,7 +42,6 @@ class DeepcvModule(nn.Module):
     NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self._define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` or self._hp['architecture'] contains architecture definition (similar value than `self._define_nn_architecture`'s `architecture_spec` argument would have).
     NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which is preferable for residual/dense links for example.
     .. See examples of Deepcv model sub-modules architecture definition in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
-    TODO: Try to unfreeze batch_norm parameters of shared image embedding block (with its other parameters freezed) and compare performances across various tasks
     """
 
     HP_DEFAULTS = ...
@@ -160,18 +163,42 @@ class DeepcvModule(nn.Module):
         elif extend_basic_submodule_creators_dict:
             submodule_creators = {**BASIC_SUBMODULE_CREATORS, **submodule_creators}
 
+        # Preliminar parsing of submodule NN architecture spec in order to find submodule references (e.g. residual links) and determine NN siamese architecture
+        submodule_labels, submodule_references = set(), set()
+        for i, (submodule_type, params) in enumerate(architecture_spec):
+            submodule_name = None
+            if (issubclass(params, List) or issubclass(params, Tuple)) and len(params) == 2:
+                # Architecture definition specifies a sub-module name explicitly
+                submodule_name, params = params[0], params[1]
+            elif issubclass(params, str):
+                # Architecture definition specifies a sub-module name explicitly without any other sub-module parameters
+                submodule_name, params = params, dict()
+            elif issubclass(params, Dict) and (issubclass(params.values()[0], List) or issubclass(params.values()[0], Tuple)):
+                # Nested
+
+            if not issubclass(params, Dict):
+                raise RuntimeError(f'Error: Architecture sub-module spec. must either be a parameters Dict, or a submodule name along with parameters Dict, but got: "{params}".')
+
+            # Store any sub-module label or references
+            if '_from' in params:
+                submodule_references.add(params['_from'])
+            if submodule_name is not None:
+                if submodule_name in submodule_labels or submodule_labels == r'' or not isinstance(submodule_name, str):
+                    raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
+                submodule_labels.add(submodule_name)
+
+        # Make sure all referenced sub-module exists (i.e. that there is a matching submodule name/label)
+        if not submodule_references.issubset(submodule_labels):
+            raise ValueError(f"Error: Invalid sub-module reference(s), can't find following sub-module name(s)/label(s): {submodule_references.difference(submodule_labels)}")
+
+        # Re-Parse submodule NN architecture spec in order to define PyTorch model's submodules accordingly
         submodules = []
         for i, (submodule_type, params) in enumerate(architecture_spec):
             submodule_name = f'submodule_{i}'
             if issubclass(params, List) or issubclass(params, Tuple):
-                # Architecture definition specifies a sub-module name explicitly
-                submodule_name, params = *params
+                submodule_name, params = params[0], params[1]
             elif issubclass(params, str):
-                # Architecture definition specifies a sub-module name explicitly without any other sub-module parameters
-                submodule_name = params
-                params = {}
-            elif not issubclass(params, Dict):
-                raise RuntimeError(f'Error: Architecture sub-module spec. must either be a parameters Dict, or a submodule name along with parameters Dict, but got: "{params}".')
+                submodule_name, params = params, dict()
 
             # Try to find sub-module creator or nn.Module which matches `submodule_type`
             fn = submodule_creators.get(submodule_type)
@@ -328,7 +355,7 @@ def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[
 def _residual_dense_link(is_residual: bool = True):
     """ Creates a residual or dense link sub-module which concatenates or adds features from direct previous sub-module and another sub-module
     Output features shapes of these two submodules must be the same, except for the channels/filters dimension if this is a dense link.
-    `submodule_params` Argument must contain a `from` entry giving the other sub-module reference (sub-module name) from which output is added to previous sub-module output.
+    `submodule_params` Argument must contain a `_from` entry giving the other sub-module reference (sub-module name) from which output is added to previous sub-module output.
     Returns a callback which is called during forwarding of sub-modules.
     If `submodule_params` contains a 'allow_scaling' entry, then if residual/dense features have different shape on dimension(s) following `channel_dim`, it will be scaled (upscaled or downscaled) using [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
     By default interpolation is 'linear'; If needed you can specify a `scaling_mode` parameter in `submodule_params` to change algorithm used for upsampling (valid values: 'nearest' | 'linear' | 'bilinear' | 'bicubic' | 'trilinear' | 'area').
@@ -338,7 +365,7 @@ def _residual_dense_link(is_residual: bool = True):
         def _forward_callback(x: torch.Tensor, prev_named_submodules_out: Dict[str, torch.Tensor]):
             if submodule_params['from'] not in prev_named_submodules:
                 raise ValueError(f"Error: Couldn't find previous sub-module name reference '{submodule_params['from']}' in NN architecture.")
-            y = prev_named_submodules[submodule_params['from']]
+            y = prev_named_submodules[submodule_params['_from']]
 
             # If target output shape (which is the same as `x` features shape) is different from `y` features shapes, we perform a down or up scaling (interpolation) if allowed
             if x.shape[channel_dim:] != y.shape[channel_dim:]:

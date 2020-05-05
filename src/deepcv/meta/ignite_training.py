@@ -3,6 +3,8 @@
 """ Training loop meta module - training_loop.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
+import logging
+import traceback
 import multiprocessing
 from pathlib import Path
 from datetime import datetime
@@ -63,7 +65,7 @@ class BackendConfig:
         return f'distributed-{self.nnodes}nodes-{self.ngpus}gpus-{self.ngpus_current_node}current-node-gpus'
 
 
-def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[Metric] = {}):
+def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[Metric] = {}) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_parameters`` to see required parameters and defaults
@@ -73,10 +75,12 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
         - opt: Optimizer type to be used for gradient descent
         - backend_conf: Backend information defining distributed configuration (available GPUs, whether if CPU or GPU are used, distributed node count, ...), see ``deepcv.meta.ignite_training.BackendConfig`` class for more details.
         - metrics: Additional metrics dictionnary (loss is already included in metrics to be evaluated by default)
+    Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).
     # TODO: print training initialization info
     # TODO: add support for cross-validation
     # TODO: Integrate MLFlow?
     """
+    logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
     output_path = Path(hp['output_path'])
     trainset, *validset_testset = dataloaders
@@ -173,10 +177,13 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
     _resume_training(hp.get('resume_from'), to_save)
 
     try:
-        trainer.run(trainset, max_epochs=hp['epochs'])
-    except Exception:
-        import traceback
-        print(traceback.format_exc())
+        logging.info(f'> ignite runs training loop for "{model}" model...')
+        state = trainer.run(trainset, max_epochs=hp['epochs'])
+        logging.info(f'Ignite training procedure of "{model}" model sucessfully done.')
+        return state
+    except Exception as e:
+        logging.error(f'Ignite training loop of "{model}" model failed, exception "{e}" raised\n### Traceback ###\n{traceback.format_exc()}')
+        raise RuntimeError(f'Error: Error occured during ignite training loop of "{model}" model...') from e
     finally:
         if backend_conf.rank == 0:
             tb_logger.close()

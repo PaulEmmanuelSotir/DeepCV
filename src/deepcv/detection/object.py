@@ -12,15 +12,16 @@ from pathlib import Path
 from collections import OrderedDict
 from typing import Any, Dict, Optional, Tuple, Callable, List, Iterable
 
-import numpy as np
-
 import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim as optim
 import torch.distributed as dist
-from ignite.metrics import Accuracy
 from torch.utils.data import DataLoader, Dataset
+
+import ignite
+import numpy as np
+from ignite.metrics import Accuracy
 from kedro.pipeline import Pipeline, node
 
 import deepcv.meta as meta
@@ -44,7 +45,7 @@ def get_object_detector_pipelines():
     p1 = Pipeline([node(meta.hyperparams.merge_hyperparameters, name='merge_hyperparameters', inputs=['params:object_detector', 'params:cifar10_preprocessing'], outputs=['hp']),
                    node(meta.data.preprocess.preprocess, name='preprocess_cifar_dataset', inputs=['trainset', 'testset', 'hp'], outputs=['datasets']),
                    node(create_model, name='create_object_detection_model', inputs=['datasets', 'hp'], outputs=['model']),
-                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'hp'], outputs=None)],
+                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'hp'], outputs=['ignite_state'])],
                   name='object_detector_training')
     return [p1]
 
@@ -58,8 +59,8 @@ def create_model(datasets: Dict[str, Dataset], hp: meta.hyperparams.Hyperparamet
     return model
 
 
-def train(datasets: Dict[str, Dataset], model: nn.Module, hp: meta.hyperparams.Hyperparameters):
-    # TODO: decide whether we take Datasets or Dataloaders arguments here
+def train(datasets: Dict[str, Dataset], model: nn.Module, hp: meta.hyperparams.Hyperparameters) -> ignite.engine.State:
+    # TODO: decide whether we take Datasets or Dataloaders arguments here (depends on how preprocessing is implemented)
     backend_conf = meta.ignite_training.BackendConfig(dist_backend=hp['dist_backend'], dist_url=hp['dist_url'], local_rank=hp['local_rank'])
     metrics = {'accuracy': Accuracy(device='cuda:{backend_conf.local_rank}' if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()

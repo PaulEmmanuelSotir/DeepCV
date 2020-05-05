@@ -44,12 +44,12 @@ def preprocess(hp: meta.hyperparams.Hyperparameters, trainset: meta.data.dataset
     if len(missings) > 0:
         logging.error(f'Error: Missing mandatory (hyper)parameter(s) in `hp` argument of {utils.get_str_repr(preprocess, __file__)} procedure: Missing parameters: {missings}')
 
-    # Data augmentation
-    # TODO: follow augmentation recipes and preprocessing transforms specified in parameters.yml (hp)
+    # Preprocess and augment data according to recipes specified in hyperparameters from YAML config (deepcv/conf/base/parameters.yml)
     for dl in (trainset, validset, testset):
         if not len(dl) > 0:
             raise RuntimeError(f'Error: empty dataloader `{dl}` in {utils.get_str_repr(preprocess, __file__)}')
 
+        # Data augmentation
         if 'augmentations' in hp:
             logging.info(f'Applying dataset augmentation reciepe ')
             dl = meta.data.augmentation.apply_augmentation_reciepe(hp['augmentations'], dl)

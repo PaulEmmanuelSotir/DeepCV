@@ -124,9 +124,6 @@ class DeepcvModule(nn.Module):
             elif issubclass(params, str):
                 # Architecture definition specifies a sub-module name explicitly without any other sub-module parameters
                 submodule_name, params = params, dict()
-            elif issubclass(params, Dict) and (issubclass(params.values()[0], List) or issubclass(params.values()[0], Tuple)):
-                # Nested DeepCV sub-module (siamese NN branch, see 'deepcv/conf/base/parameters.yml' for a full example of NN submodules architecture definition)
-                raise NotImplementedError
 
             # Checks if `params` is a valid and if there are eventual invalid or duplicate `submodule_name`(s)
             if not issubclass(params, Dict):
@@ -134,14 +131,35 @@ class DeepcvModule(nn.Module):
             if submodule_name is not None and submodule_name in dict(*submodules).keys() or submodule_name == r'' or not isinstance(submodule_name, str):
                 raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
 
-            # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
-            fn = submodule_creators.get(submodule_type)
-            if not fn:
-                # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
-                try:
-                    fn = utils.get_by_identifier(submodule_type)
-                except Exception as e:
-                    raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
+            if issubclass(params, Dict) and (issubclass(params.values()[0], List) or issubclass(params.values()[0], Tuple)) and submodule_type == '_deepcvmodule':
+                # Allow nested DeepCV sub-module (see deepcv/conf/base/parameters.yml for examples)
+                submodule_hp_dict = dict(**self._hp)
+                del submodule_hp_dict['architecture']  # Make sure we dont reuse parent DeepCV module architecture spec (if 'architecture' entry is missing in params dict)
+                submodule_hp_dict.update(params)
+                module_or_callback = DeepcvModule(input_shape=self._features_shapes[-1], hp=meta.hyperparams.Hyperparameters(submodule_hp_dict))
+            else:
+                # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
+                fn = submodule_creators.get(submodule_type)
+                if not fn:
+                    # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
+                    try:
+                        fn = utils.get_by_identifier(submodule_type)
+                    except Exception as e:
+                        raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
+
+                # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn)
+                available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
+                module_or_callback = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})
+
+                # Figure out fn's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
+                if issubclass(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
+                    self._forward_callbacks[submodule_name] = module_or_callback
+                    submodules.append((submodule_name, None))
+                elif issubclass(module_or_callback, nn.Module):
+                    submodules.append((submodule_name, module_or_callback))
+                else:
+                    msg = f'Error: Wrong sub-module creator function/class __init__ return type (must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.'
+                    raise RuntimeError(msg)
 
             # Store any sub-module name/label references (used to store referenced submodule's output features during model's forward pass in order to reuse these features later in a forward callback (e.g. for residual links))
             if '_from' in params:
@@ -152,30 +170,17 @@ class DeepcvModule(nn.Module):
                     else:
                         self._submodule_references[referenced_submodule] = set([submodule_name])
 
-            # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn)
-            available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
-            module_or_callback = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})
-
-            # Figure out fn's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
-            if issubclass(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
-                self._forward_callbacks[submodule_name] = module_or_callback
-                submodules.append((submodule_name, None))
-            elif issubclass(module_or_callback, nn.Module):
-                submodules.append((submodule_name, module_or_callback))
-            else:
-                msg = f'Error: Wrong sub-module creator function/class __init__ return type (must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.'
-                raise RuntimeError(msg)
-
             # Get neural network submodules capacity and output features shapes
             self._submodules_capacities.append(meta.nn.get_model_capacity(submodules[-1]))
             self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
             self._features_shapes.append(meta.nn.get_out_features_shape(self._net))
 
-        # Make sure all referenced sub-module exists (i.e. that there is a matching submodule name/label)
-        if not submodule_references.issubset(submodule_labels):
-            raise ValueError(f"Error: Invalid sub-module reference(s), can't find following sub-module name(s)/label(s): {submodule_references.difference(submodule_labels)}")
-
         self._submodules = dict(*submodules)
+
+        # Make sure all referenced sub-module exists (i.e. that there is a matching submodule name/label)
+        missing = [referenced for referenced in self._submodule_references.keys() if referenced not in self._submodules.keys()]
+        if len(missing) > 0:
+            raise ValueError(f"Error: Invalid sub-module reference(s), can't find following sub-module name(s)/label(s): {missing}")
 
     def initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
         """ Initializes model's parameters with Xavier Initialization with a scale depending on given activation function (only needed if there are convolutional and/or fully connected layers). """

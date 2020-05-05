@@ -20,13 +20,13 @@ augmentations_recipes:
       - scale: 0.2
       - smooth_non_linear_deformation: false # Strenght/severity of a non-linear image deformation (set to null, false or 0 to disable)
   - augmix_augmentation:
-    <<: *basic_augmentation
-    - augmix:
+    << : *basic_augmentation
+    augmix:
       - augmentation_chains_count: [1, 3] # Number of augmentation transform chains to mix together (see [AugMix](https://arxiv.org/pdf/1912.02781.pdf) augmentation algorithm for more details)
       - transform_chains_dirichlet: 0.3 # Dirichlt distribution parameter to sample k=3 mixing convex coeficients. (to be convex along each dimensions, dirichlet coefficents must be > 1.)
       - augmix_with_original: 0.3 # if strength/severity is greater than 0: final augmented image will be with it original image (given value discribes Beta distribution)
   - singan_augmentation: &singan_augmentation
-    <<: *basic_augmentation
+    << : *basic_augmentation
     transforms_additional:
       - distilled_singan_augmentation: true
 
@@ -40,18 +40,18 @@ basic_preprocessing_procedure: &basic_preprocessing_procedure
   augmentation_reciepe: *basic_augmentation
 
 mnist_preprocessing:
-  <<: *basic_preprocessing_procedure
+  << : *basic_preprocessing_procedure
   normalization_stats : [[0.15, 0.15, 0.15], [0.15, 0.15, 0.15]]
 
 cifar10_preprocessing: &cifar10_preprocessing
-  <<: *basic_preprocessing_procedure
+  << : *basic_preprocessing_procedure
   normalization_stats: [[0.491, 0.482, 0.447], [0.247, 0.243, 0.261]]
 
 cifar100_preprocessing:
-  <<: *cifar10_preprocessing
+  << : *cifar10_preprocessing
 
 imagenet32_prerocessing:
-  <<: *basic_preprocessing_procedure
+  << : *basic_preprocessing_procedure
   normalization_stats: [[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]]
 
 
@@ -59,6 +59,41 @@ imagenet32_prerocessing:
 %YAML 1.2
 %TAG !py! tag:yaml.org,2002:python/object:  
 ---
+
+models:
+  - basic_backbone: &basic_backbone
+    act_fn: !py!deepcv.torch.nn.ReLU
+    architecture:
+      - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
+      - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
+      - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
+      - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2]}]
+      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+      - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
+      - residual_link: { _from: pooling1, allow_scaling: true }
+  - lager_backbone: &lager_backbone
+    act_fn: !py!deepcv.torch.nn.ReLU
+    architecture:
+      - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2]}]
+      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+      - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
+      - dense_link: [dense1, { _from: pooling1, allow_scaling: true }]
+      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+      - avg_pooling: [pooling2, { kernel_size: [2, 2], stride: [2, 2] }]
+      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+      - residual_link: { _from: pooling2 }
+      - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
+      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+      - dense_link: { _from: pooling2, allow_scaling: true }
+      - conv2d: { kernel_size: [3, 3], out_channels: 64, padding: 1 }
+
 
 # Hyper-parameter YAML configuration file
 basic_training_params: &basic_ignite_training
@@ -85,40 +120,20 @@ basic_training_params: &basic_ignite_training
   dist_url: # "env://"
   dist_backend: "" # Set, for example, nccl (torch.distributed.Backend.NCCL) for distributed training using nccl backend
 
+
 object_detector:
-  <<: *basic_ignite_training
+  << : *basic_ignite_training
   output_path: ""
   epochs: 80
   batch_size: 32
   optimizer_opts: { lr: 0.1, momentum: 0., weight_decay: 0., nesterov: true }
   model:
-    act_fn: !py!deepcv.torch.nn.ReLU # evaluated at runtime in python code
+    act_fn: !py!deepcv.torch.nn.ReLU
     dropout_prob: 0.0
     batch_norm: { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
     architecture:
-        - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
-        - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
-        - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
-        - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2]}]
-        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-        - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
-      - siamese1:
-        - dense_link: [dense1, { from: pooling1, allow_scaling: true }]
-        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-        - avg_pooling: [pooling2, { kernel_size: [2, 2], stride: [2, 2] }]
-        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-        - residual_link: { from: dense1, allow_scaling: true }
-      - siamese2:
-        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-        - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
-        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-        - dense_link: { from: pooling2 }
-        - conv2d: { kernel_size: [3, 3], out_channels: 64, padding: 1 }
+      - _deepcvmodule: *basic_backbone
+      - _deepcvmodule: *lager_backbone
       - !py!deepcv.meta.nn.Flatten: null
       - fully_connected: {out_features: 10}
 

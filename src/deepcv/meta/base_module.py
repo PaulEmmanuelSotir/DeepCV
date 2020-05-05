@@ -39,7 +39,7 @@ class DeepcvModule(nn.Module):
     Child class must define `HP_DEFAULTS` class attribute, with at least the following keys: `{'architecture': ..., 'act_fn': ...}` and other needed hyperparameters deepending on which sub-module are specified in `architecture` definition
     For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule._define_nn_architecture`.
     NOTE: in order `_features_shapes`, `_submodules_capacities` and `self._architecture_spec` attributes to be defined and contain NN sumbmodules informations, you need to call `DeepcvModule._define_nn_architecture` or update it by yourslef according to your NN architecture.
-    NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self._define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` or self._hp['architecture'] contains architecture definition (similar value than `self._define_nn_architecture`'s `architecture_spec` argument would have).
+    NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self._define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` contains architecture definition (similar value than `self._define_nn_architecture`'s `architecture_spec` argument would have).
     NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which, for example, allows you to define residual/dense links.
     .. See examples of Deepcv model sub-modules architecture definition in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
     """
@@ -58,14 +58,26 @@ class DeepcvModule(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Apply object detector neural net architecture on top of shared image embedding features and input image
         if len(self._forward_callbacks) > 0:
-            # TODO: find a better mechanism to avoid storage of all submodules output features during forward pass in case of residual/dense links (without too much added complexity)
-            prev_features_tensors = {}
+            referenced_output_features = {}
             for name, subm in self._submodules:
                 if name in self._forward_callbacks:
-                    x = self._forward_callbacks[name](x, prev_features_tensors)
+                    # Forward pass through sub-module
+                    x = self._forward_callbacks[name](x, referenced_output_features)
+                    # Update `_submodule_references` and free stored output features if there isn't any referrers referencing a submodule anymore (i.e. all forward callbacks have consumed stored output features for a given referenced sub-module)
+                    for referenced_submodule, referrers in self._submodule_references:
+                        if name in referrers:
+                            self._submodule_references[referenced_submodule].remove(name)
+                            if len(self._submodule_references[referenced_submodule]) == 0:
+                                # There isn't referrer submodules to take stored features as input anymore, so we free memory for this reference (e.g. residual or dense link)
+                                del self._submodule_references[referenced_submodule]
+                                del referenced_output_features[referenced_submodule]
                 else:
+                    # Forward pass through sub-module
                     x = subm(x)
-                prev_features_tensors[name] = x
+
+                # If submodule is referenced by another module by a '_from' entry in its parameters, then we store its output features for later use (e.g. for a residual link)
+                if name in self._submodule_references:
+                    referenced_output_features[name] = x
                 return x
         else:
             return self._net(x)
@@ -82,7 +94,7 @@ class DeepcvModule(nn.Module):
         """
         return DeepcvModuleDescriptor(self)
 
-    def _define_nn_architecture(self, architecture_spec, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
+    def define_nn_architecture(self, architecture_spec, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
         """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
         NOTE: defines `self._features_shapes`, `self._submodules_capacities`, `self._forward_callbacks`, `self._submodules` and `self._architecture_spec` attributes (usefull for debuging and `self.__str__` and `self.describe` functions)
         Args:
@@ -92,20 +104,21 @@ class DeepcvModule(nn.Module):
         """
         self._features_shapes = [self._input_shape]
         self._architecture_spec = architecture_spec
-        self._submodules_capacities = []
-        self._forward_callbacks = {}
-        self._submodules = {}
+        self._submodules_capacities = list()
+        self._forward_callbacks = dict()
+        self._submodules = dict()
+        self._submodule_references = dict()  # Dict which associates referenced sub-modules name/label with a set of their respective referrer sub-modules name/label
 
         if submodule_creators is None:
             submodule_creators = BASIC_SUBMODULE_CREATORS
         elif extend_basic_submodule_creators_dict:
             submodule_creators = {**BASIC_SUBMODULE_CREATORS, **submodule_creators}
 
-        # Preliminar parsing of submodule NN architecture spec in order to find submodule references (e.g. residual links) and determine NN siamese architecture
-        submodule_labels, submodule_references = set(), set()
+        # Parse submodule NN architecture spec in order to define PyTorch model's submodules accordingly
+        submodules = []
         for i, (submodule_type, params) in enumerate(architecture_spec):
-            submodule_name = None
-            if (issubclass(params, List) or issubclass(params, Tuple)) and len(params) == 2:
+            submodule_name = f'_submodule_{i}'
+            if issubclass(params, List) or issubclass(params, Tuple):
                 # Architecture definition specifies a sub-module name explicitly
                 submodule_name, params = params[0], params[1]
             elif issubclass(params, str):
@@ -113,32 +126,15 @@ class DeepcvModule(nn.Module):
                 submodule_name, params = params, dict()
             elif issubclass(params, Dict) and (issubclass(params.values()[0], List) or issubclass(params.values()[0], Tuple)):
                 # Nested DeepCV sub-module (siamese NN branch, see 'deepcv/conf/base/parameters.yml' for a full example of NN submodules architecture definition)
+                raise NotImplementedError
 
+            # Checks if `params` is a valid and if there are eventual invalid or duplicate `submodule_name`(s)
             if not issubclass(params, Dict):
                 raise RuntimeError(f'Error: Architecture sub-module spec. must either be a parameters Dict, or a submodule name along with parameters Dict, but got: "{params}".')
+            if submodule_name is not None and submodule_name in dict(*submodules).keys() or submodule_name == r'' or not isinstance(submodule_name, str):
+                raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
 
-            # Store any sub-module label or references
-            if '_from' in params:
-                submodule_references.add(params['_from'])
-            if submodule_name is not None:
-                if submodule_name in submodule_labels or submodule_labels == r'' or not isinstance(submodule_name, str):
-                    raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
-                submodule_labels.add(submodule_name)
-
-        # Make sure all referenced sub-module exists (i.e. that there is a matching submodule name/label)
-        if not submodule_references.issubset(submodule_labels):
-            raise ValueError(f"Error: Invalid sub-module reference(s), can't find following sub-module name(s)/label(s): {submodule_references.difference(submodule_labels)}")
-
-        # Re-Parse submodule NN architecture spec in order to define PyTorch model's submodules accordingly
-        submodules = []
-        for i, (submodule_type, params) in enumerate(architecture_spec):
-            submodule_name = f'submodule_{i}'
-            if issubclass(params, List) or issubclass(params, Tuple):
-                submodule_name, params = params[0], params[1]
-            elif issubclass(params, str):
-                submodule_name, params = params, dict()
-
-            # Try to find sub-module creator or nn.Module which matches `submodule_type`
+            # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
             fn = submodule_creators.get(submodule_type)
             if not fn:
                 # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
@@ -146,6 +142,15 @@ class DeepcvModule(nn.Module):
                     fn = utils.get_by_identifier(submodule_type)
                 except Exception as e:
                     raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
+
+            # Store any sub-module name/label references (used to store referenced submodule's output features during model's forward pass in order to reuse these features later in a forward callback (e.g. for residual links))
+            if '_from' in params:
+                # Allow multiple referenced sub-module(s) (`_from` entry can either be a list/tuple of referenced sub-modules name/label or a single sub-module name/label)
+                for referenced_submodule in tuple((params['_from'],)) if issubclass(params['_from'], str) else tuple(params['_from']):
+                    if referenced_submodule in self._submodule_references:
+                        self._submodule_references[referenced_submodule].append(submodule_name)
+                    else:
+                        self._submodule_references[referenced_submodule] = set([submodule_name])
 
             # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn)
             available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
@@ -166,9 +171,14 @@ class DeepcvModule(nn.Module):
             self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
             self._features_shapes.append(meta.nn.get_out_features_shape(self._net))
 
+        # Make sure all referenced sub-module exists (i.e. that there is a matching submodule name/label)
+        if not submodule_references.issubset(submodule_labels):
+            raise ValueError(f"Error: Invalid sub-module reference(s), can't find following sub-module name(s)/label(s): {submodule_references.difference(submodule_labels)}")
+
         self._submodules = dict(*submodules)
 
-    def _initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
+    def initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
+        """ Initializes model's parameters with Xavier Initialization with a scale depending on given activation function (only needed if there are convolutional and/or fully connected layers). """
         xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(act_fn)) if act_fn else None
 
         def _raise_if_no_act_fn(sub_module_name: str):

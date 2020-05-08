@@ -27,7 +27,7 @@ import ignite.contrib.handlers
 
 from deepcv import meta
 from deepcv import utils
-from tests.tests_utils import test_module_cli
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'

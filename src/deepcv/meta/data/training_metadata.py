@@ -14,10 +14,10 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 import torch
 import torch.nn as nn
 
-from deepcv import utils
+import deepcv.utils as utils
 import deepcv.meta.hyperparams as hyperparams
 import deepcv.meta.data.datasets as datasets
-from tests.tests_utils import test_module_cli
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'

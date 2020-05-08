@@ -26,7 +26,7 @@ from kedro.pipeline import Pipeline, node
 
 import deepcv.meta as meta
 import deepcv.utils as utils
-from tests.tests_utils import test_module_cli
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'

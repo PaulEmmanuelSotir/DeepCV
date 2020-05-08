@@ -12,8 +12,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from tests.tests_utils import test_module_cli
 from deepcv import utils
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'

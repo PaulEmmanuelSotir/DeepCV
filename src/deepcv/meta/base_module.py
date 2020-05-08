@@ -22,7 +22,7 @@ import numpy as np
 
 import deepcv.meta as meta
 import deepcv.utils as utils
-from tests.tests_utils import test_module_cli
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
 __author__ = 'Paul-Emmanuel Sotir'

@@ -9,7 +9,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from tests.tests_utils import test_module_cli
+import deepcv.utils as utils
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'

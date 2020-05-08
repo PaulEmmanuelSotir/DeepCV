@@ -6,6 +6,7 @@
 
 import os
 import re
+import imp
 import sys
 import time
 import math
@@ -17,8 +18,9 @@ import builtins
 import threading
 import importlib
 from pathlib import Path
+import importlib.machinery
 from types import SimpleNamespace
-from functools import singledispatch
+from functools import singledispatch, partial
 from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence, Callable, Type
 
 import numpy as np
@@ -27,13 +29,11 @@ from tqdm import tqdm
 import torch
 from kedro.io import DataCatalog
 
-from tests.tests_utils import test_module_cli
-
-
 __all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts',
-           'import_and_reload', 'periodic_timer', 'cd', 'import_pickle', 'source_dir', 'ask', 'human_readable_size',
-           'is_roughtly_constant', 'get_by_identifier', 'get_str_repr', 'yolo']
+           'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'get_by_identifier', 'get_str_repr',
+           'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
+
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
 
@@ -92,14 +92,6 @@ def merge_dicts(*dicts: Iterable[Dict[str, Any]]):
     return merged
 
 
-def import_and_reload(module_name, path='.'):
-    if path not in sys.path:
-        sys.path.append(path)
-    module = importlib.import_module(module_name)
-    module = importlib.reload(module)
-    return module
-
-
 class periodic_timer:
     def __init__(self, func, period=1., args=[], kwargs={}):
         self.func = func
@@ -134,37 +126,13 @@ class cd:
         os.chdir(self.savedPath)
 
 
-def try_import(module, msg: str = 'Can\'t import module', warn: bool = True, exit_on_fail: bool = False) -> Optional[types.ModuleType]:
-    import importlib
-    try:
-        return importlib.import_module(module)
-    except ImportError as e:
-        if warn:
-            logging.warning(f'{msg} (module: {module})')
-        if exit_on_fail:
-            raise e
-
-
-def import_pickle() -> types.ModuleType:
-    """ Returns cPickle module if available, returns imported pickle module otherwise """
-    pickle = try_import('cPickle')
-    if not pickle:
-        pickle = importlib.import_module('pickle')
-    return pickle
-
-
-def source_dir(source_file: str = __file__) -> Path:
-    return Path(os.path.dirname(os.path.realpath(source_file)))
-
-
 def ask(prompt: str, choices: List = ['N', 'Y'], ask_indexes: bool = False):
     prompt += ' (Choices: ' + ('; '.join([f'{i}: "{str(e)}""' for i, e in enumerate(choices)]) if ask_indexes else '; '.join(map(str, choices)))
     choice = input(prompt)
 
     if ask_indexes:
-        choice = _try_convert_to_numeric(choice)
-        while(not isinstance(choice, int) or choice not in range(len(choices))):
-            choice = _try_convert_to_numeric(input(prompt))
+        while not choice.isdigit() or int(choice) not in range(len(choices)):
+            choice = input(prompt)
         return int(choice), choices[int(choice)]
     else:
         while(choice not in choices):
@@ -201,6 +169,19 @@ def is_roughtly_constant(values: Sequence[Number], threshold: float = 0.01) -> b
     return max(values) - min(values) < threshold * sum(map(math.abs, values)) / float(len(values))
 
 
+def yolo(self: DataCatalog, *search_terms):
+    """you only load once, catalog loading helper"""
+    return SimpleNamespace(**{
+        d: self.load(d)
+        for d in self.query(*search_terms)
+    })
+
+
+# Mokey patch catalog yolo loading :-) (code from https://waylonwalker.com/notes/kedro/)
+DataCatalog.yolo = yolo
+DataCatalog.yolo.__doc__ = "You Only Load Once. (Queries and loads from given search terms)"
+
+
 def get_by_identifier(identifier: str):
     regex = r'[\w\.]*\w'
     if re.fullmatch(regex, identifier):
@@ -224,17 +205,71 @@ def get_str_repr(fn_or_type: Union[Type, Callable], src_file: Optional[str] = No
     return f'`{src_file_without_suffix}{fn_or_type.__name__}{signature}`'
 
 
-def yolo(self: DataCatalog, *search_terms):
-    """you only load once, catalog loading helper"""
-    return SimpleNamespace(**{
-        d: self.load(d)
-        for d in self.query(*search_terms)
-    })
+def source_dir(source_file: str = __file__) -> Path:
+    return Path(os.path.dirname(os.path.realpath(source_file)))
 
 
-# Mokey patch catalog yolo loading :-) (code from https://waylonwalker.com/notes/kedro/)
-DataCatalog.yolo = yolo
-DataCatalog.yolo.__doc__ = "You Only Load Once. (Queries and loads from given search terms)"
+def try_import(module, log_warn: bool = True, catch_excepts: bool = True) -> Optional[types.ModuleType]:
+    try:
+        return importlib.import_module(module)
+    except ImportError as e:
+        msg = f'Couldn\'t import "{module}" module, exception raised: {e}'
+        if log_warn:
+            logging.warning(f'Warning: {msg}')
+        if catch_excepts:
+            return None
+        raise ImportError(f'Error: {msg}') from e
+
+
+def import_pickle() -> types.ModuleType:
+    """ Returns cPickle module if available, returns imported pickle module otherwise """
+    pickle = try_import('cPickle')
+    if not pickle:
+        pickle = importlib.import_module('pickle')
+    return pickle
+
+
+def import_and_reload(module_name: str, path: Union[str, Path] = Path('.')) -> types.ModuleType:
+    """ Import and reload Python source file. Usefull in cases where you need to import your own Python modules from a Jupyter notebook.
+    Appends given `path` to Python path, imports and reload given Python module with `importlib` in order to take into account any code modifications.
+    NOTE: `import_and_reload` is only intented to be used in ipython or jupyter notebooks, not in production code.
+    Returns imported Python module. """
+    if path not in sys.path:
+        sys.path.append(path)
+    module = importlib.import_module(module_name)
+    module = importlib.reload(module)
+    return module
+
+
+def import_third_party(src_path: Union[str, Path], namespace: Optional[str] = None, catch_excepts: bool = False) -> Optional[types.ModuleType]:
+    """ Imports Python third party modules with importlib. Use this function if you need to import Python modules which are not installed in Python path and outside of deepcv (e.g. can be used to import any git sub-repository projects in `DeepCV/third_party/` directory or to import `DeepCV/src/tests`, which is outside of `DeepCV/src/deepcv` module).
+    NOTE: `import_third_party` function won't append third party module path to the system PATH, thus, `import_third_party` is a proper way to import third party modules from code than `import_and_reload`, as there could be conflicts/unexpected bedhaviors when adding third party module path to system PATH. `import_and_reload` is only intented to be used in ipython or jupyter notebooks, not in production code.
+    Args:
+        src_path: Python third party module's path
+        namespace: Namespace/full-name of third party module to import. If `None`, defaults to `path`'s stem (i.e. final component without its eventual suffix)
+        catch_excepts: Boolean indicating whether if exceptions should be catched if importlib can't import Python third party module or not. (defaults to `False`)
+    Returns imported third party module, or `None` if `catch_excepts` is `True` and third party module couldn't be imported.
+    """
+    def _import_third_party():
+        if not issubclass(src_path, Path):
+            src_path = Path(src_path)
+        if namespace is None:
+            namespace = src_path.stem
+        loader = importlib.machinery.SourceFileLoader(namespace, src_path)
+        third_party = loader.load_module(namespace)
+        return third_party
+
+    if catch_excepts:
+        try:
+            return _import_third_party()
+        except Exception as e:
+            logging.warn(f'Warning: Couldn\'t import third party module from given path: "{src_path}" and namespace/full-name "{namespace}". Exception raised: "{e}".')
+            return None
+    else:
+        return _import_third_party()
+
+
+import_tests = partial(import_third_party, path=source_dir(__file__) / '../tests', namespace='tests')
 
 
 ######### TESTING #########

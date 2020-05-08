@@ -13,14 +13,14 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-from .datatset import Image_t, ImageDataset
-from tests.tests_utils import test_module_cli
+import deepcv.utils as utils
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['plot', 'sample_tumbails', 'plot_tumbails']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-def plot(backend: ModuleType =, show_in_tensorboard: bool = False, **plot_kwargs):
+def plot(backend: ModuleType = , show_in_tensorboard: bool = False, **plot_kwargs):
     if backend is matplotlib:
         img = matplotlib.plot(**plot_kwargs)
         raise NotImplementedError

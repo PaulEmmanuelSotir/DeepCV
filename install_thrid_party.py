@@ -16,7 +16,7 @@ from deepcv import utils
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
 
-THIRD_PARTY_DIR = Path(kedro_cli.PROJ_NAME) / 'third_party'
+THIRD_PARTY_DIR = Path(kedro_cli.PROJ_NAME) / 'src' / 'third_party'
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 OPENCV_ARG_HELP = """ Install OpenCV third party github submodule. """
 APEX_ARG_HELP = """ Install NVidia Apex third party github submodule. """

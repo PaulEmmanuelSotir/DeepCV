@@ -23,7 +23,7 @@ from scipy.optimize import least_squares
 
 import deepcv.utils
 from data.datasets import get_random_subset_dataloader
-from tests.tests_utils import test_module_cli
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['hp_search', 'HyperparameterSpace', 'Hyperparameters', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor']
 __author__ = 'Paul-Emmanuel Sotir'

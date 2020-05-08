@@ -20,8 +20,9 @@ import torch
 import torchvision
 import torch.nn as nn
 
+import deepcv.utils as utils
 import deepcv.meta.hyperparams as hyperparams
-from tests.tests_utils import test_module_cli
+test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['apply_augmentation_reciepe', 'augment_and_mix', 'autocontrast', 'equalize', 'posterize',
            'rotate', 'solarize', 'shear_x', 'shear_y', 'translate_x', 'translate_y', 'color', 'contrast', 'brightness', 'sharpness']

@@ -16,10 +16,11 @@ import torch.nn as nn
 import click
 from click import secho, style
 
-from deepcv import utils
-from tests.tests_utils import test_module_cli
+import deepcv
+import deepcv.utils as utils
+test_module_cli = utils.import_tests().test_module_cli
 
-singan = utils.try_import(r'....third_party.SinGAN.SinGAN', msg='Can\'t import third party module')
+singan = utils.import_third_party(utils.source_dir(deepcv.__file__) / '..' / r'third_party' / 'SinGAN' / 'singan')
 
 
 __all__ = ['DistilledSinGAN', 'train_distilled_singan']

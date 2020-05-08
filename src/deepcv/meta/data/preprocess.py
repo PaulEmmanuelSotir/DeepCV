@@ -13,7 +13,7 @@ from torch.utils.data import Dataset, DataLoader
 
 import deepcv.meta as meta
 import deepcv.utils as utils
-from ....tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 __all__ = ['preprocess']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -93,4 +93,5 @@ def _get_normalize_transform(trainset: DataLoader, normalization_stats: Optional
 
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()

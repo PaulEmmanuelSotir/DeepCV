@@ -27,7 +27,7 @@ from tqdm import tqdm
 import torch
 from kedro.io import DataCatalog
 
-from src.tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 
 __all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts',
@@ -264,4 +264,5 @@ def test_source_dir():
 
 
 if __name__ == "__main__":
-    test_module(__file__)()
+    cli = test_module_cli(__file__)
+    cli()

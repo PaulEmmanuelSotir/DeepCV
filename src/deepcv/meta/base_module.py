@@ -22,7 +22,7 @@ import numpy as np
 
 import deepcv.meta as meta
 import deepcv.utils as utils
-from tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -407,4 +407,5 @@ def _residual_dense_link(is_residual: bool = True):
 
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()

@@ -23,7 +23,7 @@ from scipy.optimize import least_squares
 
 import deepcv.utils
 from data.datasets import get_random_subset_dataloader
-from ...tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 __all__ = ['hp_search', 'HyperparameterSpace', 'Hyperparameters', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -297,4 +297,5 @@ def merge_hyperparameters(*dicts: Iterable[Dict[str, Any]]) -> Hyperparameters:
 
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()

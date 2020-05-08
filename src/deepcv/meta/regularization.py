@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ...tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
@@ -19,4 +19,5 @@ def get_regularization_term(y, ypred, y_tranform=None, ypred_tranform=None):
 
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()

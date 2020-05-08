@@ -1,7 +1,7 @@
 # .coveragerc to control coverage.py
 [run]
 branch = True
-source = ../src/deepcv
+source = ../deepcv
 
 [report]
 # Regexes for lines to exclude from consideration

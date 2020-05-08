@@ -21,7 +21,7 @@ import torchvision
 import torch.nn as nn
 
 import deepcv.meta.hyperparams as hyperparams
-from ....tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 __all__ = ['apply_augmentation_reciepe', 'augment_and_mix', 'autocontrast', 'equalize', 'posterize',
            'rotate', 'solarize', 'shear_x', 'shear_y', 'translate_x', 'translate_y', 'color', 'contrast', 'brightness', 'sharpness']
@@ -159,4 +159,5 @@ def sharpness(pil_img: Image, severity: float, max_enhance_factor: float = 1.8, 
 
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()

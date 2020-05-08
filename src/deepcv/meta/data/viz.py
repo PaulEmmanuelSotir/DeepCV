@@ -14,7 +14,7 @@ import torch.nn as nn
 from PIL import Image
 
 from .datatset import Image_t, ImageDataset
-from ....tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 __all__ = ['plot', 'sample_tumbails', 'plot_tumbails']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -49,4 +49,5 @@ def plot_tumbails(tumbails):
 
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()

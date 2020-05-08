@@ -17,7 +17,7 @@ import click
 from click import secho, style
 
 from deepcv import utils
-from ....tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 singan = utils.try_import(r'....third_party.SinGAN.SinGAN', msg='Can\'t import third party module')
 
@@ -52,4 +52,5 @@ def train_distilled_singan(train_images):
 
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()

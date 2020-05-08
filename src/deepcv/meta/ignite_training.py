@@ -10,8 +10,6 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, Optional, Iterable, Tuple, Union, Type
 
-import numpy as np
-
 import torch
 import torch.nn as nn
 import torch.distributed as dist
@@ -29,7 +27,7 @@ import ignite.contrib.handlers
 
 from deepcv import meta
 from deepcv import utils
-from ...tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 __all__ = ['BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -78,7 +76,7 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
     Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).
     # TODO: print training initialization info
     # TODO: add support for cross-validation
-    # TODO: Integrate MLFlow?
+    # TODO: Report training experiment to MLFlow?
     """
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
@@ -186,6 +184,7 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
         raise RuntimeError(f'Error: Error occured during ignite training loop of "{model}" model...') from e
     finally:
         if backend_conf.rank == 0:
+
             tb_logger.close()
 
 
@@ -197,7 +196,6 @@ def _check_params(hp: Dict[str, Any]) -> Dict[str, Any]:
     # Make sure required parameters are present
     missing = [n for n in TRAINING_HP_REQUIRED if n not in hp]
     assert len(missing) > 0, f'Error: Missing mandatory hyperparameter(s) (missing="{missing}") for ignite training process.'
-
     # Apply default values for optionnal parameters
     hp.update({n: v for n, v in TRAINING_HP_DEFAULTS if n not in hp})
 
@@ -227,7 +225,8 @@ def _resume_training(resume_from: Union[str, Path], to_save: Dict[str, Any]):
 
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()
 
 # TODO: remove this deprecated code and use ignite training loop instead
 

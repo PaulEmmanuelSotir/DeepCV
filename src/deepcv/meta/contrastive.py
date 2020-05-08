@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 
 from deepcv import utils
 from deepcv.meta.nn import func_to_module
-from ...tests.tests_utils import test_module
+from tests.tests_utils import test_module_cli
 
 __all__ = ['jensen_shannon_divergence_consistency_loss', 'sample_triplets', 'JensenShannonDivergenceConsistencyLoss', 'TripletMarginLoss']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -43,4 +43,5 @@ TripletMarginLoss = nn.TripletMarginLoss
 JensenShannonDivergenceConsistencyLoss = func_to_module(jensen_shannon_divergence_consistency_loss, init_params=['net', 'reduction', 'log_target'])
 
 if __name__ == '__main__':
-    test_module(__file__)
+    cli = test_module_cli(__file__)
+    cli()

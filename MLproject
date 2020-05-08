@@ -5,3 +5,9 @@ conda_env: environment.yml
 entry_points:
   main:
     command: "kedro run"
+  install:
+    command: "kedro install"
+  test:
+    command: "kedro test"
+  jupyter:
+    command: "kedro jupyter"

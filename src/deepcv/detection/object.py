@@ -10,7 +10,7 @@ import re
 import multiprocessing
 from pathlib import Path
 from collections import OrderedDict
-from typing import Any, Dict, Optional, Tuple, Callable, List, Iterable
+from typing import Any, Dict, Optional, Tuple, Callable, List, Iterable, Union
 
 import torch
 import torch.nn as nn
@@ -35,22 +35,26 @@ __author__ = 'Paul-Emmanuel Sotir'
 class ObjectDetector(meta.base_module.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters):
+    def __init__(self, input_shape: torch.Size, hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]):
         super(self.__class__).__init__(self, input_shape, hp)
         self._define_nn_architecture(self._hp['architecture'])
         self._initialize_parameters(self._hp['act_fn'])
 
 
 def get_object_detector_pipelines():
-    p1 = Pipeline([node(meta.hyperparams.merge_hyperparameters, name='merge_hyperparameters', inputs=['params:object_detector', 'params:cifar10_preprocessing'], outputs=['hp']),
-                   node(meta.data.preprocess.preprocess, name='preprocess_cifar_dataset', inputs=['trainset', 'testset', 'hp'], outputs=['datasets']),
-                   node(create_model, name='create_object_detection_model', inputs=['datasets', 'hp'], outputs=['model']),
-                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'hp'], outputs=['ignite_state'])],
+    p1 = Pipeline([node(meta.data.preprocess.split_params, name='split_dataset',
+                        inputs={'trainset': 'cifar10_train', 'testset': 'cifar10_test', 'split_params': 'params:split_dataset_ratios'},
+                        outputs=['trainset', 'validset', 'testset']),
+                   node(meta.data.preprocess.preprocess, name='preprocess',
+                        inputs={'trainset': 'trainset', 'testset': 'testset', 'validset': 'validset', 'preprocess_params': 'params:cifar10_preprocessing'},
+                        outputs=['datasets']),
+                   node(create_model, name='create_object_detection_model', inputs=['datasets', 'params:object_detector'], outputs=['model']),
+                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'params:object_detector'], outputs=['ignite_state'])],
                   name='object_detector_training')
     return [p1]
 
 
-def create_model(datasets: Dict[str, Dataset], hp: meta.hyperparams.Hyperparameters):
+def create_model(datasets: Dict[str, Dataset], hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]):
     dummy_img, dummy_target = datasets['train_loader'][0][0]
     input_shape = dummy_img.shape
     hp['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
@@ -59,7 +63,7 @@ def create_model(datasets: Dict[str, Dataset], hp: meta.hyperparams.Hyperparamet
     return model
 
 
-def train(datasets: Dict[str, Dataset], model: nn.Module, hp: meta.hyperparams.Hyperparameters) -> ignite.engine.State:
+def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]) -> ignite.engine.State:
     # TODO: decide whether we take Datasets or Dataloaders arguments here (depends on how preprocessing is implemented)
     backend_conf = meta.ignite_training.BackendConfig(dist_backend=hp['dist_backend'], dist_url=hp['dist_url'], local_rank=hp['local_rank'])
     metrics = {'accuracy': Accuracy(device='cuda:{backend_conf.local_rank}' if backend_conf.distributed else None)}

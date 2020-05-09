@@ -30,9 +30,11 @@ augmentations_recipes:
     transforms_additional:
       - distilled_singan_augmentation: true
 
+split_dataset_ratios:
+  validset_ratio: 0.2 # %
+  testset_ratio: 0.1 # % (Won't be taken into account if testset already exists)
+
 basic_preprocessing_procedure: &basic_preprocessing_procedure
-  validset_ratio: 0.2
-  testset_ratio: 0.2
   cache: true
   preprocessing:
     - pil_to_tensor

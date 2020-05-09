@@ -25,8 +25,8 @@ from ignite.contrib.handlers import TensorboardLogger, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerParamsHandler, GradsHistHandler
 import ignite.contrib.handlers
 
-from deepcv import meta
-from deepcv import utils
+import deepcv.meta as meta
+from deepcv.utils as utils
 test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['BackendConfig', 'train']
@@ -63,10 +63,10 @@ class BackendConfig:
         return f'distributed-{self.nnodes}nodes-{self.ngpus}gpus-{self.ngpus_current_node}current-node-gpus'
 
 
-def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[Metric] = {}) -> ignite.engine.State:
+def train(hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[Metric] = {}) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
-        - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_parameters`` to see required parameters and defaults
+        - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
         - model: Pytorch ``nn.Module`` to train
         - loss: Loss module to be used
         - dataloaders: Tuple of pytorch DataLoader giving access to trainset, validset and an eventual testset
@@ -76,14 +76,14 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
     Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).
     # TODO: print training initialization info
     # TODO: add support for cross-validation
-    # TODO: Report training experiment to MLFlow?
+    # TODO: Report training metrics and results to MLFlow?
     """
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
+    hp = _check_params(hp)
     output_path = Path(hp['output_path'])
     trainset, *validset_testset = dataloaders
     device = backend_conf.device
-    hp = _check_params(hp)
 
     if hp['deterministic']:
         utils.set_seeds(backend_conf.rank + hp['seed'])
@@ -188,18 +188,14 @@ def train(hp: Dict[str, Any], model: nn.Module, loss: nn.modules.loss._Loss, dat
             tb_logger.close()
 
 
-def _check_params(hp: Dict[str, Any]) -> Dict[str, Any]:
-    TRAINING_HP_REQUIRED = ['output_path', 'optimizer_opts', 'shceduler', 'epochs']
-    TRAINING_HP_DEFAULTS = {'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1, 'display_iters': 1000,
-                            'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
-
-    # Make sure required parameters are present
-    missing = [n for n in TRAINING_HP_REQUIRED if n not in hp]
+def _check_params(hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]) -> meta.hyperparams.Hyperparameters:
+    if not issubclass(hp, meta.hyperparams.Hyperparameters):
+        hp = meta.hyperparams.Hyperparameters(**hp)
+    TRAINING_HP_DEFAULTS = {'output_path': ..., 'optimizer_opts': ..., 'shceduler': ..., 'epochs': ...,
+                            'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1,
+                            'display_iters': 1000, 'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
+    hp, missing = hp.with_defaults(TRAINING_HP_DEFAULTS)
     assert len(missing) > 0, f'Error: Missing mandatory hyperparameter(s) (missing="{missing}") for ignite training process.'
-    # Apply default values for optionnal parameters
-    hp.update({n: v for n, v in TRAINING_HP_DEFAULTS if n not in hp})
-
-    # Append some specific parameters to resulting hyperparameter dict
     return hp
 
 

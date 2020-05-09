@@ -46,11 +46,13 @@ class DeepcvModule(nn.Module):
 
     HP_DEFAULTS = ...
 
-    def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters):
+    def __init__(self, input_shape: torch.Size, hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]):
         super(self.__class__).__init__(self)
         self._input_shape = input_shape
 
         # Process module hyperparameters
+        if not issubclass(hp, meta.hyperparams.Hyperparameters):
+            hp = meta.hyperparams.Hyperparameters(**hp)
         assert self.__class__.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
         self._hp, missing_hyperparams = hp.with_defaults(self.__class__.HP_DEFAULTS)
         assert len(missing_hyperparams) > 0, f'Error: Missing required hyper-parameter in "{self.__class__.__name__}" module parameters. (missing: "{missing_hyperparams}")'

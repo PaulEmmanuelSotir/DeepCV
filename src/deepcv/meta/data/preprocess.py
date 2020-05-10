@@ -4,7 +4,7 @@
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import logging
-from typing import Optional, Dict, Tuple, List, Iterable, Union, Callable, Any
+from typing import Optional, Dict, Tuple, List, Iterable, Union, Callable, Any, Sequence
 
 import torch
 import torchvision
@@ -69,47 +69,58 @@ def preprocess(params: Union[Dict[str, Any], meta.hyperparams.Hyperparameters], 
     Returns a dict which contains preprocessed and/or augmented 'trainset', 'testset' and 'validset' datasets
     """
     logging.info('Starting pytorch dataset preprocessing procedure...')
-    params, _ = meta.hyperparams.to_hyperparameters(params, defaults={'preprocessing': ..., 'cache': False, 'augmentation_reciepe': None, 'normalization_stats': None})
+    params, _ = meta.hyperparams.to_hyperparameters(params, defaults={'transforms': ..., 'target_transforms': None, 'cache': False,
+                                                                      'augmentation_reciepe': None, 'normalization_stats': None})
 
     # Preprocess and augment data according to recipes specified in hyperparameters from YAML config (deepcv/conf/base/parameters.yml)
-    for dl in (trainset, validset, testset):
-        if not len(dl) > 0:
-            raise RuntimeError(f'Error: empty dataloader `{dl}` in {utils.get_str_repr(preprocess, __file__)}')
+    for ds in (trainset, validset, testset):
+        if not len(ds) > 0:
+            raise RuntimeError(f'Error: empty dataset `{ds}` provided in {utils.get_str_repr(preprocess, __file__)}')
 
         # Data augmentation
-        if 'augmentations' in params:
+        if params['augmentation_reciepe'] is not None:
             logging.info(f'Applying dataset augmentation reciepe ')
-            dl = meta.data.augmentation.apply_augmentation_reciepe(params['augmentations'], dl)
+            ds.pytorch_dataset = meta.data.augmentation.apply_augmentation_reciepe(params['augmentation_reciepe'], ds.pytorch_dataset)
 
-        # Preprocess images
-        transforms = _get_img_transforms(hp, trainset)
-        dl.transforms = transforms  # TODO: add transforms to dataloader or create a new dataloader if dataloader transforms aren't mutable
+        # Setup image preprocessing transforms
+        ds.pytorch_dataset.transforms = _get_img_transforms(params['transforms'], ds.pytorch_dataset, params['normalization_stats'])
 
-        # Preprocess targets
-        dl.target_transform = _get_target_transforms
+        # Setup target preprocessing transforms
+        if params['target_transforms'] is not None:
+            ds.pytorch_dataset.target_transform = _get_target_transforms(params['target_transforms'], ds.pytorch_dataset)
 
+    # If needed, cache/save preprocessed/augmened dataset(s) to disk
     if params['cache']:
         logging.info('`deepcv.meta.data.preprocess.preprocess` function is saving resulting dataset to disk (`params["cache"] == True`)')
         raise NotImplementedError  # TODO: Save preprocessed dataset to disk (data/04_features/)
 
-    logging.info(f'Pytorch Dataset preprocessing procedure done, returning preprocessed/augmented Dataset(s) ({utils.get_str_repr(preprocess, __file__)}).')
+    logging.info(f'Pytorch Dataset preprocessing procedure ({utils.get_str_repr(preprocess, __file__)}) done, returning preprocessed/augmented Dataset(s).')
     return {'trainset': trainset, 'validset': validset, 'testset': testset} if validset else {'trainset': trainset, 'testset': testset}
 
 
-def _get_img_transforms(hp: meta.hyperparams.Hyperparameters, dataloader: DataLoader) -> torchvision.transforms.Compose:
+def _get_img_transforms(transform_identifiers: , ds: Dataset, normalization_stats: Optional[Union[torch.Tensor, Sequence[Sequence[float]]]] = None, channels: int = 3) -> torchvision.transforms.Compose:
     transforms = []
-    # TODO: ...
+
+    for transform_name in transform_identifiers:
+        if transform_name == 'normalize':
+            transforms.append(_get_normalize_transform(ds, normalization_stats, channels))
+        else:
+            ...
+
     return torchvision.transforms.Compose(transforms)
 
 
 def _get_target_transforms(hp: meta.hyperparams.Hyperparameters, dataloader: DataLoader) -> Callable:
     # TODO: ...
+    raise NotImplementedError
+
     def _target_transform(target: torch.Tensor) -> torch.Tensor:
         return target
     return _target_transform
 
 
-def _get_normalize_transform(trainset: DataLoader, normalization_stats: Optional[Union[torch.Tensor, List[List[float]]]], channels: int = 3):
+def _get_normalize_transform(trainset: DataLoader, normalization_stats: Optional[Union[torch.Tensor, Sequence[Sequence[float]]]] = None, channels: int = 3) -> torchvision.transforms.Normalize:
+    """ Returns a normalizing transform for given dataloader. If there are no given normalization stats (mean and std per channels), then these stats will be processed before returning the transform. """
     if normalization_stats is None:
         # Process mean and std per channel dimension across all trainset image batches
         mean, std = torch.zeros((channels,)), torch.zeros((channels,))
@@ -117,7 +128,10 @@ def _get_normalize_transform(trainset: DataLoader, normalization_stats: Optional
             img = batch if isinstance(batch, torch.Tensor) else batch[0]
             mean += img.mean(dim=-3).sum(dim=0) / len(trainset.dataset)
             std += img.std(dim=-3).sum(dim=0) / len(trainset.dataset)
-    elif not isinstance(normalization_stats, torch.Tensor):
+    elif issubclass(normalization_stats, torch.Tensor):
+        assert normalization_stats.shape == torch.Size((2, channels))
+        mean, std = normalization_stats[0], normalization_stats[1]
+    else:
         assert len(normalization_stats) == 2 and all([len(normalization_stats[i]) == channels for i in range(2)])
         mean, std = torch.FloatTensor(normalization_stats[0]), torch.FloatTensor(normalization_stats[1])
     return torchvision.transforms.Normalize(mean, std)

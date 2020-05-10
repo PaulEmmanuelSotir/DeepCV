@@ -36,7 +36,7 @@ split_dataset_ratios:
 
 basic_preprocessing_procedure: &basic_preprocessing_procedure
   cache: true
-  preprocessing:
+  transforms:
     - pil_to_tensor
     - normalize
   augmentation_reciepe: *basic_augmentation
@@ -55,7 +55,6 @@ cifar100_preprocessing:
 imagenet32_prerocessing:
   << : *basic_preprocessing_procedure
   normalization_stats: [[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]]
-
 
 ...
 %YAML 1.2

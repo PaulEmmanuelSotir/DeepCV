@@ -19,30 +19,26 @@ __all__ = ['split_dataset', 'preprocess']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-def split_dataset(split_params: Union[Dict[str, Any], meta.hyperparams.Hyperparameters], dataset_or_trainset: meta.data.datasets.PytorchDatasetWarper, testset: Optional[meta.data.datasets.PytorchDatasetWarper] = None) -> Dict[str, meta.data.datasets.PytorchDatasetWarper]:
-    func_name = utils.get_str_repr(split_params, __file__)
-    if not issubclass(split_params, meta.hyperparams.Hyperparameters):
-        split_params = meta.hyperparams.Hyperparameters(**split_params)
-    split_params, missing = split_params.with_defaults({'validset_ratio': None, 'testset_ratio': None, 'cache': False})
-    if len(missings) > 0:
-        logging.error(f'Error: Missing mandatory (hyper)parameter(s) in `split_params` argument of {func_name} procedure: Missing parameters: "{missings}"')
-    logging.info(f'{func_name}: Spliting pytorch dataset into a trainset, testset and eventually a validset: `split_params="{split_params}"`')
+def split_dataset(params: Union[Dict[str, Any], meta.hyperparams.Hyperparameters], dataset_or_trainset: meta.data.datasets.PytorchDatasetWarper, testset: Optional[meta.data.datasets.PytorchDatasetWarper] = None) -> Dict[str, meta.data.datasets.PytorchDatasetWarper]:
+    func_name = utils.get_str_repr(params, __file__)
+    params, _ = meta.hyperparams.to_hyperparameters(params, defaults={'validset_ratio': None, 'testset_ratio': None, 'cache': False})
+    logging.info(f'{func_name}: Spliting pytorch dataset into a trainset, testset and eventually a validset: `params="{params}"`')
 
     # Find testset size to sample from `dataset_or_trainset` if needed
     split_lengths = tuple()
     if testset is None:
-        if split_params['testset_ratio'] is None:
-            msg = f'Error: {func_name} function either needs an existing `testset` as argument or you must specify a `testset_ratio` in `split_params` (probably from parameters/preprocessing YAML config)\nProvided dataset spliting parameters: "{split_params}"'
+        if params['testset_ratio'] is None:
+            msg = f'Error: {func_name} function either needs an existing `testset` as argument or you must specify a `testset_ratio` in `params` (probably from parameters/preprocessing YAML config)\nProvided dataset spliting parameters: "{params}"'
             logging.error(msg)
             raise ValueError(msg)
-        split_lengths += (int(len(dataset_or_trainset) * split_params['testset_ratio']),)
+        split_lengths += (int(len(dataset_or_trainset) * params['testset_ratio']),)
 
     # Find validset size to sample from `dataset_or_trainset` if needed
-    if split_params['validset_ratio'] is not None:
-        split_lengths += (int(len(dataset_or_trainset) * split_params['validset_ratio']),)
+    if params['validset_ratio'] is not None:
+        split_lengths += (int(len(dataset_or_trainset) * params['validset_ratio']),)
 
     # Return dataset as is if testset is already existing and not validset needs to be sampled
-    if testset is not None and split_params['validset_ratio'] is None:
+    if testset is not None and params['validset_ratio'] is None:
         return {'trainset': dataset_or_trainset, 'testset': testset}
 
     # Perform sampling/splitting
@@ -54,31 +50,26 @@ def split_dataset(split_params: Union[Dict[str, Any], meta.hyperparams.Hyperpara
     trainset, *testset_and_validset = torch.utils.data.random_split(dataset_or_trainset, (trainset_size, *split_lengths))
     if testset is None:
         testset = testset_and_validset[0]
-    validset = testset_and_validset[-1] if split_params['validset_ratio'] is not None else None
+    validset = testset_and_validset[-1] if params['validset_ratio'] is not None else None
 
-    if split_params['cache']:
-        logging.info(f'{func_name}: Saving resulting dataset to disk (`split_params["cache"] == True`)...')
+    if params['cache']:
+        logging.info(f'{func_name}: Saving resulting dataset to disk (`params["cache"] == True`)...')
         raise NotImplementedError  # TODO: save to (data/03_primary/)
     return {'trainset': trainset, 'validset': validset, 'testset': testset} if validset else {'trainset': trainset, 'testset': testset}
 
 
-def preprocess(preprocess_params: Union[Dict[str, Any], meta.hyperparams.Hyperparameters], trainset: meta.data.datasets.PytorchDatasetWarper, testset: meta.data.datasets.PytorchDatasetWarper, validset: Optional[meta.data.datasets.PytorchDatasetWarper] = None) -> Dict[str, DataLoader]:
+def preprocess(params: Union[Dict[str, Any], meta.hyperparams.Hyperparameters], trainset: meta.data.datasets.PytorchDatasetWarper, testset: meta.data.datasets.PytorchDatasetWarper, validset: Optional[meta.data.datasets.PytorchDatasetWarper] = None) -> Dict[str, DataLoader]:
     """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `hp` (from `parameters.yml`)
     # TODO: create dataloader to preprocess/augment data by batches?
     Args:
-        - preprocess_params:
+        - params:
         - trainset:
         - testset:
         - validset:
     Returns a dict which contains preprocessed and/or augmented 'trainset', 'testset' and 'validset' datasets
     """
     logging.info('Starting pytorch dataset preprocessing procedure...')
-
-   if not issubclass(preprocess_params, meta.hyperparams.Hyperparameters):
-        preprocess_params=meta.hyperparams.Hyperparameters(**preprocess_params)
-    preprocess_params, missing = preprocess_params.with_defaults({'preprocessing': ..., 'cache': False, 'augmentation_reciepe': None, 'normalization_stats': None})
-    if len(missings) > 0:
-        logging.error(f'Error: Missing mandatory (hyper)parameter(s) in `hp` argument of {utils.get_str_repr(preprocess, __file__)} procedure: Missing parameters: {missings}')
+    params, _ = meta.hyperparams.to_hyperparameters(params, defaults={'preprocessing': ..., 'cache': False, 'augmentation_reciepe': None, 'normalization_stats': None})
 
     # Preprocess and augment data according to recipes specified in hyperparameters from YAML config (deepcv/conf/base/parameters.yml)
     for dl in (trainset, validset, testset):
@@ -86,28 +77,27 @@ def preprocess(preprocess_params: Union[Dict[str, Any], meta.hyperparams.Hyperpa
             raise RuntimeError(f'Error: empty dataloader `{dl}` in {utils.get_str_repr(preprocess, __file__)}')
 
         # Data augmentation
-        if 'augmentations' in hp:
+        if 'augmentations' in params:
             logging.info(f'Applying dataset augmentation reciepe ')
-            dl=meta.data.augmentation.apply_augmentation_reciepe(hp['augmentations'], dl)
+            dl = meta.data.augmentation.apply_augmentation_reciepe(params['augmentations'], dl)
 
         # Preprocess images
-        transforms=_get_img_transforms(hp, trainset)
-        dl.transforms=transforms  # TODO: add transforms to dataloader or create a new dataloader if dataloader transforms aren't mutable
+        transforms = _get_img_transforms(hp, trainset)
+        dl.transforms = transforms  # TODO: add transforms to dataloader or create a new dataloader if dataloader transforms aren't mutable
 
         # Preprocess targets
-        dl.target_transform=_get_target_transforms
+        dl.target_transform = _get_target_transforms
 
-
-    if preprocess_params['cache']:
-        logging.info('`deepcv.meta.data.preprocess.preprocess` function is saving resulting dataset to disk (`preprocess_params["cache"] == True`)')
-        raise NotImplementedError # TODO: Save preprocessed dataset to disk (data/04_features/)
+    if params['cache']:
+        logging.info('`deepcv.meta.data.preprocess.preprocess` function is saving resulting dataset to disk (`params["cache"] == True`)')
+        raise NotImplementedError  # TODO: Save preprocessed dataset to disk (data/04_features/)
 
     logging.info(f'Pytorch Dataset preprocessing procedure done, returning preprocessed/augmented Dataset(s) ({utils.get_str_repr(preprocess, __file__)}).')
     return {'trainset': trainset, 'validset': validset, 'testset': testset} if validset else {'trainset': trainset, 'testset': testset}
 
 
 def _get_img_transforms(hp: meta.hyperparams.Hyperparameters, dataloader: DataLoader) -> torchvision.transforms.Compose:
-    transforms=[]
+    transforms = []
     # TODO: ...
     return torchvision.transforms.Compose(transforms)
 
@@ -119,20 +109,20 @@ def _get_target_transforms(hp: meta.hyperparams.Hyperparameters, dataloader: Dat
     return _target_transform
 
 
-def _get_normalize_transform(trainset: DataLoader, normalization_stats: Optional[Union[torch.Tensor, List[List[float]]]], channels: int=3):
+def _get_normalize_transform(trainset: DataLoader, normalization_stats: Optional[Union[torch.Tensor, List[List[float]]]], channels: int = 3):
     if normalization_stats is None:
         # Process mean and std per channel dimension across all trainset image batches
-        mean, std=torch.zeros((channels,)), torch.zeros((channels,))
+        mean, std = torch.zeros((channels,)), torch.zeros((channels,))
         for batch in trainset:
-            img=batch if isinstance(batch, torch.Tensor) else batch[0]
+            img = batch if isinstance(batch, torch.Tensor) else batch[0]
             mean += img.mean(dim=-3).sum(dim=0) / len(trainset.dataset)
             std += img.std(dim=-3).sum(dim=0) / len(trainset.dataset)
     elif not isinstance(normalization_stats, torch.Tensor):
         assert len(normalization_stats) == 2 and all([len(normalization_stats[i]) == channels for i in range(2)])
-        mean, std=torch.FloatTensor(normalization_stats[0]), torch.FloatTensor(normalization_stats[1])
+        mean, std = torch.FloatTensor(normalization_stats[0]), torch.FloatTensor(normalization_stats[1])
     return torchvision.transforms.Normalize(mean, std)
 
 
 if __name__ == '__main__':
-    cli=test_module_cli(__file__)
+    cli = test_module_cli(__file__)
     cli()

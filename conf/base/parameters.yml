@@ -119,17 +119,20 @@ basic_training_params: &basic_ignite_training
   display_iters: # Iters
   seed: 563454
   deterministic: false
-  dist_url: # "env://"
-  dist_backend: "" # Set, for example, nccl (torch.distributed.Backend.NCCL) for distributed training using nccl backend
+  backend_conf:
+    local_rank: 0
+    dist_url: "" # "env://"
+    dist_backend: "" # Set, for example, nccl (torch.distributed.Backend.NCCL) for distributed training using nccl backend
 
 
-object_detector:
+object_detector_training:
   << : *basic_ignite_training
   output_path: ""
   epochs: 80
   batch_size: 32
   optimizer_opts: { lr: 0.1, momentum: 0., weight_decay: 0., nesterov: true }
-  model:
+
+object_detector_model:
     act_fn: !py!deepcv.torch.nn.ReLU
     dropout_prob: 0.0
     batch_norm: { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }

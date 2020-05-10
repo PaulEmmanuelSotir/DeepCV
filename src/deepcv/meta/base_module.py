@@ -51,11 +51,8 @@ class DeepcvModule(nn.Module):
         self._input_shape = input_shape
 
         # Process module hyperparameters
-        if not issubclass(hp, meta.hyperparams.Hyperparameters):
-            hp = meta.hyperparams.Hyperparameters(**hp)
         assert self.__class__.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
-        self._hp, missing_hyperparams = hp.with_defaults(self.__class__.HP_DEFAULTS)
-        assert len(missing_hyperparams) > 0, f'Error: Missing required hyper-parameter in "{self.__class__.__name__}" module parameters. (missing: "{missing_hyperparams}")'
+        hp, missing = meta.hyperparams.to_hyperparameters(hp, defaults=self.__class__.HP_DEFAULTS, raise_if_missing=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Apply object detector neural net architecture on top of shared image embedding features and input image

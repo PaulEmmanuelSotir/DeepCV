@@ -26,7 +26,7 @@ from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerP
 import ignite.contrib.handlers
 
 import deepcv.meta as meta
-from deepcv.utils as utils
+import deepcv.utils as utils
 test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['BackendConfig', 'train']
@@ -34,9 +34,9 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 class BackendConfig:
-    def __init__(self, device=None, dist_backend: dist.Backend = None, dist_url: str = '', local_rank: Optional[int] = None):
+    def __init__(self, device=None, dist_backend: dist.Backend = None, dist_url: str = '', local_rank: Optional[int] = 0):
         self.is_cpu = device.type == 'cpu'
-        self.device = device if device else utils.get_device(devid=local_rank if local_rank else None)
+        self.device = device if device else utils.get_device(devid=local_rank)
         self.ncpu = multiprocessing.cpu_count()
         self.dist_backend = dist_backend
         self.dist_url = dist_url
@@ -78,9 +78,12 @@ def train(hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn
     # TODO: add support for cross-validation
     # TODO: Report training metrics and results to MLFlow?
     """
+    TRAINING_HP_DEFAULTS = {'output_path': ..., 'optimizer_opts': ..., 'shceduler': ..., 'epochs': ...,
+                            'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1,
+                            'display_iters': 1000, 'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
-    hp = _check_params(hp)
+    hp, _ = meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
     output_path = Path(hp['output_path'])
     trainset, *validset_testset = dataloaders
     device = backend_conf.device
@@ -186,17 +189,6 @@ def train(hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn
         if backend_conf.rank == 0:
 
             tb_logger.close()
-
-
-def _check_params(hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]) -> meta.hyperparams.Hyperparameters:
-    if not issubclass(hp, meta.hyperparams.Hyperparameters):
-        hp = meta.hyperparams.Hyperparameters(**hp)
-    TRAINING_HP_DEFAULTS = {'output_path': ..., 'optimizer_opts': ..., 'shceduler': ..., 'epochs': ...,
-                            'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1,
-                            'display_iters': 1000, 'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
-    hp, missing = hp.with_defaults(TRAINING_HP_DEFAULTS)
-    assert len(missing) > 0, f'Error: Missing mandatory hyperparameter(s) (missing="{missing}") for ignite training process.'
-    return hp
 
 
 def _setup_distributed_training(device, backend_conf: BackendConfig, model: nn.Module, batch_shape: torch.Size) -> nn.Module:

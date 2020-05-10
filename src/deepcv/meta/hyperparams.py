@@ -3,7 +3,7 @@
 """ Hyperparameter search meta module - hyperparams.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-## To-Do List
+# To-Do List
 # TODO: implement tools for NNI (https://github.com/microsoft/nni) usage (NNI Board and NNICTL) + MLFlow versionning and viz
 # TODO: For hyperparameter embedding: read about graph embedding techniques like: https://github.com/google-research/google-research/tree/master/graph_embedding/ddgk and https://github.com/google-research/google-research/tree/master/graph_embedding/watch_your_step
 """
@@ -52,6 +52,27 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
         nni.report_final_result(rslt)
 
     print(f'######## NNI Hyperparameter search trial NO#{nni.get_trial_id()} done! ########')
+
+
+def to_hyperparameters(hp: Union[Dict[str, Any], Hyperparameters], defaults: Optional[Dict[str, Any], Hyperparameters] = None, raise_if_missing: bool = True) -> Union[Hyperparameters, Tuple[Hyperaparameters, List[str]]]:
+    """ Converts given parameters Dict to a `meta.hyperparams.Hyperparameters` object if needed. Alse allows you to check required and default hyperparameter through `defaults` argument (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
+    Args:
+        - hp: Parameter dict or `meta.hyperparams.Hyperparameters` object
+        - defaults: Optional argument specifying required and default (hyper)parameter(s) (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
+        - raise_if_missing: Boolean indicating whether if this function should raise an exception if `defaults` specifies mandatory (hyper)parameters which are missing in `hp`
+    Returns resulting `meta.hyperparams.Hyperparameters` object with provided defaults, and eventually also returns missing hyperparameters which are missing according to `defaults` argument, if provided.
+    """
+    if not issubclass(params, meta.hyperparams.Hyperparameters):
+        hp = meta.hyperparams.Hyperparameters(**hp)
+    if defaults is not None:
+        hp, missing = hp.with_defaults(defaults)
+        if len(missing) > 0:
+            msg = f'Error: Missing mandatory (hyper)parameter(s) (missing="{missing}").'
+            logging.error(msg)
+            if raise_if_missing:
+                raise ValueError(msg)
+        return hp, missing
+    return hp
 
 
 class HyperparameterSpace(TrainingMetaData):

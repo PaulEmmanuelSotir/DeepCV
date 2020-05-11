@@ -18,7 +18,7 @@ from click import secho, style
 
 import deepcv
 import deepcv.utils as utils
-test_module_cli = utils.import_tests().test_module_cli
+
 
 singan = utils.import_third_party(utils.source_dir(deepcv.__file__) / '..' / r'third_party' / 'SinGAN' / 'singan')
 
@@ -53,5 +53,5 @@ def train_distilled_singan(train_images):
 
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()

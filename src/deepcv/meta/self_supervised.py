@@ -13,7 +13,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from deepcv import utils
-test_module_cli = utils.import_tests().test_module_cli
+
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
@@ -55,5 +55,5 @@ class TasksDataSampler():
 
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()

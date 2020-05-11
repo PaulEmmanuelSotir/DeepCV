@@ -6,7 +6,7 @@
 from typing import Optional, Callable, Iterable, Union, Tuple
 
 import deepcv.utils as utils
-test_module_cli = utils.import_tests().test_module_cli
+
 
 # TODO: allow to determine optimal weight decay during one cycle policy 'hyperparameter search' (see https://towardsdatascience.com/finding-good-learning-rate-and-the-one-cycle-policy-7159fe1db5d6)
 # TODO: see https://arxiv.org/pdf/1803.09820.pdf and https://arxiv.org/pdf/1506.01186.pdf
@@ -44,5 +44,5 @@ def plot_search_curves(params_search_rslts: PARAMS_SRARCH_RSLT_T):
 
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()

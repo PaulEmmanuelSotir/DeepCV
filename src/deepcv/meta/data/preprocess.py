@@ -17,7 +17,7 @@ import numpy as np
 
 import deepcv.meta as meta
 import deepcv.utils as utils
-test_module_cli = utils.import_tests().test_module_cli
+
 
 __all__ = ['split_dataset', 'preprocess']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -190,5 +190,5 @@ def normalize_tensor(trainset: DataLoader, normalization_stats: Optional[Union[t
 
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()

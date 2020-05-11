@@ -29,11 +29,11 @@ from tqdm import tqdm
 import torch
 from kedro.io import DataCatalog
 
+
 __all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts',
            'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'get_by_identifier', 'get_str_repr',
            'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
-
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
 
@@ -269,10 +269,11 @@ def import_third_party(src_path: Union[str, Path], namespace: Optional[str] = No
         return _import_third_party()
 
 
-import_tests = partial(import_third_party, path=source_dir(__file__) / '../tests', namespace='tests')
+import_tests = partial(import_third_party, src_path=source_dir(__file__) / '../tests', namespace='tests')
 
 
 ######### TESTING #########
+
 
 def test_get_by_identifier():
     fn = get_by_identifier('human_readable_size')
@@ -299,5 +300,5 @@ def test_source_dir():
 
 
 if __name__ == "__main__":
-    cli = test_module_cli(__file__)
+    cli = import_tests().test_module_cli(__file__)
     cli()

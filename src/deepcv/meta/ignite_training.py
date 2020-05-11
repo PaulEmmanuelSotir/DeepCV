@@ -27,7 +27,7 @@ import ignite.contrib.handlers
 
 import deepcv.meta as meta
 import deepcv.utils as utils
-test_module_cli = utils.import_tests().test_module_cli
+
 
 __all__ = ['BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -213,7 +213,7 @@ def _resume_training(resume_from: Union[str, Path], to_save: Dict[str, Any]):
 
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()
 
 # TODO: remove this deprecated code and use ignite training loop instead

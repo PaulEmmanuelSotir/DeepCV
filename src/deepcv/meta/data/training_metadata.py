@@ -17,13 +17,13 @@ import torch.nn as nn
 import deepcv.utils as utils
 import deepcv.meta.hyperparams as hyperparams
 import deepcv.meta.data.datasets as datasets
-test_module_cli = utils.import_tests().test_module_cli
+
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()
 
 

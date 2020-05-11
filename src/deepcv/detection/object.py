@@ -26,7 +26,7 @@ from kedro.pipeline import Pipeline, node
 
 import deepcv.meta as meta
 import deepcv.utils as utils
-test_module_cli = utils.import_tests().test_module_cli
+
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -90,5 +90,5 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[meta.hyperpa
 
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()

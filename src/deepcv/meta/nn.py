@@ -24,7 +24,6 @@ from hilbertcurve.hilbertcurve import HilbertCurve
 
 from deepcv import utils
 import deepcv.meta as meta
-test_module_cli = utils.import_tests().test_module_cli
 
 __all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
@@ -471,5 +470,5 @@ class TestNNMetaModule:
 
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()

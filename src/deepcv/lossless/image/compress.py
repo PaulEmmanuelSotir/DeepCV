@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 import deepcv.utils as utils
-test_module_cli = utils.import_tests().test_module_cli
+
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
@@ -17,5 +17,5 @@ __author__ = 'Paul-Emmanuel Sotir'
 # TODO: Implement custom lossless compression based on DropBox's Lepton (improvement over lossless JPEG algorithm) modified to include 2 shallow neural net heuristics for better wavelets and brightness predictions (thus lower file size)
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()

@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 import deepcv.utils as utils
 import deepcv.meta.hyperparams as hyperparams
 from deepcv.meta.data.training_metadata import TrainingMetaData
-test_module_cli = utils.import_tests().test_module_cli
+
 
 __all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'DatasetStats', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -225,5 +225,5 @@ def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int
 
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()

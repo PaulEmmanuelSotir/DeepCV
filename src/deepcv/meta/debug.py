@@ -14,7 +14,7 @@ __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
 
 if __name__ == '__main__':
-    cli = test_module_cli(__file__)
+    cli = utils.import_tests().test_module_cli(__file__)
     cli()
 
 # TODO: use https://pytorch.org/docs/stable/bottleneck.html, see https://docs.python.org/3/library/profile.html

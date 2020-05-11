@@ -19,7 +19,7 @@ import torch.nn as nn
 import torchvision.datasets
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
-import deepcv.utils as utils
+from deepcv import utils
 import deepcv.meta.hyperparams as hyperparams
 from deepcv.meta.data.training_metadata import TrainingMetaData
 

@@ -23,7 +23,7 @@ import torch.distributions as tdist
 from hilbertcurve.hilbertcurve import HilbertCurve
 
 from deepcv import utils
-import deepcv.meta as meta
+from deepcv import meta
 
 __all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',

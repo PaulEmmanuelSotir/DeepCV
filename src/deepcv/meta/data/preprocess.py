@@ -15,8 +15,8 @@ from torch.utils.data import Dataset, DataLoader
 import PIL
 import numpy as np
 
-import deepcv.meta as meta
-import deepcv.utils as utils
+from deepcv import meta
+from deepcv import utils
 
 
 __all__ = ['split_dataset', 'preprocess']

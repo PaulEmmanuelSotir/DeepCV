@@ -24,8 +24,8 @@ import numpy as np
 from ignite.metrics import Accuracy
 from kedro.pipeline import Pipeline, node
 
-import deepcv.meta as meta
-import deepcv.utils as utils
+from deepcv import meta
+from deepcv import utils
 
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']

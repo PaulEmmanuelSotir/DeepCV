@@ -10,7 +10,7 @@
 import torch
 import torch.nn as nn
 
-import deepcv.utils as utils
+from deepcv import utils
 
 
 __all__ = []

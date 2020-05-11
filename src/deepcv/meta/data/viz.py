@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-import deepcv.utils as utils
+from deepcv import utils
 
 
 __all__ = ['plot', 'sample_tumbails', 'plot_tumbails']

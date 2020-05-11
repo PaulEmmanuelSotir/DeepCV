@@ -30,6 +30,6 @@ dependencies:
         - tensorboardX=2.*
         - networkx=2.*
         - pip:
-                  - kedro
+                  - kedro[memory_profiler]
                   - kedro-viz
                   - nni

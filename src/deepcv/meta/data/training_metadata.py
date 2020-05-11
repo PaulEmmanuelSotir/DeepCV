@@ -14,7 +14,7 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 import torch
 import torch.nn as nn
 
-import deepcv.utils as utils
+from deepcv import utils
 import deepcv.meta.hyperparams as hyperparams
 import deepcv.meta.data.datasets as datasets
 

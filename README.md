@@ -61,7 +61,7 @@ Here is an example usage of deepcv from your own Python source:
 
 ``` python
 import deepcv
-import deepcv.meta as meta
+from deepcv import meta
 
 def main():
     # TODO: Show example usage of deepcv

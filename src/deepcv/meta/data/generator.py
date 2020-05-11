@@ -17,7 +17,7 @@ import click
 from click import secho, style
 
 import deepcv
-import deepcv.utils as utils
+from deepcv import utils
 
 
 singan = utils.import_third_party(utils.source_dir(deepcv.__file__) / '..' / r'third_party' / 'SinGAN' / 'singan')

@@ -20,8 +20,8 @@ import torch.nn.functional as F
 
 import numpy as np
 
-import deepcv.meta as meta
-import deepcv.utils as utils
+from deepcv import meta
+from deepcv import utils
 
 
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']

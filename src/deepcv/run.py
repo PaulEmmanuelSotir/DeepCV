@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """Application entry point."""
-import mlflow
 from pathlib import Path
 from typing import Dict
 
@@ -9,8 +8,15 @@ from kedro.context import KedroContext, load_context
 from kedro.pipeline import Pipeline
 import kedro.extras.transformers as transformers
 
+import torch
+import ignite
+import mlflow
+import torchvision
+
 from .pipeline import create_pipelines
 from .utils import source_dir
+
+import deepcv
 
 __author__ = 'Paul-Emmanuel Sotir'
 

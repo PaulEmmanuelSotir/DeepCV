@@ -63,7 +63,7 @@ imagenet32_prerocessing:
 
 models:
   - basic_backbone: &basic_backbone
-    act_fn: !py!deepcv.torch.nn.ReLU
+    act_fn: !py!torch.nn.ReLU
     architecture:
       - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
       - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
@@ -74,7 +74,7 @@ models:
       - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
       - residual_link: { _from: pooling1, allow_scaling: true }
   - lager_backbone: &lager_backbone
-    act_fn: !py!deepcv.torch.nn.ReLU
+    act_fn: !py!torch.nn.ReLU
     architecture:
       - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2]}]
       - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }

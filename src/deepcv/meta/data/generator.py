@@ -1,7 +1,7 @@
 
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Data generator meta module - generator.py - `DeepCV`__
+""" Data generator meta module - generator.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import types

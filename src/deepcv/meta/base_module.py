@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" DeepCV model base class meta module - base_module.py - `DeepCV`__
+""" DeepCV model base class meta module - base_module.py - `DeepCV`__  
 Defines DeepCV model base class
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-# To-Do List:
-# TODO: optimize support for residual/dense links
-# TODO: Try to unfreeze batch_norm parameters of shared image embedding block (with its other parameters freezed) and compare performances across various tasks
+*To-Do List* 
+    - TODO: optimize support for residual/dense links
+    - TODO: Try to unfreeze batch_norm parameters of shared image embedding block (with its other parameters freezed) and compare performances across various tasks
 """
 import types
 import inspect

@@ -5,9 +5,11 @@
 """
 import collections
 from pathlib import Path
-from typing import Optionnal, Union, Tuple, ModuleType
+from types import ModuleType
+from typing import Optional, Union, Tuple
 
 import numpy as np
+import matplotlib
 
 import torch
 import torch.nn as nn
@@ -20,16 +22,16 @@ __all__ = ['plot', 'sample_tumbails', 'plot_tumbails']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-def plot(backend: ModuleType = , show_in_tensorboard: bool = False, **plot_kwargs):
-    if backend is matplotlib:
-        img = matplotlib.plot(**plot_kwargs)
-        raise NotImplementedError
-    elif backend is Seaborn:
-        img = seaborn.plot(**plot_kwargs)
-    elif backend is altair:
-        img = altair.plot(**plot_kwargs)
-    else:
-        raise ValueError(f'Error: Unrecognized plotting backend: "{backend}"')
+def plot(backend: ModuleType = matplotlib, show_in_tensorboard: bool = False, **plot_kwargs):
+    raise NotImplementedError
+    # if backend is matplotlib:
+    #     img = matplotlib.plot(**plot_kwargs)
+    # elif backend is seaborn:
+    #     img = seaborn.plot(**plot_kwargs)
+    # elif backend is altair:
+    #     img = altair.plot(**plot_kwargs)
+    # else:
+    #     raise ValueError(f'Error: Unrecognized plotting backend: "{backend}"')
 
     if show_in_tensorboard:
         raise NotImplementedError

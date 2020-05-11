@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Contrastive learning meta module - contrastive.py - `DeepCV`__
+""" Contrastive learning meta module - contrastive.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-## To-Do List:
-# TODO: investigate triplet network training as a special case of distillation (include this tooling in distillation framework?)
-# TODO: implement various contrastive learning tooling/losses
+*To-Do List*
+    - TODO: investigate triplet network training as a special case of distillation (include this tooling in distillation framework?)
+    - TODO: implement various contrastive learning tooling/losses
 """
 import functools
 from typing import Tuple, Union, Sequence

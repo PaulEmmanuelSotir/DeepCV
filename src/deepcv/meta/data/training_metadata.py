@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Training metadata module - training_metadata.py - `DeepCV`__
+""" Training metadata module - training_metadata.py - `DeepCV`__  
 Utilities to keep track of training tasks, hyperparameters (and their eventual hyperparameter space), dataset statistics and experiments from MLFlow.
 Builds a training meta-dataset and allows a unified treatment and understanding of models, training procedures, datasets and tasks.
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-## To-Do list:
+*To-Do List*
 TODO: Read more in depth Google's approach to meta-datasets: https://github.com/google-research/meta-dataset from this paper: https://arxiv.org/abs/1903.03096 and decide whether it could be relevent to use similar abstractions in meta.data.training_tracker
 """
 import uuid
@@ -14,9 +14,9 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 import torch
 import torch.nn as nn
 
+from deepcv.meta import hyperparams
 from deepcv import utils
-import deepcv.meta.hyperparams as hyperparams
-import deepcv.meta.data.datasets as datasets
+from . import datasets
 
 
 __all__ = []
@@ -33,7 +33,7 @@ class TrainingMetaData:
 
 
 class Task(TrainingMetaData):
-    def __init__(self, train_loss: torch.optim._Loss, dummy_model_input: torch.Tensor, existing_uuid: Optional[uuid.UUID] = None):
+    def __init__(self, train_loss: torch.nn.modules.loss._Loss, dummy_model_input: torch.Tensor, existing_uuid: Optional[uuid.UUID] = None):
         super(self.__class__).__init__(self, existing_uuid)
         self._train_loss = train_loss
         self._dummy_model_input = dummy_model_input
@@ -51,7 +51,7 @@ class MetaTracker:
     def store_hps(self, hp: Dict[str, Any]):
         raise NotImplementedError
 
-    def store_task(self, train_loss: torch.optim._Loss, dummy_model_input: torch.Tensor, dummy_target: Optional[torch.Tensor]):
+    def store_task(self, train_loss: torch.nn.modules.loss._Loss, dummy_model_input: torch.Tensor, dummy_target: Optional[torch.Tensor]):
         """ Keep track of given task. A tasks is identified by the input data and loss's derivative with respect with target from a dataset.
         If there is no target data, then task is considered to be unsupervised and only identified by its input data.
         Returns stored deepcv.meta.data.training_metadata.Task object

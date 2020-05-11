@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Multitask training utilities meta module - multitask.py - `DeepCV`__
+""" Multitask training utilities meta module - multitask.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import numpy as np

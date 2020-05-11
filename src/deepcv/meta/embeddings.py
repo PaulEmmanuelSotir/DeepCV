@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Embeddings meta module - embedddings.py - `DeepCV`__
+""" Embeddings meta module - embedddings.py - `DeepCV`__  
 Merges all embeddings from 'embeddings' submodule into one embedding.
 .. moduleauthor:: Paul-Emmanuel Sotir
 """

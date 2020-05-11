@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Object detection module - object.py - `DeepCV`__
+""" Object detection module - object.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-from typing import Optional, Callable, Iterable, Union, Tuple
+from typing import Optional, Callable, Iterable, Union, Tuple, List
 
 from deepcv import utils
 
@@ -31,7 +31,14 @@ class OneCyclePolicy:
 PARAMS_SRARCH_RSLT_T = Union[List[float], List[Tuple[float, float]]]
 
 
-def run_param_search(loss, training_process: Callable, momentum_search: bool = True, weigth_decay_search: Optional[Iterable[float]]) -> PARAMS_SRARCH_RSLT_T:
+def run_param_search(training_process: Callable, momentum_search: bool = True, weigth_decay_search: Optional[Tuple[float, float]] = None) -> PARAMS_SRARCH_RSLT_T:
+    """ Runs a quick learning rate search, by training and evaluating model on a few iterations and deduce optimal lr/momentum/decay according to an heuristic/thumb-rule.
+    This function is quite similar to fastai's [`lr_finder`](https://docs.fast.ai/callbacks.lr_finder.html), but also allows you to search for optimal momentum and/or weight decay. 
+    Args:
+        - training_process: Callable which run one training iteration and evaluates model (should return valid loss and take learning rate and eventually momentum and/or weight decay)
+        - momentum_search: Boolean indicating whether if momentum should also be search for, along with learning rate. (will then return optimal momentum along with optimal learning rate)
+        - weigth_decay_search: Optional list of weight decays to search for. If not None, then hyperparameter search will also look for optimal weight decay value among those provided
+    """
     raise NotImplementedError
 
 

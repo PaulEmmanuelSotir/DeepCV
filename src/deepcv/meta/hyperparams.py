@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Hyperparameter search meta module - hyperparams.py - `DeepCV`__
+""" Hyperparameter search meta module - hyperparams.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 
 # To-Do List
@@ -22,7 +22,7 @@ import numpy as np
 from scipy.optimize import least_squares
 
 import deepcv.utils
-from data.datasets import get_random_subset_dataloader
+from .data.datasets import get_random_subset_dataloader
 
 
 __all__ = ['hp_search', 'HyperparameterSpace', 'Hyperparameters', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor']
@@ -242,7 +242,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             self._nn_metamodel.bias.data.fill_(0.)
 
     def fit_generalization(self, training_rslts: Dict[str, Any]):
-        model_capacities = ...training_rslts
+        model_capacities = ...
         cst_modelsize = deepcv.utils.is_roughtly_constant(model_capacities)
         if cst_modelsize:
             # If model capacity doesn't change, we can simplify model regression by removing 'b' and 'beta' parameters (constant term which can be modeled by 'cinf' parameter)

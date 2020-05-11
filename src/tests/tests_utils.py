@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""`Tests utils - tests_utils.py -- `DeepCV`__
+"""`Tests utils - tests_utils.py -- `DeepCV`__  
 .. See ``MODULE_DESCRIPTION`` for more details about this module.
 """
 import os
@@ -19,7 +19,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 ######### TESTING UTILS #########
 
 
-MODULE_DESCRIPTION = """ Tests utils - tests_utils.py -- `DeepCV`__
+MODULE_DESCRIPTION = """ Tests utils - tests_utils.py -- `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 This module contains pytest-related tools.
 

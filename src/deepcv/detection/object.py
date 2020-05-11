@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Object detection module - object.py - `DeepCV`__
+""" Object detection module - object.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-## To-Do List:
-# TODO: refactor to handle test and/or valid sets + handle cross validation
+*To-Do List*
+    - TODO: refactor to handle test and/or valid sets + handle cross validation
 """
 import re
 import multiprocessing
@@ -26,7 +26,6 @@ from kedro.pipeline import Pipeline, node
 
 from deepcv import meta
 from deepcv import utils
-
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'

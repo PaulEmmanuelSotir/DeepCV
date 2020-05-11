@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Stacking and ensembling meta module - stackensenbling.py - `DeepCV`__
+""" Stacking and ensembling meta module - stackensenbling.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import numpy as np

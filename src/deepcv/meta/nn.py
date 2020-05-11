@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Neural Network meta module - nn.py - `DeepCV`__
+""" Neural Network meta module - nn.py - `DeepCV`__  
 Defines various neural network building blocks (layers, architectures parts, transforms, loss terms, ...)
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-## To-Do List:
+*To-Do List*
 TODO: Add EvoNorm_B0 and EvoNorm_S0 layer implentations (from deepmind neural architecture search results for normalized-activation conv layers)
 """
 import copy
@@ -12,6 +12,7 @@ import inspect
 import logging
 from enum import Enum, auto
 from types import SimpleNamespace
+from collections import OrderedDict
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
 
 import numpy as np
@@ -84,10 +85,11 @@ def to_multiscale_inputs_model(model: meta.base_module.DeepcvModule, scales: int
     assert scales >= 2, f'Error: Can\'t define a multi scale input model with only ``{scales}`` (``scales`` must be greater than or equal to 2)'
     assert scales < len(architecture), f'Error: Given model ``{model}`` isn\'t deep enought for ``{scales}`` different input scales.'
 
-    for i in range([1:scales]):
+    for i in range(1, scales):
+        raise NotImplementedError
         submodule_indice = i * (len(architecture) // scales)
         ith_scale_submodule = architecture[i]
-        append_input = {'append': '&input_{i}', {}}
+        append_input = {'append': '&input_{i}'}
         new_hp['architecture'].insert(submodule_indice + i - 1, append_input)
 
     return type(model)(model._input_shape, new_hp)
@@ -118,7 +120,7 @@ def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[ins
         if len(init_params) > 0 and not type(init_params)[0] is inspect.Parameter:
             init_params = [signature.parameters[n] for n in init_params]
         forward_params = [p for p in signature if p not in init_params]
-        init_signature = signature.replace(parameters=init_params, return_annotation=)
+        init_signature = signature.replace(parameters=init_params, return_annotation=nn.Module)
         forward_signature = signature.replace(parameters=forward_params)
 
         class _Module(nn.Module):
@@ -133,12 +135,13 @@ def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[ins
                 bound_args.apply_defaults()
                 return forward_func(**bound_args.arguments, **vars(self))
 
+        _Module.__name__ = typename
+        _Module.__doc__ = f'Module created at runtime from `{forward_func.__name__}` forward function.\nInitial forward function documentation:\n' + forward_func.__doc__
+        init_signature.return_annotation = _Module
         _Module.__init__.__annotations__ = init_signature.__annotations__
         _Module.__init__.__defaults__ = {n: p.default for (n, p) in init_signature.parameters.items() if p.default}
         _Module.forward.__annotations__ = forward_signature.__annotations__
         _Module.forward.__defaults__ = {n: p.default for (n, p) in forward_signature.parameters.items() if p.default}
-        _Module.__name__ = typename
-        _Module.__doc__ = f'Module created at runtime from `{forward_func.__name__}` forward function.\nInitial forward function documentation:\n' + forward_func.__doc__
         _Module.forward.__doc__ = _Module.__doc__
         return _Module
     return _warper
@@ -168,9 +171,8 @@ def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) 
         - channel_dim: Channel dimension index, 0 by default.
     # TODO: cache hilbert curve to avoid to reprocess it too often
     """
-    assert features.dim() > 1, 'Invalid argument: "features" tensor should be at least of 2 dimensions.'
-    assert channel_dim < features.dim() and channel_dim >= -features.dim(),
-    'Invalid argument: "channel_dim" must be in [-features.dim() ; -1[ U ]-1 ; features.dim()[ range'
+    assert features.dim() > 1, 'Invalid argument: `features` tensor should be at least of 2 dimensions.'
+    assert channel_dim < features.dim() and channel_dim >= -features.dim(), 'Invalid argument: `channel_dim` must be in [-features.dim() ; -1[ U ]-1 ; features.dim()[ range'
 
     if channel_dim < 0:
         channel_dim += features.dim()
@@ -202,15 +204,16 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
     Note:
         Note that dropout used along with batch norm may be unrecommended (see respective warning message).
     """
-    assert 'weight' in vars(layer_op), f'Error: Bad layer operation module argument, no "weight" attribute found in layer_op="{layer_op}"'
-    assert 'out_channels' in vars(layer_op) or 'out_features' in vars(layer_op),
-    f'Error: Bad layer operation module argument, no "out_channels" or "out_features" attribute found in layer_op="{layer_op}"'
+    if 'weight' not in vars(layer_op):
+        raise ValueError(f'Error: Bad layer operation module argument, no `weight` attribute found in layer_op="{layer_op}"')
+    if 'out_channels' not in vars(layer_op) and 'out_features' not in vars(layer_op):
+        raise ValueError(f'Error: Bad layer op module argument, no `out_channels` nor `out_features` attribute in `layer_op={layer_op}`')
 
     def _dropout() -> Optional[nn.Module]:
         if dropout_prob is not None and dropout_prob != 0.:
             if batch_norm is not None:
-                logging.warn(
-                    "Warning: Dropout used along with batch norm may be unrecommended, see [CVPR 2019 paper: 'Understanding the Disharmony Between Dropout and Batch Normalization by Variance'](https://zpascal.net/cvpr2019/Li_Understanding_the_Disharmony_Between_Dropout_and_Batch_Normalization_by_Variance_CVPR_2019_paper.pdf)")
+                logging.warn("""Warning: Dropout used along with batch norm may be unrecommended, see 
+                                [CVPR 2019 paper: 'Understanding the Disharmony Between Dropout and Batch Normalization by Variance'](https://zpascal.net/cvpr2019/Li_Understanding_the_Disharmony_Between_Dropout_and_Batch_Normalization_by_Variance_CVPR_2019_paper.pdf)""")
             return nn.Dropout(p=dropout_prob)
 
     def _bn() -> Optional[nn.Module]:
@@ -248,10 +251,11 @@ def multiscale_exitation_cell(hp: SimpleNamespace) -> nn.Module:
     raise NotImplementedError
 
 
-def ConvWithMetaLayer(nn.Module):
+class ConvWithMetaLayer(nn.Module):
     def __init__(self, preactivation: bool = False):
-        self.meta = layer(layer_op=, act_fn=nn.ReLU, dropout_prob=0., batch_norm=None, preactivation=preactivation)
-        self.conv = nn.ReLU(nn.Conv2d(16, 3, (3, 3)))  # TODO: preactivation, etc...
+        raise NotImplementedError
+        self.conv = nn.Conv2d(16, 3, (3, 3))  # TODO: preactivation, etc...
+        self.meta = layer(layer_op=self.conv, act_fn=nn.ReLU, dropout_prob=0., batch_norm=None, preactivation=preactivation)
         self.RANDOM_PROJ = torch.randn_like(self.conv.weights)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -269,7 +273,9 @@ def meta_layer(input_feature_shape: torch.Size, target_module: nn.Parameter):
     Args:
         - layer_op: Underlying layer operation module
     """
-    underlying_layer_ops = layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float]=None, batch_norm: Optional[dict]=None, preactivation: bool=False)
+    raise NotImplementedError
+    conv = nn.Conv2d(16, 3, (3, 3))
+    underlying_layer_ops = layer(layer_op=conv, act_fn=nn.ReLU, dropout_prob=None, batch_norm=None, preactivation=False)
     ops = [('underlying_layer_ops', underlying_layer_ops), ]
 
     return nn.Sequential(OrderedDict(ops))
@@ -322,7 +328,7 @@ def is_data_parallelization_usefull_heuristic(model: nn.Module, batch_shape: tor
     return heuristic > 0.5
 
 
-def mean_batch_loss(loss: nn.loss._Loss, batch_loss: torch.Tensor, batch_size=1) -> Optional[utils.Number]:
+def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor, batch_size=1) -> Optional[utils.Number]:
     if loss.reduction == 'mean':
         return batch_loss.item()
     elif loss.reduction == 'sum':

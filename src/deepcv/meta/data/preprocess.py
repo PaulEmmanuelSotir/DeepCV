@@ -130,20 +130,21 @@ def preprocess(params: Union[Dict[str, Any], meta.hyperparams.Hyperparameters], 
 
 
 def _define_transforms(transform_identifiers: Sequence[object], available_transforms: Dict[str, Callable], stateful_transforms: Dict[str, Dict[str, Any]] = {}) -> torchvision.transforms.Compose:
-        transforms = []
-        for transform_name in transform_identifiers:
-            if not isinstance(transform_name, str):
+    transforms = []
+    for transform_name in transform_identifiers:
+        if not isinstance(transform_name, str):
                 # Assume given transform is already instanciated
-                transforms.append(transform_name)
-            elif transform_name in available_transforms:
-                # Treat stateful transforms as a special case, e.g. 'normalize' transform. (we need to provide data/state to these transform, e.g., mean and variance statistics over dataset for 'normalize' transform)
-                transform_factory_kwargs = stateful_transforms[transform_name] if transform_name in stateful_transforms.keys() else {}
-                # Instanciate transform
-                transforms.append(available_transforms[transform_name](**transform_factory_kwargs))
-            else:
-                # TODO: parse identifiers like for submodules in 'deepcv.meta.base_module.DeepcvModule' model base class (especially for transforms from torchvision.transforms)
-                raise ValueError(f'Error: {utils.get_str_repr(_define_transforms, __file__)} couldn\'t find "{transform_name}" tranform. Available transforms: "{available_transforms}"')
+            transforms.append(transform_name)
+        elif transform_name in available_transforms:
+            # Treat stateful transforms as a special case, e.g. 'normalize' transform. (we need to provide data/state to these transform, e.g., mean and variance statistics over dataset for 'normalize' transform)
+            transform_factory_kwargs = stateful_transforms[transform_name] if transform_name in stateful_transforms.keys() else {}
+            # Instanciate transform
+            transforms.append(available_transforms[transform_name](**transform_factory_kwargs))
+        else:
+            # TODO: parse identifiers like for submodules in 'deepcv.meta.base_module.DeepcvModule' model base class (especially for transforms from torchvision.transforms)
+            raise ValueError(f'Error: {utils.get_str_repr(_define_transforms, __file__)} couldn\'t find "{transform_name}" tranform. Available transforms: "{available_transforms}"')
     return torchvision.transforms.Compose(transforms)
+
 
 def _process_normalization_stats(trainset: Dataset, to_process: Sequence[str]) -> Tuple[torch.Tensor, torch.Tensor]:
     if 'normalization_stats' not in to_process:
@@ -160,7 +161,7 @@ def _process_normalization_stats(trainset: Dataset, to_process: Sequence[str]) -
 
 ################################## CUSTOM TRANSFORMS ##################################
 
-def stateless_transform_factory(fn: Callable) -> Callable[[]Callable]:
+def stateless_transform_factory(fn: Callable) -> Callable[[], Callable]:
     def _get_transform() -> Callable:
         return fn
     return _get_transform
@@ -169,18 +170,21 @@ def stateless_transform_factory(fn: Callable) -> Callable[[]Callable]:
 tensor_to_pil = torchvision.transforms.ToPILImage
 pil_to_tensor = torchvision.transforms.ToTensor
 
+
 @stateless_transform_factory
 def np_to_tensor(numpy_array: np.ndarray) -> torch.Tensor:
     return torch.from_numpy(numpy_array)
+
 
 @stateless_transform_factory
 def tensor_to_np(tensor: torch.Tensor) -> np.ndarray:
     return tensor.numpy
 
+
 def normalize_tensor(trainset: DataLoader, normalization_stats: Optional[Union[torch.Tensor, Sequence[Sequence[float]]]] = None, channels: int = 3) -> torchvision.transforms.Normalize:
     """ Returns a normalizing transform for given dataloader. If there are no given normalization stats (mean and std per channels), then these stats will be processed before returning the transform. """
     stats_shape_error_msg = f'Error: normalization stats should be of shape (2, {channels}) i.e. ((mean + std), (channel count))'
-    elif issubclass(normalization_stats, torch.Tensor):
+    if issubclass(normalization_stats, torch.Tensor):
         assert normalization_stats.shape == torch.Size((2, channels)), stats_shape_error_msg
         mean, std = normalization_stats[0], normalization_stats[1]
     else:

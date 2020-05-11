@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Video lossless compression module - compress.py - `DeepCV`__
+""" Video lossless compression module - compress.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import numpy as np

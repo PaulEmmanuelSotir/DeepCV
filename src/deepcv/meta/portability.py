@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Portability meta module - portability.py - `DeepCV`__
+""" Portability meta module - portability.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import numpy as np

@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Data augmentation meta module - augmentation.py - `DeepCV`__
+""" Data augmentation meta module - augmentation.py - `DeepCV`__  
 Some of this python module code is a modified version of [official AugMix implementation](https://github.com/google-research/augmix), under [Apache License 2.0 License](https://github.com/google-research/augmix/blob/master/LICENSE).
 .. See Google Research/DeepMind [ICLR 2020 AugMix paper](https://arxiv.org/pdf/1912.02781.pdf)
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-## To-Do list:
-# TODO: parse YAML parameters for augmentations reciepes
-# TODO: implement various augmentation operators: sharpness, crop, brightness, contrast, tweak_colors, gamma, noise, rotate, translate, scale, smooth_non_linear_deformation
-# TODO: implement augmentation based on distilled SinGAN model
-# TODO: AugMix augmentation recipe implementation? (see https://arxiv.org/pdf/1912.02781.pdf and parameters.yml)
+*To-Do List*
+    - TODO: parse YAML parameters for augmentations reciepes
+    - TODO: implement various augmentation operators: sharpness, crop, brightness, contrast, tweak_colors, gamma, noise, rotate, translate, scale, smooth_non_linear_deformation
+    - TODO: implement augmentation based on distilled SinGAN model
+    - TODO: AugMix augmentation recipe implementation? (see https://arxiv.org/pdf/1912.02781.pdf and parameters.yml)
 """
 from typing import Union, Tuple, Callable, Mapping
 
@@ -21,7 +21,7 @@ import torchvision
 import torch.nn as nn
 
 from deepcv import utils
-import deepcv.meta.hyperparams as hyperparams
+from deepcv.meta import hyperparams
 
 
 __all__ = ['apply_augmentation_reciepe', 'augment_and_mix', 'autocontrast', 'equalize', 'posterize',
@@ -50,9 +50,10 @@ def apply_augmentation_reciepe(dataloader: torch.utils.data.DataLoader, hp: Unio
 
     transforms = hp['transforms']
 
-    if hp['keep_same_input_shape']:
-        # TODO: resize (scale and/or crop?) output image to its original size
     raise NotImplementedError
+    if hp['keep_same_input_shape']:
+        pass
+        # TODO: resize (scale and/or crop?) output image to its original size
 
 
 def augment_and_mix(image: Image, mixture_width: int = 3, mixture_depth: Union[int, Tuple[int, int]] = [1, 3], severity: int = 0.3, alpha: float = 1.) -> torch.Tensor:

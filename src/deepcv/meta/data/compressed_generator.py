@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Quantized and distilled version of data generator meta module - compressed_generator.py - `DeepCV`__
+""" Quantized and distilled version of data generator meta module - compressed_generator.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import numpy as np

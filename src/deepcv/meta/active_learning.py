@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Active learning, bootstraping and bagging meta module - active_learning.py - `DeepCV`__
+""" Active learning, bootstraping and bagging meta module - active_learning.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import numpy as np

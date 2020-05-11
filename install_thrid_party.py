@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Training loop meta module - training_loop.py - `DeepCV`__
+""" Training loop meta module - training_loop.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import os

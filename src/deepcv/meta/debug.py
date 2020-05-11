@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Debugging meta module - debug.py - `DeepCV`__
+""" Debugging meta module - debug.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import numpy as np
@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from...tests.tests_utils import test_module
+from deepcv import utils
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'

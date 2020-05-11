@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Training loop meta module - training_loop.py - `DeepCV`__
+""" Training loop meta module - training_loop.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import logging
@@ -218,7 +218,7 @@ if __name__ == '__main__':
 
 # TODO: remove this deprecated code and use ignite training loop instead
 
-# def eval_loop(model: nn.Module, loss: nn.loss._Loss, eval_dataloader: DataLoader):
+# def eval_loop(model: nn.Module, loss: torch.nn.modules.loss._Loss, eval_dataloader: DataLoader):
 #     yield train_eval_loop(model, loss, eval_dataloader)
 
 
@@ -307,7 +307,7 @@ def evaluate(epoch: int, model: nn.Module, validset: DataLoader, bce_loss_scale:
 #         print(f'VALID_LOSS={metrics.valid_loss}')
 
 
-# def train_eval_loop(epochs : int, model: nn.Module, loss: nn.loss._Loss, validset: DataLoader, trainset: Optional[DataLoader] = None, optimizer: Optional[Optimizer] = None,
+# def train_eval_loop(epochs : int, model: nn.Module, loss: torch.nn.modules.loss._Loss, validset: DataLoader, trainset: Optional[DataLoader] = None, optimizer: Optional[Optimizer] = None,
 #                     scheduler: Optional[_LRScheduler] = None, custom_metrics: Optional[Metrics] = None, summary: SummaryWriter = None, device: torch.device = get_device(), disable_progress_bar: bool = False):
 
 #     train = optimizer is not None and scheduler is not None and trainset is not None

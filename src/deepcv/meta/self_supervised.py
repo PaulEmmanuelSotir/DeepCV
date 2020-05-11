@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Self supervised training meta module - self_supervised.py - `DeepCV`__
+""" Self supervised training meta module - self_supervised.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 from collections import OrderedDict
@@ -24,20 +24,20 @@ class Task(ABC):
     def __repr__(self) -> str: return self.__name__
 
     @abstractmethod
-    def loss(self) -> nn.loss._Loss: ...
+    def loss(self) -> torch.nn.modules.loss._Loss: ...
     @abstractmethod
     def head_model(self, embeding_shape: torch.Size) -> nn.Module: ...
     @abstractmethod
     def sample_data(self, dl: DataLoader) -> Iterable[torch.Tensor]: ...
 
 
-def TrainOnTasks(embdding: nn.Module, tasks: Iterable[Task]):
+def TrainOnTasks(embdding: nn.Module, tasks: Iterable[Task], embedding_shape: torch.Size):
     """ Self supervised inference heads
     Pytorch module which appends to an embedding model, multiple siamese inference heads in order to solve different kinds of self supervised tasks.
     """
+    raise NotImplementedError
     losses = [t.loss() for t in tasks]
     heads_modules = [(f'task_{t.__repr__()}', t.head_model(embedding_shape)) for t in tasks]
-    raise NotImplementedError
 
 
 class TasksDataSampler():

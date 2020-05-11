@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Utils module - utils.py - `DeepCV`__
+""" Utils module - utils.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 

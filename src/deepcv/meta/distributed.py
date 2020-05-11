@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Distributed inference and training meta module - distributed.py - `DeepCV`__
+""" Distributed inference and training meta module - distributed.py - `DeepCV`__  
 Merges all embeddings from 'embeddings' submodule into one embedding.
 .. moduleauthor:: Paul-Emmanuel Sotir
 """

@@ -37,7 +37,7 @@ split_dataset_ratios:
 basic_preprocessing_procedure: &basic_preprocessing_procedure
   cache: true
   transforms:
-    - pil_to_tensor
+    - !py!torchvision.transforms.ToPILImage
     - normalize
   augmentation_reciepe: *basic_augmentation
 

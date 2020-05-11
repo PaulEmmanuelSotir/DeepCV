@@ -73,7 +73,7 @@ class MetaTracker:
     def update_experiments_from_mlflow(self):
         raise NotImplementedError
 
-    def remove_entry(entry_id: Union[uuid.UUID, datasets.DatasetStats, Experiment, Task, hyperparams.HyperparameterSpace, hyperparams.Hyperparameters]):
+    def remove_entry(self, entry_id: Union[uuid.UUID, datasets.DatasetStats, Experiment, Task, hyperparams.HyperparameterSpace, hyperparams.Hyperparameters]):
         """ Removes metadata entry from metadataset by its UUID """
         raise NotImplementedError
 

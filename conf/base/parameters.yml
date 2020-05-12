@@ -24,7 +24,7 @@ augmentations_recipes:
     augmix:
       - augmentation_chains_count: [1, 3] # Number of augmentation transform chains to mix together (see [AugMix](https://arxiv.org/pdf/1912.02781.pdf) augmentation algorithm for more details)
       - transform_chains_dirichlet: 0.3 # Dirichlt distribution parameter to sample k=3 mixing convex coeficients. (to be convex along each dimensions, dirichlet coefficents must be > 1.)
-      - augmix_with_original: 0.3 # if strength/severity is greater than 0: final augmented image will be with it original image (given value discribes Beta distribution)
+      - mix_with_original_beta: 0.3 # if strength/severity is greater than 0: final augmented image will be with it original image (given value discribes Beta distribution)
   - singan_augmentation: &singan_augmentation
     << : *basic_augmentation
     transforms_additional:

@@ -22,6 +22,7 @@ import numpy as np
 
 from deepcv import meta
 from deepcv import utils
+from deepcv.meta import hyperparams
 
 
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
@@ -31,7 +32,7 @@ MODULE_CREATOR_CALLBACK_RETURN_T = Callable[[torch.Tensor, Dict[str, torch.Tenso
 MODULE_CREATOR_MODULE_RETURN_T = nn.Module
 
 
-def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: hyperparams.Hyperparameters) -> nn.Module:
     prev_dim = len(prev_shapes[1:])
     if prev_dim >= 4:
         return nn.AvgPool3d(**submodule_params)
@@ -40,7 +41,7 @@ def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torc
     return nn.AvgPool1d(**submodule_params)
 
 
-def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters, channel_dim: int = -3) -> nn.Module:
+def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: hyperparams.Hyperparameters, channel_dim: int = -3) -> nn.Module:
     """ Creates a convolutional NN layer with dropout and batch norm support
     NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
     """
@@ -48,7 +49,7 @@ def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Siz
     return meta.nn.conv_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
 
 
-def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: hyperparams.Hyperparameters) -> nn.Module:
     """ Creates a fully connected NN layer with dropout and batch norm support
     NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
     """
@@ -104,13 +105,13 @@ class DeepcvModule(nn.Module):
 
     HP_DEFAULTS = ...
 
-    def __init__(self, input_shape: torch.Size, hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]):
+    def __init__(self, input_shape: torch.Size, hp: Union[hyperparams.Hyperparameters, Dict[str, Any]]):
         super(DeepcvModule, self).__init__()
         self._input_shape = input_shape
 
         # Process module hyperparameters
         assert self.__class__.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
-        hp, missing = meta.hyperparams.to_hyperparameters(hp, defaults=self.__class__.HP_DEFAULTS, raise_if_missing=True)
+        hp, missing = hyperparams.to_hyperparameters(hp, defaults=self.__class__.HP_DEFAULTS, raise_if_missing=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Apply object detector neural net architecture on top of shared image embedding features and input image
@@ -193,7 +194,7 @@ class DeepcvModule(nn.Module):
                 submodule_hp_dict = dict(**self._hp)
                 del submodule_hp_dict['architecture']  # Make sure we dont reuse parent DeepCV module architecture spec (if 'architecture' entry is missing in params dict)
                 submodule_hp_dict.update(params)
-                module_or_callback = DeepcvModule(input_shape=self._features_shapes[-1], hp=meta.hyperparams.Hyperparameters(submodule_hp_dict))
+                module_or_callback = DeepcvModule(input_shape=self._features_shapes[-1], hp=hyperparams.Hyperparameters(submodule_hp_dict))
             else:
                 # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
                 fn = submodule_creators.get(submodule_type)
@@ -272,7 +273,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
 
     SHARED_BLOCK_DISABLED_WARNING_MSG = r'Warning: `DeepcvModule.{}` called while `self._enable_shared_image_embedding_block` is `False` (Shared image embedding block disabled for this model)'
 
-    def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
+    def __init__(self, input_shape: torch.Size, hp: hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
         super(DeepcvModuleWithSharedImageBlock, self).__init__(input_shape, hp)
 
         self._shared_block_forked = False

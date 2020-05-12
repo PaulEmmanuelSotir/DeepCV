@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from deepcv import utils
+import deepcv.utils
 
 
 __all__ = []
@@ -55,5 +55,5 @@ class TasksDataSampler():
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

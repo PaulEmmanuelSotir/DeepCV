@@ -25,8 +25,8 @@ from ignite.contrib.handlers import TensorboardLogger, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerParamsHandler, GradsHistHandler
 import ignite.contrib.handlers
 
-from deepcv import meta
-from deepcv import utils
+import deepcv.meta
+import deepcv.utils
 
 
 __all__ = ['BackendConfig', 'train']
@@ -36,7 +36,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 class BackendConfig:
     def __init__(self, device=None, dist_backend: dist.Backend = None, dist_url: str = '', local_rank: Optional[int] = 0):
         self.is_cpu = device.type == 'cpu'
-        self.device = device if device else utils.get_device(devid=local_rank)
+        self.device = device if device else deepcv.utils.get_device(devid=local_rank)
         self.ncpu = multiprocessing.cpu_count()
         self.dist_backend = dist_backend
         self.dist_url = dist_url
@@ -63,7 +63,7 @@ class BackendConfig:
         return f'distributed-{self.nnodes}nodes-{self.ngpus}gpus-{self.ngpus_current_node}current-node-gpus'
 
 
-def train(hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[Metric] = {}) -> ignite.engine.State:
+def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[Metric] = {}) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
@@ -83,14 +83,14 @@ def train(hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn
                             'display_iters': 1000, 'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
-    hp, _ = meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
+    hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
     output_path = Path(hp['output_path'])
     trainset, *validset_testset = dataloaders
     device = backend_conf.device
 
     if hp['deterministic']:
-        utils.set_seeds(backend_conf.rank + hp['seed'])
-    utils.setup_cudnn(deterministic=hp['deterministic'])
+        deepcv.utils.set_seeds(backend_conf.rank + hp['seed'])
+    deepcv.utils.setup_cudnn(deterministic=hp['deterministic'])
 
     model = model.to(device)
     model = _setup_distributed_training(device, backend_conf, model, trainset[0])
@@ -197,9 +197,9 @@ def _setup_distributed_training(device, backend_conf: BackendConfig, model: nn.M
         assert device.type == 'cuda', 'Error: Distributed training must be run on GPU(s).'
         torch.cuda.set_device(backend_conf.local_rank)
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[backend_conf.local_rank, ], output_device=backend_conf.local_rank)
-    elif not backend_conf.is_cpu and meta.nn.is_data_parallelization_usefull_heuristic(model, batch_shape):
+    elif not backend_conf.is_cpu and deepcv.meta.nn.is_data_parallelization_usefull_heuristic(model, batch_shape):
         # If not distributed, we can still use data parrallelization if there are multiple GPUs available and data is large enought to be worth it
-        model = meta.nn.data_parallelize(model)
+        model = deepcv.meta.nn.data_parallelize(model)
     return model
 
 
@@ -213,7 +213,7 @@ def _resume_training(resume_from: Union[str, Path], to_save: Dict[str, Any]):
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()
 
 # TODO: remove this deprecated code and use ignite training loop instead

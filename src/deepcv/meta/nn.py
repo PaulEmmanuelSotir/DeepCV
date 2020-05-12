@@ -23,8 +23,8 @@ from torch.functional import F
 import torch.distributions as tdist
 from hilbertcurve.hilbertcurve import HilbertCurve
 
-from deepcv import utils
-from deepcv import meta
+import deepcv.utils
+import deepcv.meta
 
 __all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
@@ -33,7 +33,7 @@ __all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatHi
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class HybridConnectivityGatedNet(meta.base_module.DeepcvModule):
+class HybridConnectivityGatedNet(deepcv.meta.base_module.DeepcvModule):
     """ Implementation of Hybrid Connectivity Gated Net (HCGN), residual/dense conv block architecture from the following paper: https://arxiv.org/pdf/1908.09699.pdf """
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
@@ -43,7 +43,7 @@ class HybridConnectivityGatedNet(meta.base_module.DeepcvModule):
             hp: Hyperparameters
         """
         super(HybridConnectivityGatedNet, self).__init__(input_shape, hp)
-        submodule_creators = meta.base_module.BASIC_SUBMODULE_CREATORS.update({'smg_module': self._smg_module_creator})
+        submodule_creators = deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS.update({'smg_module': self._smg_module_creator})
         self._net = self._define_nn_architecture(hp['architecture'], submodule_creators)
         self._initialize_parameters(hp['act_fn'])
 
@@ -68,7 +68,7 @@ class HybridConnectivityGatedNet(meta.base_module.DeepcvModule):
         raise NotImplementedError
 
 
-def to_multiscale_inputs_model(model: meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
+def to_multiscale_inputs_model(model: deepcv.meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
     """ Turns a given deepcv module to a similar models which takes `scales` inputs at different layer depth instead of one input at first layer.
     Each new inputs are downscaled by a 2 factor, thus if you input `model` takes a 3x100x100 image the returned model will take 3 images of these respective shapes: (3x100x100; 3x50x50, 3x25x25) (assuming we have `no_downscale_dims=(0,)` and `scales=3`)
     Args:
@@ -94,7 +94,7 @@ def to_multiscale_inputs_model(model: meta.base_module.DeepcvModule, scales: int
     return type(model)(model._input_shape, new_hp)
 
 
-def to_multiscale_outputs_model(model: meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
+def to_multiscale_outputs_model(model: deepcv.meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
     """
     TODO: similar implementation than to_multiscale_inputs_model
     """
@@ -327,7 +327,7 @@ def is_data_parallelization_usefull_heuristic(model: nn.Module, batch_shape: tor
     return heuristic > 0.5
 
 
-def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor, batch_size=1) -> Optional[utils.Number]:
+def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor, batch_size=1) -> Optional[deepcv.utils.Number]:
     if loss.reduction == 'mean':
         return batch_loss.item()
     elif loss.reduction == 'sum':
@@ -362,7 +362,7 @@ def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor,
 #     def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 #         return self.forward(input, target)
 
-def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Iterable[torch.Size], model: Optional[nn.Module], safety_margin: float = 0.75, trial_growth_factor: float = 1.2, device=utils.get_device(), **model_kwargs):
+def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Iterable[torch.Size], model: Optional[nn.Module], safety_margin: float = 0.75, trial_growth_factor: float = 1.2, device=deepcv.utils.get_device(), **model_kwargs):
     """ Finds largest `batch_size` which could fit in video memory without issues in an evaluation setup (no backprop).
     This function is usefull to estimate best evaluation `batch_size`. If `model` argument is given, then 
     This gives an estimate/advice of maximal `batch_size` in a non-distributed setup, assuming you are training given model on current device.
@@ -474,5 +474,5 @@ class TestNNMetaModule:
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

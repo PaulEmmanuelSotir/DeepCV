@@ -23,17 +23,16 @@ import networkx
 import numpy as np
 from scipy.optimize import least_squares
 
-from deepcv import meta
-from deepcv import utils
-from deepcv.meta.data import datasets
-from deepcv.meta.data import training_metadata
+import deepcv.meta
+import deepcv.utils
+import deepcv.meta.data
 
 
 __all__ = ['HyperparameterSpace', 'Hyperparameters', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor', 'to_hyperparameters', 'merge_hyperparameters', 'hp_search']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class HyperparameterSpace(training_metadata.TrainingMetaData):
+class HyperparameterSpace(deepcv.meta.data.training_metadata.TrainingMetaData):
     def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
         super(HyperparameterSpace, self).__init__(existing_uuid)
         # TODO: implement
@@ -44,14 +43,14 @@ class HyperparameterSpace(training_metadata.TrainingMetaData):
         return overlap
 
 
-class Hyperparameters(training_metadata.TrainingMetaData, collections.Mapping):
+class Hyperparameters(deepcv.meta.data.training_metadata.TrainingMetaData, collections.Mapping):
     """ Hyperparameter frozen dict
     Part of this code from [this StackOverflow thread](https://stackoverflow.com/questions/2703599/what-would-a-frozen-dict-be)
     # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
     """
 
     def __init__(self, existing_uuid: Optional[uuid.UUID] = None, **kwargs):
-        training_metadata.TrainingMetaData.__init__(self, existing_uuid)
+        deepcv.meta.data.training_metadata.TrainingMetaData.__init__(self, existing_uuid)
         collections.Mapping.__init__(self)
         self._store = dict(**kwargs)
         self._hash = None
@@ -228,14 +227,14 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
         return eps0 * np.absolute(emn / (emn - eta * 1j))  # Complex absolute, i.e. 2D L2 norm
 
     def fit_generalization(self, trainsets: Sequence[DataLoader], models: Sequence[nn.Module], best_valid_losses: Sequence[Union[float, torch.FloatTensor]], best_train_losses: Optional[Sequence[Union[float, torch.FloatTensor]]] = None):
-        model_capacities = [meta.nn.get_model_capacity(m) for m in models]
-        cst_modelsize = utils.is_roughtly_constant(model_capacities)
+        model_capacities = [deepcv.meta.nn.get_model_capacity(m) for m in models]
+        cst_modelsize = deepcv.utils.is_roughtly_constant(model_capacities)
         if cst_modelsize:
             # If model capacity doesn't change, we can simplify model regression by removing 'b' and 'beta' parameters (constant term which can be modeled by 'cinf' parameter)
             params = self._leastsquares_params[: -2]
 
         trainset_sizes = [len(dl.dataset) for dl in trainsets]
-        cst_datasize = utils.is_roughtly_constant(trainset_sizes)
+        cst_datasize = deepcv.utils.is_roughtly_constant(trainset_sizes)
         if cst_datasize:
             # If traiset size doesn't change across results, we can simplify model regression by removing 'alpha' parameter (constant term which can be modeled by 'cinf' parameter)
             params = params[1:]
@@ -260,7 +259,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             # TODO: create and train on 'meta' dataset from MLFlow?
 
     def forward(self, model: Union[nn.Module, int], trainset: Union[DataLoader, int]) -> float:
-        model_capacity = meta.nn.get_model_capacity(model) if issubclass(model, nn.Module) else model
+        model_capacity = deepcv.meta.nn.get_model_capacity(model) if issubclass(model, nn.Module) else model
         trainset_size = trainset if issubclass(trainset, int) else len(trainset)
         estimation = GeneralizationAcrossScalesPredictor.error_landscape_estimation(self._leastsquares_params, model_capacity, trainset_size)
 
@@ -283,12 +282,12 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
 
 
 def to_hyperparameters(hp: Union[Dict[str, Any], Hyperparameters], defaults: Optional[Dict[str, Any], Hyperparameters] = None, raise_if_missing: bool = True) -> Union[Hyperparameters, Tuple[Hyperaparameters, List[str]]]:
-    """ Converts given parameters Dict to a `meta.hyperparams.Hyperparameters` object if needed. Alse allows you to check required and default hyperparameter through `defaults` argument (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
+    """ Converts given parameters Dict to a `deepcv.meta.hyperparams.Hyperparameters` object if needed. Alse allows you to check required and default hyperparameter through `defaults` argument (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
     Args:
-        - hp: Parameter dict or `meta.hyperparams.Hyperparameters` object
+        - hp: Parameter dict or `deepcv.meta.hyperparams.Hyperparameters` object
         - defaults: Optional argument specifying required and default (hyper)parameter(s) (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
         - raise_if_missing: Boolean indicating whether if this function should raise an exception if `defaults` specifies mandatory (hyper)parameters which are missing in `hp`
-    Returns resulting `meta.hyperparams.Hyperparameters` object with provided defaults, and eventually also returns missing hyperparameters which are missing according to `defaults` argument, if provided.
+    Returns resulting `deepcv.meta.hyperparams.Hyperparameters` object with provided defaults, and eventually also returns missing hyperparameters which are missing according to `defaults` argument, if provided.
     """
     if not issubclass(hp, Hyperparameters):
         hp = Hyperparameters(**hp)
@@ -305,7 +304,7 @@ def to_hyperparameters(hp: Union[Dict[str, Any], Hyperparameters], defaults: Opt
 
 def merge_hyperparameters(*dicts: Iterable[Dict[str, Any]]) -> Hyperparameters:
     """ Utils function used to merge given dictionnaries into a `hyperparams.Hyperparameters` class instance """
-    merged = utils.merge_dicts(*dicts)
+    merged = deepcv.utils.merge_dicts(*dicts)
     return Hyperparameters(*merged)
 
 
@@ -318,7 +317,8 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
     if pred_across_scales:
         logging.info('Using "prediction of model\'s generalization across scales" technique by performing multiple trainings on small trainset subsets to be able to predict validation error if we had trained model on full trainset.')
         num_workers = max(1, multiprocessing.cpu_count() - 1)
-        subsets = [datasets.get_random_subset_dataloader(trainset, ss, batch_size=hp['batch_size'], num_workers=num_workers, pin_memory=True) for ss in subset_sizes]
+        subsets = [deepcv.meta.data.datasets.get_random_subset_dataloader(
+            trainset, ss, batch_size=hp['batch_size'], num_workers=num_workers, pin_memory=True) for ss in subset_sizes]
         generalization_predictor = GeneralizationAcrossScalesPredictor(len(subsets), fit_using_hps=False, fit_using_loss_curves=False, fit_using_dataset_stats=False)
 
     # TODO: add ignite training handler to report metrics to nni as intermediate results: nni.report_intermediate_result()
@@ -337,5 +337,5 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

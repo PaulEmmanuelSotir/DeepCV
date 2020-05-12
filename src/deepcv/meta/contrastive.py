@@ -17,8 +17,8 @@ import torch.nn as nn
 from torch.functional import F
 from torch.utils.data import DataLoader
 
-from deepcv import utils
-from deepcv.meta.nn import func_to_module
+import deepcv.utils
+import deepcv.meta
 
 
 __all__ = ['jensen_shannon_divergence_consistency_loss', 'sample_triplets', 'JensenShannonDivergenceConsistencyLoss', 'TripletMarginLoss']
@@ -50,8 +50,8 @@ def sample_triplets(dataset: DataLoader) -> Tuple[torch.Tensor, torch.Tensor, to
 
 # NOTE: When training a model with triplet margin loss, try out to enable 'swap' option (swaps anchor and positive if distance between negative and positive is lower than distance between anchor and negative)
 TripletMarginLoss = nn.TripletMarginLoss
-JensenShannonDivergenceConsistencyLoss = func_to_module(jensen_shannon_divergence_consistency_loss, init_params=['net', 'reduction', 'to_log_probabilities'])
+JensenShannonDivergenceConsistencyLoss = deepcv.meta.nn.func_to_module(jensen_shannon_divergence_consistency_loss, init_params=['net', 'reduction', 'to_log_probabilities'])
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

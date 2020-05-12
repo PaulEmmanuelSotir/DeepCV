@@ -6,7 +6,7 @@ Builds a training meta-dataset and allows a unified treatment and understanding 
 .. moduleauthor:: Paul-Emmanuel Sotir
 
 *To-Do List*
-    - TODO: Read more in depth Google's approach to meta-datasets: https://github.com/google-research/meta-dataset from this paper: https://arxiv.org/abs/1903.03096 and decide whether it could be relevent to use similar abstractions in meta.data.training_tracker
+    - TODO: Read more in depth Google's approach to meta-datasets: https://github.com/google-research/meta-dataset from this paper: https://arxiv.org/abs/1903.03096 and decide whether it could be relevent to use similar abstractions in deepcv.meta.data.training_tracker
 """
 import uuid
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
@@ -14,9 +14,8 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 import torch
 import torch.nn as nn
 
-from deepcv import utils
-from deepcv.meta import hyperparams
-from deepcv.meta.data import datasets
+import deepcv.utils
+import deepcv.meta
 
 
 __all__ = ['TrainingMetaData', 'Task', 'Experiment', 'MetaTracker']
@@ -41,7 +40,7 @@ class Experiment(TrainingMetaData):
 
 
 class MetaTracker:
-    def __init__(self, metadataset: datasets.PytorchDatasetWarper):
+    def __init__(self, metadataset: deepcv.meta.data.datasets.PytorchDatasetWarper):
         self._metadataset = metadataset
 
     def store_hps(self, hp: Dict[str, Any]):
@@ -60,7 +59,7 @@ class MetaTracker:
         raise NotImplementedError
         return task
 
-    def store_dataset_stats(self, trainset: datasets.PytorchDatasetWarper, dataset_name: str = ''):
+    def store_dataset_stats(self, trainset: deepcv.meta.data.datasets.PytorchDatasetWarper, dataset_name: str = ''):
         """ Store train dataset statistics and name """
         dataset_stats = trainset.get_dataset_stats()
         raise NotImplementedError
@@ -69,7 +68,7 @@ class MetaTracker:
     def update_experiments_from_mlflow(self):
         raise NotImplementedError
 
-    def remove_entry(self, entry_id: Union[uuid.UUID, datasets.DatasetStats, Experiment, Task, hyperparams.HyperparameterSpace, hyperparams.Hyperparameters]):
+    def remove_entry(self, entry_id: Union[uuid.UUID, deepcv.meta.data.datasets.DatasetStats, Experiment, Task, deepcv.meta.hyperparams.HyperparameterSpace, deepcv.meta.hyperparams.Hyperparameters]):
         """ Removes metadata entry from metadataset by its UUID """
         raise NotImplementedError
 
@@ -81,13 +80,13 @@ class MetaTracker:
         is_str = isinstance(entry_type, str)
         if is_str and entry_type == 'Task' or entry_type is Task:
             ...
-        elif is_str and entry_type == 'HyperparameterSpace' or entry_type is hyperparams.HyperparameterSpace:
+        elif is_str and entry_type == 'HyperparameterSpace' or entry_type is deepcv.meta.hyperparams.HyperparameterSpace:
             ...
-        elif is_str and entry_type == 'Hyperparameters' or entry_type is hyperparams.Hyperparameters:
+        elif is_str and entry_type == 'Hyperparameters' or entry_type is deepcv.meta.hyperparams.Hyperparameters:
             ...
         elif is_str and entry_type == 'Experiment' or entry_type is Experiment:
             ...
-        elif is_str and entry_type == 'DatasetStats' or entry_type is datasets.DatasetStats:
+        elif is_str and entry_type == 'DatasetStats' or entry_type is deepcv.meta.data.datasets.DatasetStats:
             ...
 
     def reset_all(self):
@@ -96,5 +95,5 @@ class MetaTracker:
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from deepcv import utils
+import deepcv.utils
 
 
 __all__ = []
@@ -20,5 +20,5 @@ def get_regularization_term(y, ypred, y_tranform=None, ypred_tranform=None):
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

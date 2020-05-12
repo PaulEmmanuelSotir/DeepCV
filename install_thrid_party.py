@@ -11,7 +11,7 @@ from pathlib import Path
 
 import kedro_cli
 from kedro.cli import main as kedro_main
-from deepcv import utils
+import deepcv.utils
 
 __all__ = []
 __author__ = 'Paul-Emmanuel Sotir'
@@ -58,16 +58,16 @@ def install_third_party(no_opencv=False, no_apex=False, no_detectron2=False, no_
 
 def install_opencv():
     logging.info('Installing OpenCV third party...')
-    with utils.cd(THIRD_PARTY_DIR):
+    with deepcv.utils.cd(THIRD_PARTY_DIR):
         raise NotImplementedError
 
 
 def install_apex():
     logging.info('Installing NVidia Apex third party...')
-    with utils.cd(THIRD_PARTY_DIR):
+    with deepcv.utils.cd(THIRD_PARTY_DIR):
         # TODO: run these comands
         r'git clone https://github.com/NVIDIA/apex'
-        with utils.cd(r'SinGAN'):
+        with deepcv.utils.cd(r'SinGAN'):
             sub = r'pip install -v --no-cache-dir --global-option="--pyprof" --global-option="--cpp_ext" --global-option="--cuda_ext" .'
             failed = sub.returncode
             if sys.platform.lower().startswith('win') and failed:
@@ -79,22 +79,22 @@ def install_apex():
 
 def install_detectron2():
     logging.info('Installing Detectron2 third party...')
-    with utils.cd(THIRD_PARTY_DIR):
+    with deepcv.utils.cd(THIRD_PARTY_DIR):
         raise NotImplementedError
 
 
 def install_imagenetv2():
     logging.info('Installing ImageNetV2 third party...')
-    with utils.cd(THIRD_PARTY_DIR):
+    with deepcv.utils.cd(THIRD_PARTY_DIR):
         raise NotImplementedError
 
 
 def install_singan():
     logging.info('Installing SinGAN third party...')
-    with utils.cd(THIRD_PARTY_DIR):
+    with deepcv.utils.cd(THIRD_PARTY_DIR):
         # TODO: run these comands
         sub = r'git clone https://github.com/tamarott/SinGAN.git'
-        with utils.cd(r'SinGAN'):
+        with deepcv.utils.cd(r'SinGAN'):
             sub = r'python -m pip install -r requirements.txt'
             raise NotImplementedError
 

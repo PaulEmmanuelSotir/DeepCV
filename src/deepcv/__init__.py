@@ -5,10 +5,9 @@ __all__ = ['3D', 'camera_pose', 'caption', 'completion', 'detection', 'enhance',
            'pipeline', 'run', 'utils']
 
 # 'deepcv' modules imports
-from .pipeline import *
-from .run import *
-from .utils import *
+import deepcv.run
+import deepcv.utils
+import deepcv.pipeline
 
-# 'deepcv' subpackages imports
-from . import meta
-from . import detection
+# default 'deepcv' subpackages imports
+import deepcv.meta

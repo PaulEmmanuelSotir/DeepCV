@@ -17,10 +17,10 @@ import click
 from click import secho, style
 
 import deepcv
-from deepcv import utils
+import deepcv.utils
 
 
-singan = utils.import_third_party(utils.source_dir(deepcv.__file__) / '..' / r'third_party' / 'SinGAN' / 'singan')
+singan = deepcv.utils.import_third_party(deepcv.utils.source_dir(deepcv.__file__) / '..' / r'third_party' / 'SinGAN' / 'singan')
 
 
 __all__ = ['DistilledSinGAN', 'train_distilled_singan']
@@ -43,7 +43,7 @@ def train_distilled_singan(train_images):
         # We first train a new SinGAN instance on each images
         for img in train_images:
             raise NotImplementedError
-            singan_opts = types.SimpleNamespace(device=utils.get_device(), mode='train', input_dir=r'', input_name=r'')
+            singan_opts = types.SimpleNamespace(device=deepcv.utils.get_device(), mode='train', input_dir=r'', input_name=r'')
             Gs, Zs, reals, NoiseAmp = [], [], [], []
 
             real = singan.functions.read_image(singan_opts)
@@ -53,5 +53,5 @@ def train_distilled_singan(train_images):
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

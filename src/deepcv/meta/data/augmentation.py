@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """ Data augmentation meta module - augmentation.py - `DeepCV`__  
-Some of this python module code is a modified version of [official AugMix implementation](https://github.com/google-research/augmix), under [Apache License 2.0 License](https://github.com/google-research/augmix/blob/master/LICENSE).
-.. See Google Research/DeepMind [ICLR 2020 AugMix paper](https://arxiv.org/pdf/1912.02781.pdf)
-.. moduleauthor:: Paul-Emmanuel Sotir
+Some of this python module code is a modified version of [official AugMix implementation](https://github.com/google-research/augmix), under [Apache License 2.0 License](https://github.com/google-research/augmix/blob/master/LICENSE).  
+.. See Google Research/DeepMind [ICLR 2020 AugMix paper](https://arxiv.org/pdf/1912.02781.pdf)  
+.. moduleauthor:: Paul-Emmanuel Sotir  
 
-*To-Do List*
+*To-Do List*  
     - TODO: parse YAML parameters for augmentations reciepes
     - TODO: implement various augmentation operators: sharpness, crop, brightness, contrast, tweak_colors, gamma, noise, rotate, translate, scale, smooth_non_linear_deformation
     - TODO: implement augmentation based on distilled SinGAN model
@@ -21,8 +21,8 @@ import torch
 import torchvision
 import torch.nn as nn
 
-from deepcv import utils
-from deepcv.meta import hyperparams
+import deepcv.utils
+import deepcv.meta
 
 
 __all__ = ['apply_augmentation_reciepe', 'augment_and_mix', 'autocontrast', 'equalize', 'posterize',
@@ -100,23 +100,22 @@ def sharpness(pil_img: Image, severity: float, max_enhance_factor: float = 1.8, 
 AUGMENTATION_OPS = [autocontrast, equalize, posterize, rotate, solarize, shear_x, shear_y, translate_x, translate_y, color, contrast, brightness, sharpness]
 
 
-def apply_augmentation_reciepe(dataloader: torch.utils.data.DataLoader, hp: Union[hyperparams.Hyperparameters, Mapping]):
+def apply_augmentation_reciepe(dataset: torch.utils.data.Dataset, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Mapping]):
     """ Applies listed augmentation transforms with given configuration from `hp` Dict.
     .. See [deepcv/conf/base/parameters.yml](./conf/base/parameters.yml) for examples of augmentation reciepe specification
     Args:
-        - dataloader: Dataset dataloader on which data augmnetation is performed
-        - hp: Augmentation hyperparameters (Mapping or hyperparams.Hyperparameters object), must at least contain `transforms` entry, see `hp.with_defaults({...})` in this function code or [augmentation reciepes spec. in ./conf/base/parameters.yml](./conf/base/parameters.yml)
+        - dataset: Dataset on which data augmentation is performed
+        - hp: Augmentation hyperparameters (Mapping or deepcv.meta.hyperparams.Hyperparameters object), must at least contain `transforms` entry, see `hp.with_defaults({...})` in this function code or [augmentation reciepes spec. in ./conf/base/parameters.yml](./conf/base/parameters.yml)
     Returns a new torch.utils.data.DataLoader which samples data from newly created augmented dataset
     """
-    hp, _ = hyperparams.to_hyperparameters(hp, {'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
-                                                'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
+    hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, {'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
+                                                            'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
     transforms = []
 
     if hp.get('augmix') is not None:
         augmix_defaults = {'augmentation_chains_count': ..., 'transform_chains_dirichlet': ..., 'mix_with_original_beta': ...}
-        augmix_params = hyperparams.Hyperparameters(hp['augmix']).with_defaults(augmix_defaults)
-        augmix_params['chains_depth'] = hp['augmentation_ops_depth']
-        augmix_transform = functools.partial(augment_and_mix, **augmix_params)
+        augmix_params, _ = deepcv.meta.hyperparams.to_hyperparameters(hp['augmix'], augmix_defaults)
+        augmix_transform = functools.partial(augment_and_mix, chains_depth=hp['augmentation_ops_depth'], **augmix_params)
         # TODO: apply augmentation transforms
         raise NotImplementedError
     else:
@@ -128,6 +127,7 @@ def apply_augmentation_reciepe(dataloader: torch.utils.data.DataLoader, hp: Unio
     if hp['keep_same_input_shape']:
         raise NotImplementedError
         # TODO: resize (scale and/or crop?) output image to its original size
+    return dataset
 
 
 def augment_and_mix(image: Image, augmentation_chains_count: int = 3, chains_depth: Union[int, Tuple[int, int]] = [1, 3], severity: int = 0.3, transform_chains_dirichlet: float = 1., mix_with_original_beta: float = 1.) -> torch.Tensor:
@@ -145,7 +145,7 @@ def augment_and_mix(image: Image, augmentation_chains_count: int = 3, chains_dep
         mixed: Augmented and mixed image, converted to torch.Tensor
     # TODO: sample 'severity', width and alpha parameters uniformly in given range (if they turned to be a tuple of int)?
     """
-    assert severity >= 0. and severity <= 1., f"Assert failed in {utils.get_str_repr(augment_and_mix, __file__)}: `severity` argument should be a float in [0;1] range."
+    assert severity >= 0. and severity <= 1., f"Assert failed in {deepcv.utils.get_str_repr(augment_and_mix, __file__)}: `severity` argument should be a float in [0;1] range."
     pil2tensor = torchvision.transforms.ToTensor()
     if severity == 0.:
         return pil2tensor(image)
@@ -169,5 +169,5 @@ def augment_and_mix(image: Image, augmentation_chains_count: int = 3, chains_dep
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

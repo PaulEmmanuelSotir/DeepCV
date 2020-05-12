@@ -13,10 +13,8 @@ import ignite
 import mlflow
 import torchvision
 
-from .pipeline import create_pipelines
-from .utils import source_dir
-
-import deepcv
+import deepcv.pipeline
+import deepcv.utils
 
 __author__ = 'Paul-Emmanuel Sotir'
 
@@ -29,7 +27,7 @@ class ProjectContext(KedroContext):
     project_version = "0.15.7"
 
     def _get_pipelines(self) -> Dict[str, Pipeline]:
-        return create_pipelines()
+        return deepcv.pipeline.create_pipelines()
 
     def _create_catalog(self, *args, **kwargs):
         catalog = super(ProjectContext, self)._create_catalog(*args, **kwargs)
@@ -41,7 +39,7 @@ class ProjectContext(KedroContext):
 def run_package():
     # entry point for running pip-install projects
     # using `<project_package>` command
-    mlflow.set_tracking_uri(source_dir(__file__).joinpath(r'../../MLRuns/'))
+    mlflow.set_tracking_uri(deepcv.utils.source_dir(__file__).joinpath(r'../../MLRuns/'))
     project_context = load_context(Path.cwd())
     project_context.run()
 

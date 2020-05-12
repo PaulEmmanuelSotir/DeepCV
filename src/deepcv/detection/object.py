@@ -24,27 +24,27 @@ import numpy as np
 from ignite.metrics import Accuracy
 from kedro.pipeline import Pipeline, node
 
-from deepcv import meta
-from deepcv import utils
+import deepcv.meta
+import deepcv.utils
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class ObjectDetector(meta.base_module.DeepcvModule):
+class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Size, hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]):
+    def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
         super(ObjectDetector, self).__init__(input_shape, hp)
         self._define_nn_architecture(self._hp['architecture'])
         self._initialize_parameters(self._hp['act_fn'])
 
 
 def get_object_detector_pipelines():
-    p1 = Pipeline([node(meta.data.preprocess.split_dataset, name='split_dataset',
+    p1 = Pipeline([node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset',
                         inputs={'trainset': 'cifar10_train', 'testset': 'cifar10_test', 'params': 'params:split_dataset_ratios'},
                         outputs=['trainset', 'validset', 'testset']),
-                   node(meta.data.preprocess.preprocess, name='preprocess',
+                   node(deepcv.meta.data.preprocess.preprocess, name='preprocess',
                         inputs={'trainset': 'trainset', 'testset': 'testset', 'validset': 'validset', 'params': 'params:cifar10_preprocessing'},
                         outputs=['datasets']),
                    node(create_model, name='create_object_detection_model', inputs=['datasets', 'params:object_detector_model'], outputs=['model']),
@@ -53,7 +53,7 @@ def get_object_detector_pipelines():
     return [p1]
 
 
-def create_model(datasets: Dict[str, Dataset], model_params: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]):
+def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
     # Determine input and output shapes
     dummy_img, dummy_target = datasets['train_loader'][0][0]
     input_shape = dummy_img.shape
@@ -64,9 +64,9 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[meta.hyperpar
     return model
 
 
-def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]) -> ignite.engine.State:
+def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]) -> ignite.engine.State:
     # TODO: decide whether we take Datasets or Dataloaders arguments here (depends on how preprocessing is implemented)
-    backend_conf = meta.ignite_training.BackendConfig(**hp['backend_conf'])
+    backend_conf = deepcv.meta.ignite_training.BackendConfig(**hp['backend_conf'])
     metrics = {'accuracy': Accuracy(device=backend_conf.device if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()
     opt = optim.SGD
@@ -77,7 +77,7 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[meta.hyperpa
     else:
         workers = max(1, multiprocessing.cpu_count() - 1)
 
-    max_eval_batch_size = meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=model, device=backend_conf.device)
+    max_eval_batch_size = deepcv.meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=model, device=backend_conf.device)
 
     dataloaders = []
     for n, ds in datasets:
@@ -85,9 +85,9 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[meta.hyperpa
         batch_size = hp['batch_size'] if n == 'trainset' else max_eval_batch_size
         dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers))
 
-    return meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
+    return deepcv.meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

@@ -19,9 +19,9 @@ import torch.nn as nn
 import torchvision.datasets
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
-from deepcv import utils
-from deepcv.meta import data
-from deepcv.meta import hyperparams
+import deepcv.meta
+import deepcv.utils
+import deepcv.meta.data
 
 
 __all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'DatasetStats', 'get_random_subset_dataloader']
@@ -31,7 +31,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 TORCHVISION_DATASETS = {identifier: value for identifier, value in torchvision.datasets.__dict__.items() if value is Dataset}
 
 
-class DatasetStats(data.training_metadata.TrainingMetaData):
+class DatasetStats(deepcv.meta.data.training_metadata.TrainingMetaData):
     def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
         super(self.__class__).__init__(self, existing_uuid)
         # TODO: store dataset datas
@@ -42,7 +42,7 @@ class PytorchDatasetWarper(kedro.io.AbstractDataSet):
         super(PytorchDatasetWarper, self).__init__()
         if isinstance(torch_dataset, str):
             try:
-                self.pytorch_dataset = utils.get_by_identifier(torch_dataset)(**dataset_kwargs)
+                self.pytorch_dataset = deepcv.utils.get_by_identifier(torch_dataset)(**dataset_kwargs)
             except Exception as e:
                 raise ValueError(f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` doesn\'t match type identifier criterias.') from e
         else:
@@ -53,7 +53,7 @@ class PytorchDatasetWarper(kedro.io.AbstractDataSet):
     def _describe(self): return vars(self)
 
     def get_dataset_stats(self) -> DatasetStats:
-        """ Returns various statistics about dataset as a `DatasetStats` `data.training_metadata.TrainingMetaData` object """
+        """ Returns various statistics about dataset as a `DatasetStats` `deepcv.meta.data.training_metadata.TrainingMetaData` object """
         # TODO: ...
         raise NotImplementedError
 
@@ -220,5 +220,5 @@ def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

@@ -20,9 +20,8 @@ import torch.nn.functional as F
 
 import numpy as np
 
-from deepcv import meta
-from deepcv import utils
-from deepcv.meta import hyperparams
+import deepcv.utils
+import deepcv.meta
 
 
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
@@ -32,7 +31,7 @@ MODULE_CREATOR_CALLBACK_RETURN_T = Callable[[torch.Tensor, Dict[str, torch.Tenso
 MODULE_CREATOR_MODULE_RETURN_T = nn.Module
 
 
-def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: hyperparams.Hyperparameters) -> nn.Module:
+def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: deepcv.meta.hyperparams.Hyperparameters) -> nn.Module:
     prev_dim = len(prev_shapes[1:])
     if prev_dim >= 4:
         return nn.AvgPool3d(**submodule_params)
@@ -41,20 +40,20 @@ def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torc
     return nn.AvgPool1d(**submodule_params)
 
 
-def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: hyperparams.Hyperparameters, channel_dim: int = -3) -> nn.Module:
+def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: deepcv.meta.hyperparams.Hyperparameters, channel_dim: int = -3) -> nn.Module:
     """ Creates a convolutional NN layer with dropout and batch norm support
     NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
     """
     submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
-    return meta.nn.conv_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+    return deepcv.meta.nn.conv_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
 
 
-def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: hyperparams.Hyperparameters) -> nn.Module:
+def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: deepcv.meta.hyperparams.Hyperparameters) -> nn.Module:
     """ Creates a fully connected NN layer with dropout and batch norm support
     NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
     """
     submodule_params['in_features'] = np.prod(prev_shapes[-1][1:])
-    return meta.nn.fc_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+    return deepcv.meta.nn.fc_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
 
 
 def _residual_dense_link(is_residual: bool = True):
@@ -105,13 +104,13 @@ class DeepcvModule(nn.Module):
 
     HP_DEFAULTS = ...
 
-    def __init__(self, input_shape: torch.Size, hp: Union[hyperparams.Hyperparameters, Dict[str, Any]]):
+    def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
         super(DeepcvModule, self).__init__()
         self._input_shape = input_shape
 
         # Process module hyperparameters
         assert self.__class__.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
-        hp, missing = hyperparams.to_hyperparameters(hp, defaults=self.__class__.HP_DEFAULTS, raise_if_missing=True)
+        hp, missing = deepcv.meta.hyperparams.to_hyperparameters(hp, defaults=self.__class__.HP_DEFAULTS, raise_if_missing=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Apply object detector neural net architecture on top of shared image embedding features and input image
@@ -194,14 +193,14 @@ class DeepcvModule(nn.Module):
                 submodule_hp_dict = dict(**self._hp)
                 del submodule_hp_dict['architecture']  # Make sure we dont reuse parent DeepCV module architecture spec (if 'architecture' entry is missing in params dict)
                 submodule_hp_dict.update(params)
-                module_or_callback = DeepcvModule(input_shape=self._features_shapes[-1], hp=hyperparams.Hyperparameters(submodule_hp_dict))
+                module_or_callback = DeepcvModule(input_shape=self._features_shapes[-1], hp=deepcv.meta.hyperparams.Hyperparameters(submodule_hp_dict))
             else:
                 # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
                 fn = submodule_creators.get(submodule_type)
                 if not fn:
                     # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
                     try:
-                        fn = utils.get_by_identifier(submodule_type)
+                        fn = deepcv.utils.get_by_identifier(submodule_type)
                     except Exception as e:
                         raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
 
@@ -229,9 +228,9 @@ class DeepcvModule(nn.Module):
                         self._submodule_references[referenced_submodule] = set([submodule_name])
 
             # Get neural network submodules capacity and output features shapes
-            self._submodules_capacities.append(meta.nn.get_model_capacity(submodules[-1]))
+            self._submodules_capacities.append(deepcv.meta.nn.get_model_capacity(submodules[-1]))
             self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
-            self._features_shapes.append(meta.nn.get_out_features_shape(self._net))
+            self._features_shapes.append(deepcv.meta.nn.get_out_features_shape(self._net))
 
         self._submodules = dict(*submodules)
 
@@ -242,7 +241,7 @@ class DeepcvModule(nn.Module):
 
     def initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
         """ Initializes model's parameters with Xavier Initialization with a scale depending on given activation function (only needed if there are convolutional and/or fully connected layers). """
-        xavier_gain = nn.init.calculate_gain(meta.nn.get_gain_name(act_fn)) if act_fn else None
+        xavier_gain = nn.init.calculate_gain(deepcv.meta.nn.get_gain_name(act_fn)) if act_fn else None
 
         def _raise_if_no_act_fn(sub_module_name: str):
             if xavier_gain is None:
@@ -250,11 +249,11 @@ class DeepcvModule(nn.Module):
                 raise RuntimeError(msg)
 
         def _xavier_init(module: nn.Module):
-            if meta.nn.is_conv(module):
+            if deepcv.meta.nn.is_conv(module):
                 _raise_if_no_act_fn('convolution')
                 nn.init.xavier_normal_(module.weight.data, gain=xavier_gain)
                 module.bias.data.fill_(0.)
-            elif utils.is_fully_connected(module):
+            elif deepcv.utils.is_fully_connected(module):
                 _raise_if_no_act_fn('fully connected')
                 nn.init.xavier_uniform_(module.weight.data, gain=xavier_gain)
                 module.bias.data.fill_(0.)
@@ -273,7 +272,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
 
     SHARED_BLOCK_DISABLED_WARNING_MSG = r'Warning: `DeepcvModule.{}` called while `self._enable_shared_image_embedding_block` is `False` (Shared image embedding block disabled for this model)'
 
-    def __init__(self, input_shape: torch.Size, hp: hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
+    def __init__(self, input_shape: torch.Size, hp: deepcv.meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
         super(DeepcvModuleWithSharedImageBlock, self).__init__(input_shape, hp)
 
         self._shared_block_forked = False
@@ -337,10 +336,10 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
     def _define_shared_image_embedding_block(cls, in_channels: int = 3):
         logging.info('Creating shared image embedding block of DeepcvModule models...')
         conv_opts = {'act_fn': nn.ReLU, 'batch_norm': {'affine': True, 'eps': 1e-05, 'momentum': 0.0736}}
-        layers = [('shared_block_conv_1', meta.nn.conv_layer(conv2d={'in_channels': in_channels, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
-                  ('shared_block_conv_2', meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 16, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
-                  ('shared_block_conv_3', meta.nn.conv_layer(conv2d={'in_channels': 16, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
-                  ('shared_block_conv_4', meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 4, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts))]
+        layers = [('shared_block_conv_1', deepcv.meta.nn.conv_layer(conv2d={'in_channels': in_channels, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
+                  ('shared_block_conv_2', deepcv.meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 16, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
+                  ('shared_block_conv_3', deepcv.meta.nn.conv_layer(conv2d={'in_channels': 16, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
+                  ('shared_block_conv_4', deepcv.meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 4, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts))]
         cls.shared_image_embedding_block = nn.Sequential(OrderedDict(*layers))
 
 
@@ -361,8 +360,8 @@ class DeepcvModuleDescriptor:
             logging.warn(f"Warning: `{self.__class__.__name__}({module.__class__})`: cant find NN architecture, no `module.architecture_spec` attr. nor `architecture` in `module._hp`")
 
         # Fills and return a DeepCV module descriptor
-        self.capacity = meta.nn.get_model_capacity(module)
-        self.human_readable_capacity = utils.human_readable_size(self.capacity)
+        self.capacity = deepcv.meta.nn.get_model_capacity(module)
+        self.human_readable_capacity = deepcv.utils.human_readable_size(self.capacity)
         self.model_class = module.__class__
         self.model_class_name = module.__class__.__name__
         if isinstance(module, DeepcvModuleWithSharedImageBlock):
@@ -380,7 +379,7 @@ class DeepcvModuleDescriptor:
             self.submodules_types = [n for n, v in architecture_spec]
         if '_submodules_capacities' in module.__dict__:
             self.submodules_capacities = module._submodules_capacities
-            self.human_readable_capacities = map(utils.human_readable_size, module._submodules_capacities)
+            self.human_readable_capacities = map(deepcv.utils.human_readable_size, module._submodules_capacities)
 
     def __str__(self) -> str:
         """ Ouput a human-readable string representation of the deepcv module based on its descriptor """
@@ -409,5 +408,5 @@ class DeepcvModuleDescriptor:
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

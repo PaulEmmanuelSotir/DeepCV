@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-from deepcv import utils
+import deepcv.utils
 
 
 __all__ = ['plot', 'sample_tumbails', 'plot_tumbails']
@@ -51,5 +51,5 @@ def plot_tumbails(tumbails):
 
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__)
     cli()

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Utils module - utils.py - `DeepCV`__  
+""" Utils module - deepcv.utils.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 
@@ -196,7 +196,7 @@ def get_by_identifier(identifier: str):
             return locals()[name]
         raise RuntimeError(f'Error: can\'t find ``{identifier}`` identifier (you may have to specify its module)')
     else:
-        raise ValueError(f'Error: bad identifier given in `utils.get_by_identifier` function (identifier="{identifier}" must match "{regex}" regex)')
+        raise ValueError(f'Error: bad identifier given in `deepcv.utils.get_by_identifier` function (identifier="{identifier}" must match "{regex}" regex)')
 
 
 def get_str_repr(fn_or_type: Union[Type, Callable], src_file: Optional[str] = None):

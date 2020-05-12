@@ -37,7 +37,7 @@ from tests.tests_utils import test_module_cli
 ... # Source implementation of your code and their respective tests (following pytest naming convention)
 
 if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__) # Allows you to run pytest only on a given python source file (returns a click command which takes eventual pytest arguments)
+    cli = deepcv.utils.import_tests().test_module_cli(__file__) # Allows you to run pytest only on a given python source file (returns a click command which takes eventual pytest arguments)
     cli()
 ```
 

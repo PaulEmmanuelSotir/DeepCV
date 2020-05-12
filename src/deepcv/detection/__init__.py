@@ -4,5 +4,5 @@
 __all__ = ['human', 'object']
 
 # 'deepcv.detection' modules imports
-import deepcv.detection.object
-import deepcv.detection.human
+# import deepcv.detection.object
+# import deepcv.detection.human

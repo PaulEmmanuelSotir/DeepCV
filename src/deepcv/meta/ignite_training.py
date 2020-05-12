@@ -25,8 +25,9 @@ from ignite.contrib.handlers import TensorboardLogger, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerParamsHandler, GradsHistHandler
 import ignite.contrib.handlers
 
-import deepcv.meta
 import deepcv.utils
+import deepcv.meta.nn
+import deepcv.meta.hyperparams
 
 
 __all__ = ['BackendConfig', 'train']

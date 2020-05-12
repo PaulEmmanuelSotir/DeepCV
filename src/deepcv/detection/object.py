@@ -24,8 +24,12 @@ import numpy as np
 from ignite.metrics import Accuracy
 from kedro.pipeline import Pipeline, node
 
-import deepcv.meta
 import deepcv.utils
+import deepcv.meta.nn
+import deepcv.meta.hyperparams
+import deepcv.meta.base_module
+import deepcv.meta.ignite_training
+import deepcv.meta.data.preprocess
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'

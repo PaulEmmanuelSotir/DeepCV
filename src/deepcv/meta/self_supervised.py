@@ -21,7 +21,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 class Task(ABC):
     def __init__(self, hp: SimpleNamespace): self.hp = hp
-    def __repr__(self) -> str: return self.__name__
+    def __repr__(self) -> str: return f'class="{self.__class__.__name__}";hp="{self.hp}"'
 
     @abstractmethod
     def loss(self) -> torch.nn.modules.loss._Loss: ...

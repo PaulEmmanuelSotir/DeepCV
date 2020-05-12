@@ -23,9 +23,10 @@ import networkx
 import numpy as np
 from scipy.optimize import least_squares
 
-import deepcv.meta
 import deepcv.utils
-import deepcv.meta.data
+import deepcv.meta.nn
+import deepcv.meta.data.datasets
+import deepcv.meta.data.training_metadata
 
 
 __all__ = ['HyperparameterSpace', 'Hyperparameters', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor', 'to_hyperparameters', 'merge_hyperparameters', 'hp_search']

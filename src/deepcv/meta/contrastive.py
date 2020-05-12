@@ -18,7 +18,7 @@ from torch.functional import F
 from torch.utils.data import DataLoader
 
 import deepcv.utils
-import deepcv.meta
+import deepcv.meta.nn
 
 
 __all__ = ['jensen_shannon_divergence_consistency_loss', 'sample_triplets', 'JensenShannonDivergenceConsistencyLoss', 'TripletMarginLoss']

@@ -15,16 +15,23 @@ import torch
 import torch.nn as nn
 
 import deepcv.utils
-import deepcv.meta
+import deepcv.meta.hyperparams
+import deepcv.meta.data.datasets
 
 
-__all__ = ['TrainingMetaData', 'Task', 'Experiment', 'MetaTracker']
+__all__ = ['TrainingMetaData', 'DatasetStats', 'Task', 'Experiment', 'MetaTracker']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
 class TrainingMetaData:
     def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
         self._uuid = uuid.uuid4() if existing_uuid is None else existing_uuid
+
+
+class DatasetStats(TrainingMetaData):
+    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+        super(self.__class__).__init__(self, existing_uuid)
+        # TODO: store dataset datas
 
 
 class Task(TrainingMetaData):
@@ -68,7 +75,7 @@ class MetaTracker:
     def update_experiments_from_mlflow(self):
         raise NotImplementedError
 
-    def remove_entry(self, entry_id: Union[uuid.UUID, deepcv.meta.data.datasets.DatasetStats, Experiment, Task, deepcv.meta.hyperparams.HyperparameterSpace, deepcv.meta.hyperparams.Hyperparameters]):
+    def remove_entry(self, entry_id: Union[uuid.UUID, DatasetStats, Experiment, Task, deepcv.meta.hyperparams.HyperparameterSpace, deepcv.meta.hyperparams.Hyperparameters]):
         """ Removes metadata entry from metadataset by its UUID """
         raise NotImplementedError
 
@@ -86,7 +93,7 @@ class MetaTracker:
             ...
         elif is_str and entry_type == 'Experiment' or entry_type is Experiment:
             ...
-        elif is_str and entry_type == 'DatasetStats' or entry_type is deepcv.meta.data.datasets.DatasetStats:
+        elif is_str and entry_type == 'DatasetStats' or entry_type is DatasetStats:
             ...
 
     def reset_all(self):

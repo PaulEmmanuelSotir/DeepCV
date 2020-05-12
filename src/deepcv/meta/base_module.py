@@ -21,7 +21,8 @@ import torch.nn.functional as F
 import numpy as np
 
 import deepcv.utils
-import deepcv.meta
+import deepcv.meta.nn
+import deepcv.meta.hyperparams
 
 
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
@@ -143,7 +144,7 @@ class DeepcvModule(nn.Module):
         """ Describes DeepCV module in a human readable text string, see `DeepcvModule.describe()` function or `DeepcvModuleDescriptor` class for more details """
         return str(self.describe())
 
-    def describe(self) -> DeepcvModuleDescriptor:
+    def describe(self):
         """ Describes DeepCV module with its architecture, capacity and features shapes at sub-modules level.
         Args:
             - to_string: Whether deepcv NN module should be described by a human-readable text string or a NamedTuple of various informations which, for example, makes easier to visualize model's sub-modules capacities or features shapes...

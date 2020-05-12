@@ -19,22 +19,15 @@ import torch.nn as nn
 import torchvision.datasets
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
-import deepcv.meta
 import deepcv.utils
-import deepcv.meta.data
+import deepcv.meta.data.training_metadata
 
 
-__all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'DatasetStats', 'get_random_subset_dataloader']
+__all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
 TORCHVISION_DATASETS = {identifier: value for identifier, value in torchvision.datasets.__dict__.items() if value is Dataset}
-
-
-class DatasetStats(deepcv.meta.data.training_metadata.TrainingMetaData):
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
-        super(self.__class__).__init__(self, existing_uuid)
-        # TODO: store dataset datas
 
 
 class PytorchDatasetWarper(kedro.io.AbstractDataSet):
@@ -52,8 +45,8 @@ class PytorchDatasetWarper(kedro.io.AbstractDataSet):
     def _save(self): pass
     def _describe(self): return vars(self)
 
-    def get_dataset_stats(self) -> DatasetStats:
-        """ Returns various statistics about dataset as a `DatasetStats` `deepcv.meta.data.training_metadata.TrainingMetaData` object """
+    def get_dataset_stats(self) -> deepcv.meta.data.training_metadata.DatasetStats:
+        """ Returns various statistics about dataset as a `deepcv.meta.data.training_metadata.DatasetStats` (inherits from `deepcv.meta.data.training_metadata.TrainingMetaData`) """
         # TODO: ...
         raise NotImplementedError
 

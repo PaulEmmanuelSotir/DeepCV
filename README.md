@@ -99,26 +99,27 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 👍 = DONE; ♻ = WIP; 💤: TODO  
 
 - 👍 Implement conda activate when kedro is called in kedro_cli.py (WIP: testing and debug) 
-- ♻Finalize object detection model definition + move generic code of ObjectDetector to DeepCVModule base class
+- 👍Finalize object detection model definition + move generic code of ObjectDetector to DeepCVModule base class
 - ♻Improve Hyperparameters/HyperparameterSpace/HyperparameterEmbedding/GeneralizationAcrossScalesPredictor implementations + integrate with NNI (remove any hyperopt usage)
-- ♻parse and process [deepcv.meta.data.preprocess](./src/deepcv/meta/data/preprocess.py) recipes from parameters.yml
+- 👍parse and process [deepcv.meta.data.preprocess](./src/deepcv/meta/data/preprocess.py) recipes from parameters.yml
 - ♻parse and process [deepcv.meta.data.augmentation](./src/deepcv/meta/data/augmentation.py) recipes from parameters.yml
 - 👍refactor augmentation operators of AugMix on PIL images in [deepcv.meta.data.augmentation](./src/deepcv/meta/data/augmentation.py)
 - 👍make possible to specify dense and/or residual links in NN architecture configuration ([parameters.yml](./conf/bas/parameters.yml)) and process it accordingly in forward method of [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) model base class
-- ♻Improve dense/residual link support by reducing its memory footprint: store [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) sub-modules output features only if they are actually needed by a residual/dense link deeper in NN architecture
-- ♻Improve [deepcv.meta.base_module.DeepcvModule](.src/deepcv/meta/base_module.py) model base class to parse YAML NN architecture definition of [parameters.yml](./conf/base/parameters.yml) in a more powerfull/generic way to allow siamese NNs, residual/dense links down/up-sampling, attention gates, multi-scale/depth inputs/outputs, ... (for now, [DeepcvModule](.src/deepcv/meta/base_module.py) only support YAML NN architecture definition made of a list of sub-modules with eventual residual-dense links.
-- 💤Setup and download various torchvision datasets ( at least CIFAR10/100 and ImageNet32 datasets)
-- ♻fix tests/deepcv module imports (make 'tests' like a third party module appart from deepcv or move 'tests' into deepcv module)
+- 👍Improve dense/residual link support by reducing its memory footprint: store [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) sub-modules output features only if they are actually needed by a residual/dense link deeper in NN architecture
+- 👍Improve [deepcv.meta.base_module.DeepcvModule](.src/deepcv/meta/base_module.py) model base class to parse YAML NN architecture definition of [parameters.yml](./conf/base/parameters.yml) in a more powerfull/generic way to allow siamese NNs, residual/dense links down/up-sampling, attention gates, multi-scale/depth inputs/outputs, ... (for now, [DeepcvModule](.src/deepcv/meta/base_module.py) only support YAML NN architecture definition made of a list of sub-modules with eventual residual-dense links.
+- ♻Setup and download various torchvision datasets ( at least CIFAR10/100 and ImageNet32 datasets)
+- 👍fix tests/deepcv module imports (make 'tests' like a third party module appart from deepcv or move 'tests' into deepcv module)
 - ♻fix code and YAML config files in order to be able to run basic kedro pipelines and build documentation
 - ♻Run and Debug whole object detector pipeline
-- ♻Look into possible implementation of AugMix into deepcv (+ see any improved versions of AugMix)
-- ♻MLFlow integration... (including hyperprarmeter search integration if needed, dashboard, versionning, custom experiments storage for meta-learning, ...)
+- 👍Look into possible implementation of AugMix into deepcv (+ see any improved versions of AugMix)
+- 👍MLFlow integration... (including hyperprarmeter search integration if needed, dashboard, versionning, custom experiments storage for meta-learning, ...)
 - ♻Fully implement HybridConnectivityGatedNet model (+ refactor it to make usage of newest version of  [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) model base class)
 - 💤Create jupyter notebook(s) for basic prototyping and training results visualization + implement utility tools for jupyter notebooks
 - ♻NNI Hyperparameter search integration
 - 💤Train object detection model + its hp search + Human detection model
 - 💤Start Ensembling and stacking utilities module implementation
 - ♻Implement OneCycle Policy along with optional learning rate scales varying for each layers or conv blocks + momentum and eventually investigate similar policies for other hyperprarmeters (e.g. dropout_prob, L2, ...) + consider to integrate fastai to deepcv dependencies in order to reuse its OneCycle policy implemetation?
+- 💤Implement HRNet architecture, create `multiscale fusion` submodule similar to  HRNet's `features fusion`
 - ♻Implement architectures templates/patterns for multiscale neural net inputs and outputs + eventually gaussian blur kernels applied to convolutions activations with decreasing blur kernel size during training steps (+ rapid SOTA review from citing papers of these techniques)
 - 💤Implement Uncertainty estimation utilities in [deepcv.meta.uncertainty.estimation module](./src/deepcv/meta/uncertainty/estimation.py), see: https://ai.googleblog.com/2020/01/can-you-trust-your-models-uncertainty.html
 - 💤Implement or integrate distillation with optionnal quantization tools + distillation from ensembles of teacher networks (see NNI, Apex and built-in PyTorch quantization/compression tooling)

@@ -29,63 +29,11 @@ import deepcv.meta.data.datasets
 import deepcv.meta.data.training_metadata
 
 
-__all__ = ['HyperparameterSpace', 'Hyperparameters', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor', 'to_hyperparameters', 'merge_hyperparameters', 'hp_search']
+__all__ = ['Hyperparameters', 'HyperparameterSpace', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor', 'to_hyperparameters', 'merge_hyperparameters', 'hp_search']
 __author__ = 'Paul-Emmanuel Sotir'
 
-
-class HyperparameterSpace(deepcv.meta.data.training_metadata.TrainingMetaData):
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
-        super(HyperparameterSpace, self).__init__(existing_uuid)
-        # TODO: implement
-
-    def get_hp_space_overlap(self, hp_space_2: HyperparameterSpace):
-        raise NotImplementedError
-        overlap = ...
-        return overlap
-
-
-class Hyperparameters(deepcv.meta.data.training_metadata.TrainingMetaData, collections.Mapping):
-    """ Hyperparameter frozen dict
-    Part of this code from [this StackOverflow thread](https://stackoverflow.com/questions/2703599/what-would-a-frozen-dict-be)
-    # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
-    """
-
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None, **kwargs):
-        deepcv.meta.data.training_metadata.TrainingMetaData.__init__(self, existing_uuid)
-        collections.Mapping.__init__(self)
-        self._store = dict(**kwargs)
-        self._hash = None
-
-    def __iter__(self):
-        return iter(self._store)
-
-    def __len__(self):
-        return len(self._store)
-
-    def __getitem__(self, key):
-        return self._store[key]
-
-    def __hash__(self):
-        if self._hash is None:
-            hash_ = 0
-            for pair in self.iteritems():
-                hash_ ^= hash(pair)
-            self._hash = hash_
-        return self._hash
-
-    def get_dict_view(self) -> types.MappingProxyType[str, Any]:
-        return types.MappingProxyType(self._store)
-
-    def with_defaults(self, defaults: Union[Dict[str, Any], Hyperparameters], drop_keys_not_in_defaults: bool = False) -> Tuple[Hyperparameters, List[str]]:
-        """ Returns a new Hyperaparameter (Frozen dict of hyperparams), with specified defaults
-        Args:
-            - defaults: Defaults to be applied. Contains default hyperprarmeters with their associated values. If you want to specify some required hyperparameters, set their respective values to ellipsis value `...`.
-        Returns a copy of current Hyperarameters (`self`) object updated with additional defaults if not already present in `self`, and a `list` of any missing required hyperparameters names
-        """
-        new_store = {n: v for n, v in self._store if n in defaults} if drop_keys_not_in_defaults else self._store.copy()
-        new_store.update({n: v for n, v in defaults if n not in new_store and v != ...})
-        missing_hyperparams = [n for n in defaults if n not in new_store]
-        return Hyperparameters(**new_store), missing_hyperparams
+Hyperparameters = deepcv.meta.data.training_metadata.Hyperparameters
+HyperparameterSpace = deepcv.meta.data.training_metadata.HyperparameterSpace
 
 
 class HyperparamsEmbedding(nn.Module):
@@ -282,7 +230,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
         return estimation
 
 
-def to_hyperparameters(hp: Union[Dict[str, Any], Hyperparameters], defaults: Optional[Dict[str, Any], Hyperparameters] = None, raise_if_missing: bool = True) -> Union[Hyperparameters, Tuple[Hyperaparameters, List[str]]]:
+def to_hyperparameters(hp: Union[Dict[str, Any], Hyperparameters], defaults: Optional[Union[Dict[str, Any], Hyperparameters]] = None, raise_if_missing: bool = True) -> Union[Hyperparameters, Tuple[Hyperparameters, List[str]]]:
     """ Converts given parameters Dict to a `deepcv.meta.hyperparams.Hyperparameters` object if needed. Alse allows you to check required and default hyperparameter through `defaults` argument (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
     Args:
         - hp: Parameter dict or `deepcv.meta.hyperparams.Hyperparameters` object

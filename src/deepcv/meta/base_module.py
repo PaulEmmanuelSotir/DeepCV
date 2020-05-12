@@ -294,7 +294,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
     def freeze_shared_image_embedding_block(self) -> bool:
         return self._freeze_shared_image_embedding_block
 
-    @property.setter
+    @freeze_shared_image_embedding_block.setter
     def set_freeze_shared_image_embedding_block(self, freeze_weights: bool):
         if self._enable_shared_image_embedding_block:
             self._freeze_shared_image_embedding_block = freeze_weights

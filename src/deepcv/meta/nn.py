@@ -101,7 +101,7 @@ def to_multiscale_outputs_model(model: deepcv.meta.base_module.DeepcvModule, sca
     raise NotImplementedError
 
 
-def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[inspect.Parameter]] = []):
+def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[inspect.Parameter]] = []) -> Callable[[Callable], Type[nn.Module]]:
     """ Returns a decorator which creates a new ``torch.nn.Module``-based class using ``forward_func`` as underlying forward function.
     Note: If ``init_params`` isn't empty, then returned ``nn.Module``-based class won't have the same signature as ``forward_func``.
     This is because some arguments provided to ``forward_func`` will instead be attributes of created module, taken by class's ``__init__`` function.

@@ -9,17 +9,17 @@ Builds a training meta-dataset and allows a unified treatment and understanding 
     - TODO: Read more in depth Google's approach to meta-datasets: https://github.com/google-research/meta-dataset from this paper: https://arxiv.org/abs/1903.03096 and decide whether it could be relevent to use similar abstractions in deepcv.meta.data.training_tracker
 """
 import uuid
-from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
+import types
+import collections
+from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
 
 import torch
 import torch.nn as nn
 
 import deepcv.utils
-import deepcv.meta.hyperparams
-import deepcv.meta.data.datasets
 
 
-__all__ = ['TrainingMetaData', 'DatasetStats', 'Task', 'Experiment', 'MetaTracker']
+__all__ = ['TrainingMetaData', 'DatasetStats', 'Task', 'Experiment', 'HyperparameterSpace', 'Hyperparameters', 'MetaTracker']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -46,8 +46,63 @@ class Experiment(TrainingMetaData):
         super(Experiment, self).__init__(existing_uuid)
 
 
+class HyperparameterSpace(TrainingMetaData):
+    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+        super(HyperparameterSpace, self).__init__(existing_uuid)
+        # TODO: implement
+
+    def get_hp_space_overlap(self, hp_space_2: 'HyperparameterSpace'):
+        raise NotImplementedError
+        overlap = ...
+        return overlap
+
+
+class Hyperparameters(TrainingMetaData, collections.Mapping):
+    """ Hyperparameter frozen dict
+    Part of this code from [this StackOverflow thread](https://stackoverflow.com/questions/2703599/what-would-a-frozen-dict-be)
+    # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
+    """
+
+    def __init__(self, existing_uuid: Optional[uuid.UUID] = None, **kwargs):
+        TrainingMetaData.__init__(self, existing_uuid)
+        collections.Mapping.__init__(self)
+        self._store = dict(**kwargs)
+        self._hash = None
+
+    def __iter__(self):
+        return iter(self._store)
+
+    def __len__(self):
+        return len(self._store)
+
+    def __getitem__(self, key):
+        return self._store[key]
+
+    def __hash__(self):
+        if self._hash is None:
+            hash_ = 0
+            for pair in self.iteritems():
+                hash_ ^= hash(pair)
+            self._hash = hash_
+        return self._hash
+
+    def get_dict_view(self) -> types.MappingProxyType:
+        return types.MappingProxyType(self._store)
+
+    def with_defaults(self, defaults: Union[Dict[str, Any], 'Hyperparameters'], drop_keys_not_in_defaults: bool = False) -> Tuple['Hyperparameters', List[str]]:
+        """ Returns a new Hyperaparameter (Frozen dict of hyperparams), with specified defaults
+        Args:
+            - defaults: Defaults to be applied. Contains default hyperprarmeters with their associated values. If you want to specify some required hyperparameters, set their respective values to ellipsis value `...`.
+        Returns a copy of current Hyperarameters (`self`) object updated with additional defaults if not already present in `self`, and a `list` of any missing required hyperparameters names
+        """
+        new_store = {n: v for n, v in self._store if n in defaults} if drop_keys_not_in_defaults else self._store.copy()
+        new_store.update({n: v for n, v in defaults if n not in new_store and v != ...})
+        missing_hyperparams = [n for n in defaults if n not in new_store]
+        return Hyperparameters(**new_store), missing_hyperparams
+
+
 class MetaTracker:
-    def __init__(self, metadataset: deepcv.meta.data.datasets.PytorchDatasetWarper):
+    def __init__(self, metadataset):
         self._metadataset = metadataset
 
     def store_hps(self, hp: Dict[str, Any]):
@@ -66,7 +121,7 @@ class MetaTracker:
         raise NotImplementedError
         return task
 
-    def store_dataset_stats(self, trainset: deepcv.meta.data.datasets.PytorchDatasetWarper, dataset_name: str = ''):
+    def store_dataset_stats(self, trainset, dataset_name: str = ''):
         """ Store train dataset statistics and name """
         dataset_stats = trainset.get_dataset_stats()
         raise NotImplementedError
@@ -75,7 +130,7 @@ class MetaTracker:
     def update_experiments_from_mlflow(self):
         raise NotImplementedError
 
-    def remove_entry(self, entry_id: Union[uuid.UUID, DatasetStats, Experiment, Task, deepcv.meta.hyperparams.HyperparameterSpace, deepcv.meta.hyperparams.Hyperparameters]):
+    def remove_entry(self, entry_id: Union[uuid.UUID, DatasetStats, Experiment, Task, HyperparameterSpace, Hyperparameters]):
         """ Removes metadata entry from metadataset by its UUID """
         raise NotImplementedError
 
@@ -87,9 +142,9 @@ class MetaTracker:
         is_str = isinstance(entry_type, str)
         if is_str and entry_type == 'Task' or entry_type is Task:
             ...
-        elif is_str and entry_type == 'HyperparameterSpace' or entry_type is deepcv.meta.hyperparams.HyperparameterSpace:
+        elif is_str and entry_type == 'HyperparameterSpace' or entry_type is HyperparameterSpace:
             ...
-        elif is_str and entry_type == 'Hyperparameters' or entry_type is deepcv.meta.hyperparams.Hyperparameters:
+        elif is_str and entry_type == 'Hyperparameters' or entry_type is Hyperparameters:
             ...
         elif is_str and entry_type == 'Experiment' or entry_type is Experiment:
             ...

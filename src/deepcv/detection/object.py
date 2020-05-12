@@ -35,7 +35,7 @@ class ObjectDetector(meta.base_module.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
     def __init__(self, input_shape: torch.Size, hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]):
-        super(self.__class__).__init__(self, input_shape, hp)
+        super(ObjectDetector, self).__init__(input_shape, hp)
         self._define_nn_architecture(self._hp['architecture'])
         self._initialize_parameters(self._hp['act_fn'])
 

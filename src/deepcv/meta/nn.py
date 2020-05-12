@@ -42,7 +42,7 @@ class HybridConnectivityGatedNet(meta.base_module.DeepcvModule):
         Args:
             hp: Hyperparameters
         """
-        super(self.__class__, self).__init__(input_shape, hp)
+        super(HybridConnectivityGatedNet, self).__init__(input_shape, hp)
         submodule_creators = meta.base_module.BASIC_SUBMODULE_CREATORS.update({'smg_module': self._smg_module_creator})
         self._net = self._define_nn_architecture(hp['architecture'], submodule_creators)
         self._initialize_parameters(hp['act_fn'])
@@ -78,7 +78,6 @@ def to_multiscale_inputs_model(model: meta.base_module.DeepcvModule, scales: int
     # TODO: add inputs transforms to downscale input 'scales' times
     # TODO: fix missing implentation parts ;->) bad but quick job here, be 🕵️‍♀️carefull🕵️‍♀️
     """
-    self._model = model
     input_shape = model._input_shape
     architecture = model._hp['architecture']
     new_hp = copy.deepcopy(model._hp)
@@ -319,8 +318,8 @@ def is_data_parallelization_usefull_heuristic(model: nn.Module, batch_shape: tor
     if ngpus <= 1:
         return False
     capacity_score = 0.5 * F.sigmoid(np.log10(capacity_factor * get_model_capacity(model) + 1.)) / 5.
-    batch_score += 3. * F.sigmoid(np.log10(np.log10(batch_factor * np.prod(batch_shape) + 1.) + 1.)) / 5.
-    gpus_score += 1.5 * F.sigmoid(np.log10(ngpus_factor * (ngpus - 1.) + 1.)) / 5.  # TODO: improve this heuristic score according to GPU bandwidth and FLOPs?
+    batch_score = 3. * F.sigmoid(np.log10(np.log10(batch_factor * np.prod(batch_shape) + 1.) + 1.)) / 5.
+    gpus_score = 1.5 * F.sigmoid(np.log10(ngpus_factor * (ngpus - 1.) + 1.)) / 5.  # TODO: improve this heuristic score according to GPU bandwidth and FLOPs?
     heuristic = capacity_score + batch_score + gpus_score
     if print_msg:
         negation, lt_gt_op = ('not', '>') if heuristic > 0.5 else ('', '<')
@@ -410,25 +409,24 @@ def get_model_capacity(model: nn.Module):
 
 def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_batches: bool = True) -> torch.Size:
     """ Performs a forward pass with a dummy input tensor to figure out module's output shape """
-    features_shapes = []
     with torch.no_grad():
         dummy_batch_x = torch.unsqueeze(torch.zeros(input_shape), dim=0) if input_batches else torch.zeros(input_shape)
         return module(dummy_batch_x).shape
 
 
-def type_or_instance_is(op_t: Any, type_to_check: Type) -> bool:
-    if not issubclass(type(op_t), Type):
-        return issubclass(type(module), type_to_check)
-    return issubclass(module, type_to_check)
+def type_or_instance_is(module_or_t: Any, type_to_check: Type) -> bool:
+    if not issubclass(type(module_or_t), Type):
+        return issubclass(type(module_or_t), type_to_check)
+    return issubclass(module_or_t, type_to_check)
 
 
-def is_fully_connected(op_t: Union[nn.Module, Type]) -> bool:
-    return type_or_instance_is(module, nn.Linear)
+def is_fully_connected(module_or_t: Union[nn.Module, Type]) -> bool:
+    return type_or_instance_is(module_or_t, nn.Linear)
 
 
-def is_conv(op_t: Union[nn.Module, Type]) -> bool:
+def is_conv(module_or_t: Union[nn.Module, Type]) -> bool:
     from torch.nn.modules.conv import _ConvNd
-    return type_or_instance_is(module, _ConvNd)
+    return type_or_instance_is(module_or_t, _ConvNd)
 
 # TODO: implement nn reflection tools (e.g. is_conv, contains_conv, parameter_summary, ...)
 

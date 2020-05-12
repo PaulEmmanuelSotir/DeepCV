@@ -27,10 +27,68 @@ from deepcv import utils
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
 __author__ = 'Paul-Emmanuel Sotir'
 
-BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected,
-                            'residual_link': _residual_dense_link(is_residual=True), 'dense_link': _residual_dense_link(is_residual=False)}
 MODULE_CREATOR_CALLBACK_RETURN_T = Callable[[torch.Tensor, Dict[str, torch.Tensor]], torch.Tensor]
 MODULE_CREATOR_MODULE_RETURN_T = nn.Module
+
+
+def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+    prev_dim = len(prev_shapes[1:])
+    if prev_dim >= 4:
+        return nn.AvgPool3d(**submodule_params)
+    elif prev_dim >= 2:
+        return nn.AvgPool2d(**submodule_params)
+    return nn.AvgPool1d(**submodule_params)
+
+
+def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters, channel_dim: int = -3) -> nn.Module:
+    """ Creates a convolutional NN layer with dropout and batch norm support
+    NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
+    """
+    submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
+    return meta.nn.conv_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+
+
+def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
+    """ Creates a fully connected NN layer with dropout and batch norm support
+    NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
+    """
+    submodule_params['in_features'] = np.prod(prev_shapes[-1][1:])
+    return meta.nn.fc_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+
+
+def _residual_dense_link(is_residual: bool = True):
+    """ Creates a residual or dense link sub-module which concatenates or adds features from direct previous sub-module and another sub-module
+    Output features shapes of these two submodules must be the same, except for the channels/filters dimension if this is a dense link.
+    `submodule_params` Argument must contain a `_from` entry giving the other sub-module reference (sub-module name) from which output is added to previous sub-module output.
+    Returns a callback which is called during forwarding of sub-modules.
+    If `submodule_params` contains a 'allow_scaling' entry, then if residual/dense features have different shape on dimension(s) following `channel_dim`, it will be scaled (upscaled or downscaled) using [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
+    By default interpolation is 'linear'; If needed you can specify a `scaling_mode` parameter in `submodule_params` to change algorithm used for upsampling (valid values: 'nearest' | 'linear' | 'bilinear' | 'bicubic' | 'trilinear' | 'area').
+    Note that scaling/interpolation of residual/dense tensors is only supported for 1D, 2D and 3D features, without taking into account channel and minibatch dimensions. Also note that `minibatch` dimension is required by [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
+    """
+    def _create_link_submodule(submodule_params, prev_named_submodules: Dict[str, nn.Module], prev_submodules: List[nn.Module], channel_dim: int = -3) -> MODULE_CREATOR_CALLBACK_RETURN_T:
+        def _forward_callback(x: torch.Tensor, prev_named_submodules_out: Dict[str, torch.Tensor]):
+            if submodule_params['from'] not in prev_named_submodules:
+                raise ValueError(f"Error: Couldn't find previous sub-module name reference '{submodule_params['from']}' in NN architecture.")
+            y = prev_named_submodules[submodule_params['_from']]
+
+            # If target output shape (which is the same as `x` features shape) is different from `y` features shapes, we perform a down or up scaling (interpolation) if allowed
+            if x.shape[channel_dim:] != y.shape[channel_dim:]:
+                if 'allow_scaling' in submodule_params and submodule_params['allow_scaling']:
+                    # Resize y features tensor to be of the same shape as x along dimensions after channel dim (scaling performed with bilinear interpolation)
+                    y = F.interpolate(y, x.shape[channel_dim:], mode='linear' if 'scaling_mode' not in submodule_params else submodule_params['scaling_mode'])
+                else:
+                    msg = f"Error: Couldn't forward throught {'residual' if is_residual else 'dense'} link: features from link doesn't have the same shape as previous module's output shape, can't concatenate or add them. (did you forgot to allow residual/dense features to be scaled using `allow_scaling: true` parameter?). residual_shape='{y.shape}' != prev_features_shape='{x.shape}' "
+                    raise RuntimeError(msg)
+
+            # Add or concatenate previous sub-module output features with residual or dense features
+            return x + y if is_residual else torch.cat([x, y], dim=channel_dim)
+        return _forward_callback
+
+    _create_link_submodule.__doc__ = _residual_dense_link.__doc__
+
+
+BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected,
+                            'residual_link': _residual_dense_link(is_residual=True), 'dense_link': _residual_dense_link(is_residual=False)}
 
 
 class DeepcvModule(nn.Module):
@@ -47,7 +105,7 @@ class DeepcvModule(nn.Module):
     HP_DEFAULTS = ...
 
     def __init__(self, input_shape: torch.Size, hp: Union[meta.hyperparams.Hyperparameters, Dict[str, Any]]):
-        super(self.__class__).__init__(self)
+        super(DeepcvModule, self).__init__()
         self._input_shape = input_shape
 
         # Process module hyperparameters
@@ -215,7 +273,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
     SHARED_BLOCK_DISABLED_WARNING_MSG = r'Warning: `DeepcvModule.{}` called while `self._enable_shared_image_embedding_block` is `False` (Shared image embedding block disabled for this model)'
 
     def __init__(self, input_shape: torch.Size, hp: meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
-        super(self.__class__).__init__(self, input_shape, hp)
+        super(DeepcvModuleWithSharedImageBlock, self).__init__(input_shape, hp)
 
         self._shared_block_forked = False
         self._enable_shared_image_embedding_block = enable_shared_block
@@ -229,7 +287,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
         if self._enable_shared_image_embedding_block:
             # Apply shared image embedding block and combine it's output with input image (concats features over channel dimension)
             x = torch.cat([x, self.shared_image_embedding_block(x)], dim=channel_dim)
-        return super(self.__class__).forward(self, x)
+        return super(DeepcvModuleWithSharedImageBlock, self).forward(x)
 
     @property
     def freeze_shared_image_embedding_block(self) -> bool:
@@ -347,62 +405,6 @@ class DeepcvModuleDescriptor:
             else:
                 desc_str = ' This module doesnt use shared image embedding block.'
         return f'{self.model_class_name} (capacity={self.human_readable_capacity}):\n\t{desc_str}'
-
-
-def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
-    prev_dim = len(prev_shapes[1:])
-    if prev_dim >= 4:
-        return nn.AvgPool3d(**submodule_params)
-    elif prev_dim >= 2:
-        return nn.AvgPool2d(**submodule_params)
-    return nn.AvgPool1d(**submodule_params)
-
-
-def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters, channel_dim: int = -3) -> nn.Module:
-    """ Creates a convolutional NN layer with dropout and batch norm support
-    NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
-    """
-    submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
-    return meta.nn.conv_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
-
-
-def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: meta.hyperparams.Hyperparameters) -> nn.Module:
-    """ Creates a fully connected NN layer with dropout and batch norm support
-    NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
-    """
-    submodule_params['in_features'] = np.prod(prev_shapes[-1][1:])
-    return meta.nn.fc_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
-
-
-def _residual_dense_link(is_residual: bool = True):
-    """ Creates a residual or dense link sub-module which concatenates or adds features from direct previous sub-module and another sub-module
-    Output features shapes of these two submodules must be the same, except for the channels/filters dimension if this is a dense link.
-    `submodule_params` Argument must contain a `_from` entry giving the other sub-module reference (sub-module name) from which output is added to previous sub-module output.
-    Returns a callback which is called during forwarding of sub-modules.
-    If `submodule_params` contains a 'allow_scaling' entry, then if residual/dense features have different shape on dimension(s) following `channel_dim`, it will be scaled (upscaled or downscaled) using [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
-    By default interpolation is 'linear'; If needed you can specify a `scaling_mode` parameter in `submodule_params` to change algorithm used for upsampling (valid values: 'nearest' | 'linear' | 'bilinear' | 'bicubic' | 'trilinear' | 'area').
-    Note that scaling/interpolation of residual/dense tensors is only supported for 1D, 2D and 3D features, without taking into account channel and minibatch dimensions. Also note that `minibatch` dimension is required by [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
-    """
-    def _create_link_submodule(submodule_params, prev_named_submodules: Dict[str, nn.Module], prev_submodules: List[nn.Module], channel_dim: int = -3) -> MODULE_CREATOR_CALLBACK_RETURN_T:
-        def _forward_callback(x: torch.Tensor, prev_named_submodules_out: Dict[str, torch.Tensor]):
-            if submodule_params['from'] not in prev_named_submodules:
-                raise ValueError(f"Error: Couldn't find previous sub-module name reference '{submodule_params['from']}' in NN architecture.")
-            y = prev_named_submodules[submodule_params['_from']]
-
-            # If target output shape (which is the same as `x` features shape) is different from `y` features shapes, we perform a down or up scaling (interpolation) if allowed
-            if x.shape[channel_dim:] != y.shape[channel_dim:]:
-                if 'allow_scaling' in submodule_params and submodule_params['allow_scaling']:
-                    # Resize y features tensor to be of the same shape as x along dimensions after channel dim (scaling performed with bilinear interpolation)
-                    y = F.interpolate(y, x.shape[channel_dim:], mode='linear' if 'scaling_mode' not in submodule_params else submodule_params['scaling_mode'])
-                else:
-                    msg = f"Error: Couldn't forward throught {'residual' if is_residual else 'dense'} link: features from link doesn't have the same shape as previous module's output shape, can't concatenate or add them. (did you forgot to allow residual/dense features to be scaled using `allow_scaling: true` parameter?). residual_shape='{y.shape}' != prev_features_shape='{x.shape}' "
-                    raise RuntimeError(msg)
-
-            # Add or concatenate previous sub-module output features with residual or dense features
-            return x + y if is_residual else torch.cat([x, y], dim=channel_dim)
-        return _forward_callback
-
-    _create_link_submodule.__doc__ = _residual_dense_link.__doc__
 
 
 if __name__ == '__main__':

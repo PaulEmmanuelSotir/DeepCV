@@ -32,7 +32,7 @@ class ProjectContext(KedroContext):
         return create_pipelines()
 
     def _create_catalog(self, *args, **kwargs):
-        catalog = super()._create_catalog(*args, **kwargs)
+        catalog = super(ProjectContext, self)._create_catalog(*args, **kwargs)
         profile_time = transformers.ProfileTimeTransformer()  # instantiate a built-in transformer
         catalog.add_transformer(profile_time)  # apply it to the catalog
         return catalog

@@ -6,7 +6,7 @@ Builds a training meta-dataset and allows a unified treatment and understanding 
 .. moduleauthor:: Paul-Emmanuel Sotir
 
 *To-Do List*
-TODO: Read more in depth Google's approach to meta-datasets: https://github.com/google-research/meta-dataset from this paper: https://arxiv.org/abs/1903.03096 and decide whether it could be relevent to use similar abstractions in meta.data.training_tracker
+    - TODO: Read more in depth Google's approach to meta-datasets: https://github.com/google-research/meta-dataset from this paper: https://arxiv.org/abs/1903.03096 and decide whether it could be relevent to use similar abstractions in meta.data.training_tracker
 """
 import uuid
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
@@ -14,17 +14,13 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 import torch
 import torch.nn as nn
 
-from deepcv.meta import hyperparams
 from deepcv import utils
-from . import datasets
+from deepcv.meta import hyperparams
+from deepcv.meta.data import datasets
 
 
-__all__ = []
+__all__ = ['TrainingMetaData', 'Task', 'Experiment', 'MetaTracker']
 __author__ = 'Paul-Emmanuel Sotir'
-
-if __name__ == '__main__':
-    cli = utils.import_tests().test_module_cli(__file__)
-    cli()
 
 
 class TrainingMetaData:
@@ -34,14 +30,14 @@ class TrainingMetaData:
 
 class Task(TrainingMetaData):
     def __init__(self, train_loss: torch.nn.modules.loss._Loss, dummy_model_input: torch.Tensor, existing_uuid: Optional[uuid.UUID] = None):
-        super(self.__class__).__init__(self, existing_uuid)
+        super(Task, self).__init__(existing_uuid)
         self._train_loss = train_loss
         self._dummy_model_input = dummy_model_input
 
 
 class Experiment(TrainingMetaData):
     def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
-        super(self.__class__).__init__(self, existing_uuid)
+        super(Experiment, self).__init__(existing_uuid)
 
 
 class MetaTracker:
@@ -97,3 +93,8 @@ class MetaTracker:
     def reset_all(self):
         """ Removes all metadata entries """
         raise NotImplementedError
+
+
+if __name__ == '__main__':
+    cli = utils.import_tests().test_module_cli(__file__)
+    cli()

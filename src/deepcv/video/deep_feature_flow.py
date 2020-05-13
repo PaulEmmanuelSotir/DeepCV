@@ -1,4 +1,8 @@
-
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+""" Deep Feature Flow module - deep_feature_flow.py - `DeepCV`__  
+.. moduleauthor:: Paul-Emmanuel Sotir
+"""
 from typing import Tuple, Sequence
 
 import torch

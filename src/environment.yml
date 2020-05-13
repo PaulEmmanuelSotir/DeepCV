@@ -29,6 +29,7 @@ dependencies:
         - hilbertcurve=1.0.*
         - tensorboardX=2.*
         - networkx=2.*
+        - gym-atari=0.17.*
         - pip:
                   - kedro[memory_profiler]
                   - kedro-viz

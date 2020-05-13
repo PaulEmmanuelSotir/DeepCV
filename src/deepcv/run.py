@@ -20,8 +20,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 class ProjectContext(KedroContext):
-    """ Users can override the remaining methods from the parent class here, or create new ones (e.g. as required by plugins)
-    """
+    """ Users can override the remaining methods from the parent class here, or create new ones (e.g. as required by plugins) """
 
     project_name = "DeepCV"
     project_version = "0.15.7"

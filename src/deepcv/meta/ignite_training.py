@@ -122,7 +122,9 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         return {'batch loss': loss_tensor.item(), }
 
     trainer = Engine(process_function)
-    train_sampler = trainset.sampler if backend_conf.distributed else None  # TODO: figure out why 'None' if not distributed?
+    # TODO: figure out why 'None' if not distributed?
+    # TODO: replace it with torch.utils.data.distributed.DistributedSampler(trainset) ?
+    train_sampler = trainset.sampler if backend_conf.distributed else None
     to_save = {'trainer': trainer, 'model': model, 'optimizer': optimizer, 'scheduler': scheduler}
     metric_names = ['batch loss', ]
     common.setup_common_training_handlers(trainer,

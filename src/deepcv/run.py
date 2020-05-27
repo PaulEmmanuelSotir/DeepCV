@@ -37,14 +37,12 @@ class ProjectContext(KedroContext):
 
 
 def run_package():
-    # entry point for running pip-install projects
-    # using `<project_package>` command
+    # Entry point for running pip-install projects using `<project_package>` command
     mlflow.set_tracking_uri(deepcv.utils.source_dir(__file__).joinpath(r'../../MLRuns/'))
     project_context = load_context(Path.cwd())
     project_context.run()
 
 
 if __name__ == "__main__":
-    # entry point for running pip-installed projects
-    # using `python -m <project_package>.run` command
+    # Entry point for running pip-installed projects using `python -m <project_package>.run` command
     run_package()

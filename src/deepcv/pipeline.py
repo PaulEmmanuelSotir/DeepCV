@@ -12,6 +12,7 @@ import deepcv.detection.object
 
 DECORATORS = [dec.log_time, memory_profiler.mem_profile]  # Other decorator available: retry, spark_to_pandas, pandas_to_spark
 
+__all__ = ['create_pipelines']
 __author__ = 'Paul-Emmanuel Sotir'
 
 

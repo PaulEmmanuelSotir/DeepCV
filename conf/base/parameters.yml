@@ -141,6 +141,17 @@ object_detector_model:
       - !py!deepcv.meta.nn.Flatten: null
       - fully_connected: {out_features: 10}
 
+keypoints_encoder_model:
+  act_fn: !py!deepcv.torch.nn.ReLU
+  batch_norm: { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
+  architecture:
+    - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+
+keypoints_decoder_model:
+  act_fn: !py!deepcv.torch.nn.ReLU
+  batch_norm: { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
+  architecture:
+    - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
 
 # object_detector_hp_search:
 #   cross_validation: false

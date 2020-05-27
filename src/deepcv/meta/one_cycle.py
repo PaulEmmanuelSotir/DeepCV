@@ -15,6 +15,7 @@ import deepcv.utils
 # TODO: inherit from a scheduler class and/or integrate with ignite training handlers
 
 __all__ = ['OneCyclePolicy', 'run_param_search', 'find_optimal_params', 'plot_search_curves']
+__author__ = 'Paul-Emmanuel Sotir'
 
 
 class OneCyclePolicy:

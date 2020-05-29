@@ -3,7 +3,7 @@
 """ Hyperparameter search meta module - hyperparams.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-*To-Do List*  
+# To-Do List
     - TODO: implement tools for NNI (https://github.com/microsoft/nni) usage (NNI Board and NNICTL) + MLFlow versionning and viz
     - TODO: For hyperparameter embedding: read about graph embedding techniques like: https://github.com/google-research/google-research/tree/master/graph_embedding/ddgk and https://github.com/google-research/google-research/tree/master/graph_embedding/watch_your_step
 """
@@ -67,7 +67,7 @@ class HyperparamsEmbedding(nn.Module):
         if not _hp_repr:
             # First call of recursion over hp_space dict
             _hp_repr = np.array([])
-        for n, v in hp:
+        for n, v in hp.items():
             if issubclass(v, Dict):
                 _hp_repr.append(self._from_hp_space(v, _hp_repr))
             elif isinstance(v, ...):
@@ -106,7 +106,7 @@ class HyperparamsEmbedding(nn.Module):
 
         nodes_dict = networkx.spectral_layout(G, center=(0, 0), dim=2)
         topo_embedding = np.array([], dtype=np.float32)
-        for n, v in nodes_dict:
+        for n, v in nodes_dict.items():
             raise NotImplementedError
             # topo_embedding.append()
         return topo_embedding

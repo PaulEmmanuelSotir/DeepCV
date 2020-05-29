@@ -95,8 +95,8 @@ class Hyperparameters(TrainingMetaData, collections.Mapping):
             - defaults: Defaults to be applied. Contains default hyperprarmeters with their associated values. If you want to specify some required hyperparameters, set their respective values to ellipsis value `...`.
         Returns a copy of current Hyperarameters (`self`) object updated with additional defaults if not already present in `self`, and a `list` of any missing required hyperparameters names
         """
-        new_store = {n: v for n, v in self._store if n in defaults} if drop_keys_not_in_defaults else self._store.copy()
-        new_store.update({n: v for n, v in defaults if n not in new_store and v != ...})
+        new_store = {n: v for n, v in self._store.items() if n in defaults} if drop_keys_not_in_defaults else self._store.copy()
+        new_store.update({n: v for n, v in defaults.items() if n not in new_store and v != ...})
         missing_hyperparams = [n for n in defaults if n not in new_store]
         return Hyperparameters(**new_store), missing_hyperparams
 

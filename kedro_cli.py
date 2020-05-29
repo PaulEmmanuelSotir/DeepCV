@@ -45,15 +45,15 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 import anyconfig
 import click
 from click import secho, style
-from kedro.cli import main as kedro_main
-from kedro.cli.utils import (
+from kedro.framework.cli import main as kedro_main
+from kedro.framework.cli.utils import (
     KedroCliError,
     call,
     export_nodes,
     forward_command,
     python_call,
 )
-from kedro.context import KEDRO_ENV_VAR, load_context
+from kedro.framework.context import KEDRO_ENV_VAR, load_context
 from kedro.runner import SequentialRunner
 from kedro.utils import load_obj
 

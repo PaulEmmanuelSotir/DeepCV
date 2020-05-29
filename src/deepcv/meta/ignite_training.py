@@ -106,7 +106,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     loss = loss.to(device)
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
     schedule = hp['scheduler']
-    scheduler = schedule['type'](**{n: eval(v) if 'eval_args' in schedule and n in schedule['eval_args'] else v for n, v in schedule['kwargs']})
+    scheduler = schedule['type'](**{n: eval(v) if 'eval_args' in schedule and n in schedule['eval_args'] else v for n, v in schedule['kwargs'].items()})
 
     def process_function(engine, batch):
         x, y = (convert_tensor(b, device=device, non_blocking=True) for b in batch)
@@ -298,7 +298,7 @@ def evaluate(epoch: int, model: nn.Module, validset: DataLoader, bce_loss_scale:
 
 
 # Metrics = TypedDict('Metrics', {str: ignite.metrics.Metric, ...})
-# for name, metric in metrics:
+# for name, metric in metrics.items():
 #     metric.compute()
 #     if isinstance(metric, ignite.metrics.Loss):
 

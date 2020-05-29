@@ -44,7 +44,7 @@ class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
         self._initialize_parameters(self._hp['act_fn'])
 
 
-def get_object_detector_pipelines():
+def get_object_detector_pipelines() -> Dict[str, Pipeline]:
     p1 = Pipeline([node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset',
                         inputs={'trainset': 'cifar10_train', 'testset': 'cifar10_test', 'params': 'params:split_dataset_ratios'},
                         outputs=['trainset', 'validset', 'testset']),
@@ -53,8 +53,8 @@ def get_object_detector_pipelines():
                         outputs=['datasets']),
                    node(create_model, name='create_object_detection_model', inputs=['datasets', 'params:object_detector_model'], outputs=['model']),
                    node(train, name='train_object_detector', inputs=['datasets', 'model', 'params:object_detector_training'], outputs=['ignite_state'])],
-                  name='object_detector_training')
-    return [p1]
+                  tags=['train', 'detection'])
+    return {'object_detector_training': p1}
 
 
 def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
@@ -84,7 +84,7 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.
     max_eval_batch_size = deepcv.meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=model, device=backend_conf.device)
 
     dataloaders = []
-    for n, ds in datasets:
+    for n, ds in datasets.items():
         shuffle = True if n == 'trainset' else False
         batch_size = hp['batch_size'] if n == 'trainset' else max_eval_batch_size
         dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers))

@@ -27,7 +27,7 @@ import deepcv.utils
 import deepcv.meta.base_module
 
 __all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatCoords', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
-           'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_coords_channels', 'concat_hilbert_coords_channel', 'flatten', 'get_gain_name',
+           'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'concat_coords_channels', 'flatten', 'get_gain_name',
            'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'find_best_eval_batch_size', 'get_model_capacity',
            'get_out_features_shape', 'type_or_instance_is', 'is_fully_connected', 'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -162,25 +162,12 @@ def multi_head_forward(x: torch.Tensor, heads: Iterable[nn.Module], concat_dim: 
     return torch.cat([head(x).unsqueeze(concat_dim) if new_dim else head(x) for head in heads], dim=concat_dim)
 
 
-def concat_coords_channels(features: torch.Tensor, channel_dim: int = 1, align_corners=None) -> torch.Tensor:
-    """
-    Args:
-        - features: 
-        - channel_dim: Channel dimension index in feature maps (without eventual batch dim), 0 by default. Supports negative dim index.
-    """
-    assert features.dim() == 4 or features.dim() == 5, f'Error: {deeepcv.utils.get_str_repr(concat_coords_channels, __file__)} only support 2D or 3D input features (i.e. features dim of 4 or 5 with batch and channel dims), but got `features.dim()={features.dim()}`.'
-    assert channel_dim < features.dim() and channel_dim >= -features.dim(), 'Invalid argument: `channel_dim` must be in [-features.dim() ; features.dim()[ range'
-
-    affine_matrices = torch.zeros((features.shape[0],) + ((2, 3) if features.dim() == 4 else (3, 4)))
-    grids = F.affine_grid(theta=affine_matrices, size=features.shape, align_corners=align_corners)
-    return torch.cat([features, grids], dim=channel_dim)
-
-def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 1) -> torch.Tensor:
+def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) -> torch.Tensor:
     """ Concatenates to feature maps a new channel which contains position information using Hilbert curve distance metric.
     This operation is close to CoordConv's except that we only append one channel of hilbert distance instead of N channels of euclidian coordinates (e.g. 2 channel for features from a 2D convolution).
     Args:
         - features: N-D Feature maps torch.Tensor with channel dimmension located at ``channel_dim``th dim and feature map dims located after channel's one. (Hilbert curve distance can be computed for any number, N, of feature map dimensions)
-        - channel_dim: Channel dimension index in feature maps (without eventual batch dim), 1 by default. Supports negative dim index.
+        - channel_dim: Channel dimension index, 0 by default.
     # TODO: cache hilbert curve to avoid to reprocess it too often
     """
     assert features.dim() > 1, 'Invalid argument: `features` tensor should be at least of 2 dimensions.'
@@ -199,10 +186,26 @@ def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 1) 
     return torch.cat([space_fill_coords_map, features], dim=channel_dim)
 
 
+def concat_coords_channels(features: torch.Tensor, channel_dim: int = 1, align_corners=None) -> torch.Tensor:
+    """
+    Args:
+        - features: 
+        - channel_dim: Channel dimension index in feature maps (without eventual batch dim), 0 by default. Supports negative dim index.
+    """
+    assert features.dim() == 4 or features.dim(
+    ) == 5, f'Error: {deeepcv.utils.get_str_repr(concat_coords_channels, __file__)} only support 2D or 3D input features (i.e. features dim of 4 or 5 with batch and channel dims), but got `features.dim()={features.dim()}`.'
+    assert channel_dim < features.dim() and channel_dim >= -features.dim(), 'Invalid argument: `channel_dim` must be in [-features.dim() ; features.dim()[ range'
+
+    affine_matrices = torch.zeros((features.shape[0],) + ((2, 3) if features.dim() == 4 else (3, 4)))
+    grids = F.affine_grid(theta=affine_matrices, size=features.shape, align_corners=align_corners)
+    return torch.cat([features, grids], dim=channel_dim)
+
+
 # Torch modules created from their resective forward function:
 Flatten = func_to_module('Flatten', ['from_dim'])(flatten)
-MultiHeadConcat = func_to_module('MultiHeadConcat', ['heads', 'concat_dim', 'new_dim'])(multi_head_forward)
-ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', ['channel_dim'])(concat_hilbert_coords_channel)
+MultiHeadConcat = func_to_module('MultiHeadConcat', init_params=['heads', 'concat_dim', 'new_dim'])(multi_head_forward)
+ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', init_params=['channel_dim'])(concat_hilbert_coords_channel)
+ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align_corners'])(concat_coords_channels)
 
 
 def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] = None, batch_norm: Optional[dict] = None, preactivation: bool = False) -> Tuple[nn.Module]:
@@ -417,7 +420,7 @@ def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Itera
 
 
 def get_model_capacity(model: nn.Module):
-    return sum([np.prod(param.shape) for name, param in model.parameters(recurse=True)])
+    return sum([np.prod(param.shape) for param in model.parameters(recurse=True)])
 
 
 def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_batches: bool = True) -> torch.Size:

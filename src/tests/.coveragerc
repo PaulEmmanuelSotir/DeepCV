@@ -4,6 +4,8 @@ branch = True
 source = ../deepcv
 
 [report]
+fail_under=0
+show_missing=True
 # Regexes for lines to exclude from consideration
 exclude_lines =
     # Have to re-enable the standard pragma

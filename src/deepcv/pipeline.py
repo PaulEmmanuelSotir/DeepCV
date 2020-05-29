@@ -6,11 +6,10 @@ from typing import Dict
 
 from kedro.pipeline import Pipeline
 import kedro.pipeline.decorators as dec
-import kedro.contrib.decorators.memory_profiler as memory_profiler
 
 import deepcv.detection.object
 
-DECORATORS = [dec.log_time, memory_profiler.mem_profile]  # Other decorator available: retry, spark_to_pandas, pandas_to_spark
+DECORATORS = [dec.log_time]  # Other decorator available: memory_profiler? ,retry, spark_to_pandas, pandas_to_spark
 
 __author__ = 'Paul-Emmanuel Sotir'
 

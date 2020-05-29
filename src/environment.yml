@@ -31,6 +31,6 @@ dependencies:
         - networkx=2.*
         - gym-atari=0.17.*
         - pip:
-                  - kedro[memory_profiler]
+                  - kedro
                   - kedro-viz
                   - nni

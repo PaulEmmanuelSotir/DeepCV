@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Neural Network meta module - nn.py - `DeepCV`__  
+""" Neural Network meta module - nn.py - `DeepCV`__
 Defines various neural network building blocks (layers, architectures parts, transforms, loss terms, ...)
 .. moduleauthor:: Paul-Emmanuel Sotir
 
@@ -10,8 +10,9 @@ Defines various neural network building blocks (layers, architectures parts, tra
 import copy
 import inspect
 import logging
+import functools
 from enum import Enum, auto
-from types import SimpleNamespace
+from types import SimpleNamespace, FunctionType
 from collections import OrderedDict
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
 
@@ -101,28 +102,34 @@ def to_multiscale_outputs_model(model: deepcv.meta.base_module.DeepcvModule, sca
     raise NotImplementedError
 
 
-def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[inspect.Parameter]] = []) -> Callable[[Callable], Type[nn.Module]]:
+def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, inspect.Parameter]]] = None) -> Callable[[Callable], Type[nn.Module]]:
     """ Returns a decorator which creates a new ``torch.nn.Module``-based class using ``forward_func`` as underlying forward function.
     Note: If ``init_params`` isn't empty, then returned ``nn.Module``-based class won't have the same signature as ``forward_func``.
     This is because some arguments provided to ``forward_func`` will instead be attributes of created module, taken by class's ``__init__`` function.
     Args:
         - typename: Returned nn.Module class's ``__name__``
         - init_params: An iterable of string parameter name(s) of ``forward_func`` which should be taken by class's ``__init__`` function instead of ``forward`` function.
+    TODO: Test this tooling function with unit tests extensively
     """
-    def _warper(forward_func: Callable) -> Type[nn.Module]:
+    if init_params is None:
+        init_params = []
+
+    def _warper(forward_func: Callable, typename: str, init_params: Sequence[Union[str, inspect.Parameter]]) -> Type[nn.Module]:
         """ Returned decorator converting a function to a nn.Module class
         Args:
             - forward_func: Function from which nn.Module-based class is built. ``forward_func`` will be called on built module's ``forward`` function call.
         """
+        if forward_func.__kwdefaults__ is not None and forward_func.__kwdefaults__ != {}:
+            raise ValueError('Error: `forward_func` argument of `deepcv.meta.nn.func_to_module._warper` function cannot have keyword defaults (`__kwdefaults__` not supported)')
         signature = inspect.signature(forward_func)
-
-        if len(init_params) > 0 and not type(init_params)[0] is inspect.Parameter:
-            init_params = [signature.parameters[n] for n in init_params]
-        forward_params = [p for p in signature if p not in init_params]
+        init_params = [n if type(n) is inspect.Parameter else signature.parameters[n] for n in init_params]
+        forward_params = [p for n, p in signature.parameters.items() if n not in init_params]
         init_signature = signature.replace(parameters=init_params, return_annotation=nn.Module)
-        forward_signature = signature.replace(parameters=forward_params)
+        forward_signature = signature.replace(parameters=forward_params, return_annotation=signature.return_annotation)
 
         class _Module(nn.Module):
+            """ nn.Module generated at runtime from given forward function by `deepcv.meta.nn.func_to_module` tooling function. """
+
             def __init__(self, *args, **kwargs):
                 super(_Module, self).__init__()
                 bound_args = init_signature.bind(*args, **kwargs)
@@ -136,17 +143,26 @@ def func_to_module(typename: str, init_params: Union[Sequence[str], Sequence[ins
 
         _Module.__name__ = typename
         _Module.__doc__ = f'Module created at runtime from `{forward_func.__name__}` forward function.\nInitial forward function documentation:\n' + forward_func.__doc__
-        init_signature.return_annotation = _Module
-        _Module.__init__.__annotations__ = init_signature.__annotations__
-        _Module.__init__.__defaults__ = {n: p.default for (n, p) in init_signature.parameters.items() if p.default}
-        _Module.forward.__annotations__ = forward_signature.__annotations__
-        _Module.forward.__defaults__ = {n: p.default for (n, p) in forward_signature.parameters.items() if p.default}
-        _Module.forward.__doc__ = _Module.__doc__
+
+        # Modify `_Module.__init__` function to match excpected signature
+        init_signature = init_signature.replace(return_annotation=_Module)
+        # TODO: make sure defaults are ordered the right way (should be the case as forward_signature.parameters is an OrderedDict) and make sure it plays well with `signature.apply_defaults` function
+        _Module.__init__.__defaults__ = tuple(p.default for (n, p) in init_signature.parameters.items() if p.default is not None)
+        _Module.__init__.__signature__ = init_signature
+        _Module.__init__.__annotations__ = {n: p.annotation for n, p in init_signature.parameters.items()}
+        _Module.__init__.__doc__ = f"Instanciate a new `{typename}` PyTorch module. (Class generated at runtime from `{forward_func.__name__}` forward function with `deepcv.meta.nn.func_to_module`)."
+
+        # Modify `_Module.forward` function to match excpected signature
+        # TODO: make sure defaults are ordered the right way (should be the case as forward_signature.parameters is an OrderedDict) and make sure it plays well with `signature.apply_defaults` function
+        _Module.forward.__defaults__ = tuple(p.default for (n, p) in forward_signature.parameters.items() if p.default)
+        _Module.forward.__signature__ = forward_signature
+        _Module.forward.__annotations__ = {n: p.annotation for (n, p) in forward_signature.parameters.items()}
+        _Module.forward.__doc__ = forward_func.__doc__
         return _Module
-    return _warper
+    return functools.partial(_warper, typename=typename, init_params=init_params)
 
 
-def flatten(x: torch.Tensor, from_dim: int = 0):
+def flatten(x: torch.Tensor, from_dim: int = 0) -> torch.Tensor:
     """ Flattens tensor dimensions following ``from_dim``th dimension. """
     return x.view(*x.shape[:from_dim + 1], -1)
 
@@ -189,7 +205,7 @@ def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) 
 def concat_coords_channels(features: torch.Tensor, channel_dim: int = 1, align_corners=None) -> torch.Tensor:
     """
     Args:
-        - features: 
+        - features:
         - channel_dim: Channel dimension index in feature maps (without eventual batch dim), 0 by default. Supports negative dim index.
     """
     assert features.dim() == 4 or features.dim(
@@ -227,7 +243,7 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
     def _dropout() -> Optional[nn.Module]:
         if dropout_prob is not None and dropout_prob != 0.:
             if batch_norm is not None:
-                logging.warn("""Warning: Dropout used along with batch norm may be unrecommended, see 
+                logging.warn("""Warning: Dropout used along with batch norm may be unrecommended, see
                                 [CVPR 2019 paper: 'Understanding the Disharmony Between Dropout and Batch Normalization by Variance'](https://zpascal.net/cvpr2019/Li_Understanding_the_Disharmony_Between_Dropout_and_Batch_Normalization_by_Variance_CVPR_2019_paper.pdf)""")
             return nn.Dropout(p=dropout_prob)
 
@@ -380,7 +396,7 @@ def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor,
 
 def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Iterable[torch.Size], model: Optional[nn.Module], safety_margin: float = 0.75, trial_growth_factor: float = 1.2, device=deepcv.utils.get_device(), **model_kwargs):
     """ Finds largest `batch_size` which could fit in video memory without issues in an evaluation setup (no backprop).
-    This function is usefull to estimate best evaluation `batch_size`. If `model` argument is given, then 
+    This function is usefull to estimate best evaluation `batch_size`. If `model` argument is given, then
     This gives an estimate/advice of maximal `batch_size` in a non-distributed setup, assuming you are training given model on current device.
     Otherwise, in distributed setup, you could call `find_best_eval_batch_size` in each training nodes and either use different eval `batch_size` in each nodes or take minimal returned value.
     Args:

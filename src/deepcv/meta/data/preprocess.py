@@ -147,9 +147,9 @@ def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparame
 
     # Filter out sateful transforms wich are not used for this preprocessing reciepe
     stateful_transforms = copy.deepcopy(STATEFUL_TRANSFORMS)
-    stateful_transforms = {transform: data for transform, data in stateful_transforms if transform in params['transforms'] or transform in params['target_transforms']}
+    stateful_transforms = {transform: data for transform, data in stateful_transforms.items() if transform in params['transforms'] or transform in params['target_transforms']}
     # Try to fill stateful transforms data from `params`
-    stateful_transforms = {transf: {name: params[name] if name in params else ... for name, _ in data} for transf, data in stateful_transforms}
+    stateful_transforms = {transf: {name: params[name] if name in params else ... for name, _ in data.items()} for transf, data in stateful_transforms.items()}
 
     # Preprocess and augment data according to recipes specified in hyperparameters from YAML config (deepcv/conf/base/parameters.yml)
     for ds_idx, ds in enumerate((trainset, validset, testset)):
@@ -163,13 +163,13 @@ def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparame
 
         if ds_idx == 0:
             # If we are preprocessing trainset, we process stateful transforms's missing data
-            for transform, data in stateful_transforms:
+            for transform, data in stateful_transforms.items():
                 # Process transform state from trainset, and only change data which is not provided in `params`
-                to_process = [data_name for data_name, value in data if value == ...]
+                to_process = [data_name for data_name, value in data.items() if value == ...]
                 if len(to_process) > 0:
                     processed_state = STATEFUL_DATA_PROCESS[transform](trainset=ds, to_process=to_process)
                     stateful_transforms[transform].update({n: processed_state[n] for n in to_process})
-                    missing_data = [data_name for data_name, value in data if value == ...]
+                    missing_data = [data_name for data_name, value in data.items() if value == ...]
                     if len(missing_data) > 0:
                         raise RuntimeError(f"""Error: {deepcv.utils.get_str_repr(preprocess, __file__)} function can`t apply `{transform}` transform, its `STATEFUL_DATA_PROCESS` function did not provided
                                                some nescessary data and `params` (hyper)parameters doesn\'t prodide it neither. `{missing_data}` transform data is missing (you may need to provide it

@@ -81,7 +81,7 @@ def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int
 #         raise NotImplementedError
 
 #         self.images_refs = {}
-#         self.loaded_images = {}  # {path: (image, target) for path, target in self.images_refs}
+#         self.loaded_images = {}  # {path: (image, target) for path, target in self.images_refs.items()}
 #         self.update(dict(*args, **kwargs))
 #         self.in_transform, self.out_transform = in_transform, out_transform
 #         self.cache = cache
@@ -127,7 +127,7 @@ def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int
 
 #     def __getitem__(self, key: Union[ImageT, slice]) -> Tuple[LoadedImageT, MetadataT]:
 #         if issubclass(key, slice):
-#             return {self._image_transform(img): self.out_transform(target) for img, target in self.store[key]}
+#             return {self._image_transform(img): self.out_transform(target) for img, target in self.store[key]items()}
 #         return self._image_transform(key), self.out_transform(self.store[key])
 
 #     def __setitem__(self, key: Union[ImageT, slice], target: Union[MetadataT, Iterable[MetadataT]] = None):

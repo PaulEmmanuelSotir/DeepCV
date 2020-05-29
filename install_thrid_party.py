@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 
 import kedro_cli
-from kedro.cli import main as kedro_main
+from kedro.framework.cli import main as kedro_main
 import deepcv.utils
 
 __all__ = []

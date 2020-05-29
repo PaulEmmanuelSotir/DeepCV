@@ -23,5 +23,5 @@ def create_pipelines(**kwargs) -> Dict[str, Pipeline]:
         A mapping from a pipeline name to a ``Pipeline`` object.
     """
     pipeline_mapping = {}
-    pipeline_mapping.update({p.name: p.decorate(*DECORATORS) for p in deepcv.detection.object.get_object_detector_pipelines()})
-    return {**pipeline_mapping, "__default__": sum([p for n, p in pipeline_mapping])}
+    pipeline_mapping.update({n: p.decorate(*DECORATORS) for n, p in deepcv.detection.object.get_object_detector_pipelines().items()})
+    return {**pipeline_mapping, "__default__": sum([p for n, p in pipeline_mapping.items()])}

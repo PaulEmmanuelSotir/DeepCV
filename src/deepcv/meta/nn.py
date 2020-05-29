@@ -404,7 +404,7 @@ def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Itera
 
 
 def get_model_capacity(model: nn.Module):
-    return sum([np.prod(param.shape) for name, param in model.parameters(recurse=True)])
+    return sum([np.prod(param.shape) for param in model.parameters(recurse=True)])
 
 
 def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_batches: bool = True) -> torch.Size:

@@ -117,12 +117,12 @@ class DeepcvModule(nn.Module):
         # Apply object detector neural net architecture on top of shared image embedding features and input image
         if len(self._forward_callbacks) > 0:
             referenced_output_features = {}
-            for name, subm in self._submodules:
+            for name, subm in self._submodules.items():
                 if name in self._forward_callbacks:
                     # Forward pass through sub-module
                     x = self._forward_callbacks[name](x, referenced_output_features)
                     # Update `_submodule_references` and free stored output features if there isn't any referrers referencing a submodule anymore (i.e. all forward callbacks have consumed stored output features for a given referenced sub-module)
-                    for referenced_submodule, referrers in self._submodule_references:
+                    for referenced_submodule, referrers in self._submodule_references.items():
                         if name in referrers:
                             self._submodule_references[referenced_submodule].remove(name)
                             if len(self._submodule_references[referenced_submodule]) == 0:
@@ -152,7 +152,7 @@ class DeepcvModule(nn.Module):
         """
         return DeepcvModuleDescriptor(self)
 
-    def define_nn_architecture(self, architecture_spec, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
+    def define_nn_architecture(self, architecture_spec: Iterable, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
         """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
         NOTE: defines `self._features_shapes`, `self._submodules_capacities`, `self._forward_callbacks`, `self._submodules` and `self._architecture_spec` attributes (usefull for debuging and `self.__str__` and `self.describe` functions)
         Args:
@@ -174,7 +174,8 @@ class DeepcvModule(nn.Module):
 
         # Parse submodule NN architecture spec in order to define PyTorch model's submodules accordingly
         submodules = []
-        for i, (submodule_type, params) in enumerate(architecture_spec):
+        for i, submodule_spec in enumerate(architecture_spec):
+            submodule_type, params = list(submodule_spec.items())[0]
             submodule_name = f'_submodule_{i}'
             if issubclass(params, List) or issubclass(params, Tuple):
                 # Architecture definition specifies a sub-module name explicitly
@@ -189,7 +190,7 @@ class DeepcvModule(nn.Module):
             if submodule_name is not None and submodule_name in dict(*submodules).keys() or submodule_name == r'' or not isinstance(submodule_name, str):
                 raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
 
-            if issubclass(params, Dict) and (issubclass(params.values()[0], List) or issubclass(params.values()[0], Tuple)) and submodule_type == '_deepcvmodule':
+            if submodule_type == '_deepcvmodule':
                 # Allow nested DeepCV sub-module (see deepcv/conf/base/parameters.yml for examples)
                 submodule_hp_dict = dict(**self._hp)
                 del submodule_hp_dict['architecture']  # Make sure we dont reuse parent DeepCV module architecture spec (if 'architecture' entry is missing in params dict)
@@ -207,7 +208,7 @@ class DeepcvModule(nn.Module):
 
                 # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn)
                 available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
-                module_or_callback = fn(**{n: p for n, p in available_params if n in inspect.signature(fn).parameters})
+                module_or_callback = fn(**{n: p for n, p in available_params.items() if n in inspect.signature(fn).parameters})
 
                 # Figure out fn's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
                 if issubclass(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
@@ -377,7 +378,7 @@ class DeepcvModuleDescriptor:
             self.submodules_features_sizes = map(np.prod, module._features_shapes)
         if architecture_spec is not None:
             self.architecture = architecture_spec
-            self.submodules_types = [n for n, v in architecture_spec]
+            self.submodules_types = [list(subm.keys())[0] for subm in architecture_spec]
         if '_submodules_capacities' in module.__dict__:
             self.submodules_capacities = module._submodules_capacities
             self.human_readable_capacities = map(deepcv.utils.human_readable_size, module._submodules_capacities)

@@ -39,14 +39,14 @@ class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
     def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
-        super(ObjectDetector, self).__init__(input_shape, hp)
+        super().__init__(input_shape, hp)
         self._define_nn_architecture(self._hp['architecture'])
         self._initialize_parameters(self._hp['act_fn'])
 
 
 def get_object_detector_pipelines() -> Dict[str, Pipeline]:
     p1 = Pipeline([node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset',
-                        inputs={'trainset': 'cifar10_train', 'testset': 'cifar10_test', 'params': 'params:split_dataset_ratios'},
+                        inputs={'dataset_or_trainset': 'cifar10_train', 'testset': 'cifar10_test', 'params': 'params:split_dataset_ratios'},
                         outputs=['trainset', 'validset', 'testset']),
                    node(deepcv.meta.data.preprocess.preprocess, name='preprocess',
                         inputs={'trainset': 'trainset', 'testset': 'testset', 'validset': 'validset', 'params': 'params:cifar10_preprocessing'},

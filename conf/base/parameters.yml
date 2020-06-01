@@ -1,34 +1,35 @@
 %YAML 1.2
+%TAG !py! tag:yaml.org,2002:python/name:
 ---
 # Dataset preprocessing and augmentation YAML configuration file
 augmentations_recipes:
   - basic_augmentation: &basic_augmentation
-    keep_same_input_shape: true # Whether augmented images will be croped their respective initial input image sizes or not
-    random_transform_order: true
-    augmentation_ops_depth: [1, 4] # An augmentation transform chain can only contain of 1 to 4 augmentation operations
-    augmentations_per_image: [1, 3] # Uniform range of augmentation count to be performed per dataset images (thus augmented dataset size will be between 2 and 4 times thez size of original dataset)
-    transforms:
-      - crop: false
-      - brightness: 0.2 # Random brightness variance/severity (assumes pixel data is normalized)
-      - contrast: 0.1 # Contrast transform variance/severity
-      - tweak_colors: 0.1
-      - gamma: 0.05 # gamma tweaking variance/severity
-      - posterize: 0.05 # entails conversion of a continuous gradation of tone to several regions of fewer tones
-      - noise: 0.1
-      - rotate: [-0.4, 0.4] # e.g., `[-|a|, |b|]` rotation range means random rotation will be sampled from a gaussian distribution truncated between -180x|a|° and 180x|b|°, with gaussian variance beeing proportional to `|a|-|b|`
-      - translate: 0.2 # variance/severity of image translation transform
-      - scale: 0.2
-      - smooth_non_linear_deformation: false # Strenght/severity of a non-linear image deformation (set to null, false or 0 to disable)
+      keep_same_input_shape: true # Whether augmented images will be croped their respective initial input image sizes or not
+      random_transform_order: true
+      augmentation_ops_depth: [1, 4] # An augmentation transform chain can only contain of 1 to 4 augmentation operations
+      augmentations_per_image: [1, 3] # Uniform range of augmentation count to be performed per dataset images (thus augmented dataset size will be between 2 and 4 times thez size of original dataset)
+      transforms:
+        - crop: false
+        - brightness: 0.2 # Random brightness variance/severity (assumes pixel data is normalized)
+        - contrast: 0.1 # Contrast transform variance/severity
+        - tweak_colors: 0.1
+        - gamma: 0.05 # gamma tweaking variance/severity
+        - posterize: 0.05 # entails conversion of a continuous gradation of tone to several regions of fewer tones
+        - noise: 0.1
+        - rotate: [-0.4, 0.4] # e.g., `[-|a|, |b|]` rotation range means random rotation will be sampled from a gaussian distribution truncated between -180x|a|° and 180x|b|°, with gaussian variance beeing proportional to `|a|-|b|`
+        - translate: 0.2 # variance/severity of image translation transform
+        - scale: 0.2
+        - smooth_non_linear_deformation: false # Strenght/severity of a non-linear image deformation (set to null, false or 0 to disable)
   - augmix_augmentation:
-    << : *basic_augmentation
-    augmix:
-      - augmentation_chains_count: [1, 3] # Number of augmentation transform chains to mix together (see [AugMix](https://arxiv.org/pdf/1912.02781.pdf) augmentation algorithm for more details)
-      - transform_chains_dirichlet: 0.3 # Dirichlt distribution parameter to sample k=3 mixing convex coeficients. (to be convex along each dimensions, dirichlet coefficents must be > 1.)
-      - mix_with_original_beta: 0.3 # if strength/severity is greater than 0: final augmented image will be with it original image (given value discribes Beta distribution)
+      <<: *basic_augmentation
+      augmix:
+        - augmentation_chains_count: [1, 3] # Number of augmentation transform chains to mix together (see [AugMix](https://arxiv.org/pdf/1912.02781.pdf) augmentation algorithm for more details)
+        - transform_chains_dirichlet: 0.3 # Dirichlt distribution parameter to sample k=3 mixing convex coeficients. (to be convex along each dimensions, dirichlet coefficents must be > 1.)
+        - mix_with_original_beta: 0.3 # if strength/severity is greater than 0: final augmented image will be with it original image (given value discribes Beta distribution)
   - singan_augmentation: &singan_augmentation
-    << : *basic_augmentation
-    transforms_additional:
-      - distilled_singan_augmentation: true
+      <<: *basic_augmentation
+      transforms_additional:
+        - distilled_singan_augmentation: true
 
 split_dataset_ratios:
   validset_ratio: 0.2 # %
@@ -37,64 +38,58 @@ split_dataset_ratios:
 basic_preprocessing_procedure: &basic_preprocessing_procedure
   cache: true
   transforms:
-    - !py!torchvision.transforms.ToPILImage
+    #- !py!torchvision.transforms.ToPILImage
     - normalize
   augmentation_reciepe: *basic_augmentation
 
 mnist_preprocessing:
-  << : *basic_preprocessing_procedure
-  normalization_stats : [[0.15, 0.15, 0.15], [0.15, 0.15, 0.15]]
+  <<: *basic_preprocessing_procedure
+  normalization_stats: [[0.15, 0.15, 0.15], [0.15, 0.15, 0.15]]
 
 cifar10_preprocessing: &cifar10_preprocessing
-  << : *basic_preprocessing_procedure
+  <<: *basic_preprocessing_procedure
   normalization_stats: [[0.491, 0.482, 0.447], [0.247, 0.243, 0.261]]
 
 cifar100_preprocessing:
-  << : *cifar10_preprocessing
+  <<: *cifar10_preprocessing
 
 imagenet32_prerocessing:
-  << : *basic_preprocessing_procedure
+  <<: *basic_preprocessing_procedure
   normalization_stats: [[0.485, 0.456, 0.406], [0.229, 0.224, 0.225]]
-
-...
-%YAML 1.2
-%TAG !py! tag:yaml.org,2002:python/object:  
----
 
 models:
   - basic_backbone: &basic_backbone
-    act_fn: !py!torch.nn.ReLU
-    architecture:
-      - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
-      - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
-      - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
-      - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2]}]
-      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-      - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
-      - residual_link: { _from: pooling1, allow_scaling: true }
+      act_fn: !py!torch.nn.ReLU
+      architecture:
+        - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
+        - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
+        - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
+        - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2] }]
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+        - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
+        - residual_link: { _from: pooling1, allow_scaling: true }
   - lager_backbone: &lager_backbone
-    act_fn: !py!torch.nn.ReLU
-    architecture:
-      - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2]}]
-      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-      - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
-      - dense_link: [dense1, { _from: pooling1, allow_scaling: true }]
-      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-      - avg_pooling: [pooling2, { kernel_size: [2, 2], stride: [2, 2] }]
-      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-      - residual_link: { _from: pooling2 }
-      - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
-      - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-      - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-      - dense_link: { _from: pooling2, allow_scaling: true }
-      - conv2d: { kernel_size: [3, 3], out_channels: 64, padding: 1 }
-
+      act_fn: !py!torch.nn.ReLU
+      architecture:
+        - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2] }]
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+        - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
+        - dense_link: [dense1, { _from: pooling1, allow_scaling: true }]
+        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+        - avg_pooling: [pooling2, { kernel_size: [2, 2], stride: [2, 2] }]
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+        - residual_link: { _from: pooling2 }
+        - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+        - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+        - dense_link: { _from: pooling2, allow_scaling: true }
+        - conv2d: { kernel_size: [3, 3], out_channels: 64, padding: 1 }
 
 # Hyper-parameter YAML configuration file
 basic_training_params: &basic_ignite_training
@@ -123,36 +118,37 @@ basic_training_params: &basic_ignite_training
     dist_url: "" # "env://"
     dist_backend: "" # Set, for example, nccl (torch.distributed.Backend.NCCL) for distributed training using nccl backend
 
-
 object_detector_training:
-  << : *basic_ignite_training
+  <<: *basic_ignite_training
   output_path: ""
   epochs: 80
   batch_size: 32
   optimizer_opts: { lr: 0.1, momentum: 0., weight_decay: 0., nesterov: true }
 
 object_detector_model:
-    act_fn: !py!deepcv.torch.nn.ReLU
-    dropout_prob: 0.0
-    batch_norm: { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
-    architecture:
-      - _deepcvmodule: *basic_backbone
-      - _deepcvmodule: *lager_backbone
-      - !py!deepcv.meta.nn.Flatten: null
-      - fully_connected: {out_features: 10}
+  act_fn: !py!torch.nn.ReLU
+  dropout_prob: 0.0
+  batch_norm:
+    { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
+  architecture:
+    - _deepcvmodule: *basic_backbone
+    #- _deepcvmodule: *lager_backbone
+    #- !py!deepcv.meta.nn.Flatten
+    - fully_connected: { out_features: 10 }
 
 keypoints_encoder_model:
-  act_fn: !py!deepcv.torch.nn.ReLU
-  batch_norm: { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
+  act_fn: !py!torch.nn.ReLU
+  batch_norm:
+    { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
   architecture:
     - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
 
 keypoints_decoder_model:
-  act_fn: !py!deepcv.torch.nn.ReLU
-  batch_norm: { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
+  act_fn: !!python/name:torch.nn.ReLU
+  batch_norm:
+    { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
   architecture:
     - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-
 # object_detector_hp_search:
 #   cross_validation: false
 #   hyperparams:

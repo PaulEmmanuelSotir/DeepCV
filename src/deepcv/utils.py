@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from functools import singledispatch, partial
 from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence, Callable, Type
 
+import anyconfig
 import numpy as np
 from tqdm import tqdm
 
@@ -30,12 +31,22 @@ import torch
 from kedro.io import DataCatalog
 
 
-__all__ = ['Number', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device', 'merge_dicts',
-           'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'get_by_identifier', 'get_str_repr',
+__all__ = ['Number', 'set_anyconfig_yaml_parser_priorities', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device',
+           'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'get_by_identifier', 'get_str_repr',
            'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
+
+
+def set_anyconfig_yaml_parser_priorities(pyyaml_priority: Optional[int] = None, ryaml_priority: Optional[int] = None):
+    """ Changes 'anyconfig''s YAML backend parsers priority which makes possible to choose whether 'pyyaml' or 'ruamel.yaml' backend will be used as default Parser when loading/dumping YAML config files with 'anyconfig'.
+    NOTE: Ruamel is, here, prefered over Pyyaml because of its YAML 1.2 support and allows 'unsafe/dangerous' Python tags usage by default (e.g. '!py!torch.nn.ReLU' YAML tags) without beging restricted to registered type constructors.
+    """
+    if pyyaml_priority is not None and anyconfig.backend.yaml.pyyaml:
+        anyconfig.backend.yaml.pyyaml.Parser._priority = pyyaml_priority
+    if ryaml_priority is not None and anyconfig.backend.yaml.ryaml:
+        anyconfig.backend.yaml.ryaml.Parser._priority = ryaml_priority
 
 
 def setup_cudnn(deterministic: bool = False, use_gpu: bool = torch.cuda.is_available()) -> types.ModuleType:

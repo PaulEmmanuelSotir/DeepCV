@@ -36,8 +36,8 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 class BackendConfig:
     def __init__(self, device=None, dist_backend: dist.Backend = None, dist_url: str = '', local_rank: Optional[int] = 0):
-        self.is_cpu = device.type == 'cpu'
-        self.device = device if device else deepcv.utils.get_device(devid=local_rank)
+        self.device = deepcv.utils.get_device(devid=local_rank) if device is None else device
+        self.is_cpu = self.device.type == 'cpu'
         self.ncpu = multiprocessing.cpu_count()
         self.dist_backend = dist_backend
         self.dist_url = dist_url
@@ -64,7 +64,7 @@ class BackendConfig:
         return f'distributed-{self.nnodes}nodes-{self.ngpus}gpus-{self.ngpus_current_node}current-node-gpus'
 
 
-def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[Metric] = {}) -> ignite.engine.State:
+def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters

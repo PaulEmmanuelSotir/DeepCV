@@ -106,7 +106,7 @@ class DeepcvModule(nn.Module):
     HP_DEFAULTS = ...
 
     def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
-        super(DeepcvModule, self).__init__()
+        super().__init__()
         self._input_shape = input_shape
 
         # Process module hyperparameters
@@ -275,7 +275,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
     SHARED_BLOCK_DISABLED_WARNING_MSG = r'Warning: `DeepcvModule.{}` called while `self._enable_shared_image_embedding_block` is `False` (Shared image embedding block disabled for this model)'
 
     def __init__(self, input_shape: torch.Size, hp: deepcv.meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
-        super(DeepcvModuleWithSharedImageBlock, self).__init__(input_shape, hp)
+        super().__init__(input_shape, hp)
 
         self._shared_block_forked = False
         self._enable_shared_image_embedding_block = enable_shared_block
@@ -289,7 +289,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
         if self._enable_shared_image_embedding_block:
             # Apply shared image embedding block and combine it's output with input image (concats features over channel dimension)
             x = torch.cat([x, self.shared_image_embedding_block(x)], dim=channel_dim)
-        return super(DeepcvModuleWithSharedImageBlock, self).forward(x)
+        return super().forward(x)
 
     @property
     def freeze_shared_image_embedding_block(self) -> bool:

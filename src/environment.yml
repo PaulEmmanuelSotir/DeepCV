@@ -31,6 +31,7 @@ dependencies:
         - networkx=2.*
         - gym-atari=0.17.*
         - pip:
-                  - kedro
+                  - kedro[pandas.CSVDataSet]==0.16.1
                   - kedro-viz
+                  - ruamel.yaml
                   - nni

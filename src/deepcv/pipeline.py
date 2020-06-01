@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """Construction of the master pipeline.
 """
+import operator
 from typing import Dict
+from functools import reduce
 
 from kedro.pipeline import Pipeline
 import kedro.pipeline.decorators as dec
@@ -23,4 +25,4 @@ def create_pipelines(**kwargs) -> Dict[str, Pipeline]:
     """
     pipeline_mapping = {}
     pipeline_mapping.update({n: p.decorate(*DECORATORS) for n, p in deepcv.detection.object.get_object_detector_pipelines().items()})
-    return {**pipeline_mapping, "__default__": sum([p for n, p in pipeline_mapping.items()])}
+    return {**pipeline_mapping, "__default__": reduce(operator.add, [p for n, p in pipeline_mapping.items()])}

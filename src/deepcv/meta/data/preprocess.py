@@ -98,34 +98,35 @@ def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperpar
     func_name = deepcv.utils.get_str_repr(params, __file__)
     params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'validset_ratio': None, 'testset_ratio': None, 'cache': False})
     logging.info(f'{func_name}: Spliting pytorch dataset into a trainset, testset and eventually a validset: `params="{params}"`')
+    testset_ratio, validset_ratio = params['testset_ratio'], params['validset_ratio']
 
     # Find testset size to sample from `dataset_or_trainset` if needed
     split_lengths = tuple()
     if testset is None:
-        if params['testset_ratio'] is None:
+        if testset_ratio is None:
             msg = f'Error: {func_name} function either needs an existing `testset` as argument or you must specify a `testset_ratio` in `params` (probably from parameters/preprocessing YAML config)\nProvided dataset spliting parameters: "{params}"'
             logging.error(msg)
             raise ValueError(msg)
-        split_lengths += (int(len(dataset_or_trainset) * params['testset_ratio']),)
+        split_lengths += (int(len(dataset_or_trainset) * testset_ratio),)
 
     # Find validset size to sample from `dataset_or_trainset` if needed
-    if params['validset_ratio'] is not None:
-        split_lengths += (int(len(dataset_or_trainset) * params['validset_ratio']),)
+    if validset_ratio is not None:
+        split_lengths += (int(len(dataset_or_trainset) * validset_ratio),)
 
     # Return dataset as is if testset is already existing and not validset needs to be sampled
-    if testset is not None and params['validset_ratio'] is None:
+    if testset is not None and validset_ratio is None:
         return {'trainset': dataset_or_trainset, 'testset': testset}
 
     # Perform sampling/splitting
     trainset_size = len(dataset_or_trainset) - np.sum(split_lengths)
     if trainset_size < 1:
-        msg = f'Error in {func_name}: testset and eventual validset size(s) are too large, there is no remaining trainset samples (maybe dataset is too small (`len(dataset_or_trainset)={len(dataset_or_trainset)}`) or there is a mistake in `testset_ratio={testset_ratio}` or `validset_ration={validset_ration}` values, whcih must be between 0. and 1.).'
+        msg = f'Error in {func_name}: testset and eventual validset size(s) are too large, there is no remaining trainset samples (maybe dataset is too small (`len(dataset_or_trainset)={len(dataset_or_trainset)}`) or there is a mistake in `testset_ratio={testset_ratio}` or `validset_ratio={validset_ratio}` values, whcih must be between 0. and 1.).'
         logging.error(msg)
         raise RuntimeError(msg)
     trainset, *testset_and_validset = torch.utils.data.random_split(dataset_or_trainset, (trainset_size, *split_lengths))
     if testset is None:
         testset = testset_and_validset[0]
-    validset = testset_and_validset[-1] if params['validset_ratio'] is not None else None
+    validset = testset_and_validset[-1] if validset_ratio is not None else None
 
     if params['cache']:
         logging.info(f'{func_name}: Saving resulting dataset to disk (`params["cache"] == True`)...')

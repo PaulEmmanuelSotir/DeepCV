@@ -35,8 +35,8 @@ __author__ = 'Paul-Emmanuel Sotir'
 class KeypointsDetector(base_module.DeepcvModule):
     HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Tensor, hp: Union[Dict[str,Any], hyperparams.Hyperparameters] ):
-        super(KeypointsDetector, self).__init__(input_shape, hp)
+    def __init__(self, input_shape: torch.Tensor, hp: Union[Dict[str, Any], hyperparams.Hyperparameters]):
+        super().__init__(input_shape, hp)
         self._define_nn_architecture(self._hp['architecture'])
         self._initialize_parameters(self._hp['act_fn'])
 
@@ -53,7 +53,6 @@ def get_keypoints_detector_pipelines():
                    node(train, name='train_object_detector', inputs=['datasets', 'model', 'params:object_detector_training'], outputs=['ignite_state'])],
                   name='object_detector_training')
     return [p1]
-
 
 
 def create_model(datasets: Dict[str, Dataset], model_params: Union[hyperparams.Hyperparameters, Dict[str, Any]]):

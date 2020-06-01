@@ -10,7 +10,7 @@ Builds a training meta-dataset and allows a unified treatment and understanding 
 """
 import uuid
 import types
-import collections
+import collections.abc
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
 
 import torch
@@ -57,7 +57,7 @@ class HyperparameterSpace(TrainingMetaData):
         return overlap
 
 
-class Hyperparameters(TrainingMetaData, collections.Mapping):
+class Hyperparameters(TrainingMetaData, collections.abc.Mapping):
     """ Hyperparameter frozen dict
     Part of this code from [this StackOverflow thread](https://stackoverflow.com/questions/2703599/what-would-a-frozen-dict-be)
     # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
@@ -65,7 +65,7 @@ class Hyperparameters(TrainingMetaData, collections.Mapping):
 
     def __init__(self, existing_uuid: Optional[uuid.UUID] = None, **kwargs):
         TrainingMetaData.__init__(self, existing_uuid)
-        collections.Mapping.__init__(self)
+        collections.abc.Mapping.__init__(self)
         self._store = dict(**kwargs)
         self._hash = None
 

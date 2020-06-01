@@ -15,8 +15,7 @@ import mlflow
 import anyconfig
 import torchvision
 
-import deepcv.pipeline
-import deepcv.utils
+import deepcv
 
 __author__ = 'Paul-Emmanuel Sotir'
 

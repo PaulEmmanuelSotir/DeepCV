@@ -41,20 +41,10 @@
 # (transcoding), templating and a way to reuse arguments that are frequently repeated. See more here:
 # https://kedro.readthedocs.io/en/stable/04_user_guide/04_data_catalog.html
 
-imagenet32_train: &imagenet32
-  type: PytorchDataset
-  torch_dataset: "torchvision.datasets.ImageNet32"
-  root: "data/01_raw/ImageNet/32/train"
-  train: True
-  download: True
-
-imagenet32_test:
-  <<: *imagenet32
-  root: "data/01_raw/ImageNet/32/test"
-  train: False
+# TODO: Replace manual identifier parsing with '!py!name:torchvision.datasets.CIFAR10' tags usage?
 
 cifar10_train: &cifar10
-  type: PytorchDataset
+  type: deepcv.meta.data.datasets.PytorchDatasetWarper
   torch_dataset: "torchvision.datasets.CIFAR10"
   root: "data/01_raw/CIFAR/10/train"
   train: True
@@ -66,7 +56,7 @@ cifar10_test:
   train: False
 
 cifar100_train: &cifar100
-  type: PytorchDataset
+  type: deepcv.meta.data.datasets.PytorchDatasetWarper
   torch_dataset: "torchvision.datasets.CIFAR100"
   root: "data/01_raw/CIFAR/100/train"
   train: True
@@ -76,14 +66,25 @@ cifar100_test:
   <<: *cifar100
   root: "data/01_raw/CIFAR/100/test"
   train: False
+# imagenet_train: &imagenet
+#   type: deepcv.meta.data.datasets.PytorchDatasetWarper
+#   torch_dataset: "torchvision.datasets.ImageNet"
+#   root: "data/01_raw/ImageNet/32/train"
+#   split: "train"
 
-football_img_dataset:
-  type: PytorchDataset
-  torch_dataset: "deepcv.meta.data.datasets.ImageDataset"
-  filepath: data/01_raw/Football/images
+# imagenet_valid:
+#   <<: *imagenet
+#   root: "data/01_raw/ImageNet/32/valid"
+#   split: "val"
+
+# football_img_dataset:
+#   type: deepcv.meta.data.datasets.PytorchDatasetWarper
+#   torch_dataset: "deepcv.meta.data.datasets.ImageDataset"
+#   filepath: data/01_raw/Football/images
+
 #
 # football_vid_dataset:
-#   type: PytorchDataset
+#   type: deepcv.meta.data.datasets.PytorchDatasetWarper
 #   torch_dataset: "deepcv.meta.data.datasets.VideoDataset"
 #   filepath: data/01_raw/Football/videos
 

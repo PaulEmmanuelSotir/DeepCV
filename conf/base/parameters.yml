@@ -1,5 +1,6 @@
 %YAML 1.2
 %TAG !py! tag:yaml.org,2002:python/name:
+%TAG !pyobj! tag:yaml.org,2002:python/object:
 ---
 # Dataset preprocessing and augmentation YAML configuration file
 augmentations_recipes:
@@ -133,7 +134,7 @@ object_detector_model:
   architecture:
     - _deepcvmodule: *basic_backbone
     #- _deepcvmodule: *lager_backbone
-    #- !py!deepcv.meta.nn.Flatten
+    - !py!deepcv.meta.nn.Flatten
     - fully_connected: { out_features: 10 }
 
 keypoints_encoder_model:

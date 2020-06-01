@@ -4,6 +4,7 @@
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import uuid
+import inspect
 import threading
 import collections
 import functools as fn
@@ -27,7 +28,7 @@ __all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'get_random_subset_da
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-TORCHVISION_DATASETS = {identifier: value for identifier, value in torchvision.datasets.__dict__.items() if value is Dataset}
+TORCHVISION_DATASETS = {identifier: value for identifier, value in torchvision.datasets.__dict__.items() if inspect.isclass(value) and issubclass(value, Dataset)}
 
 
 class PytorchDatasetWarper(kedro.io.AbstractDataSet):
@@ -37,7 +38,8 @@ class PytorchDatasetWarper(kedro.io.AbstractDataSet):
             try:
                 self.pytorch_dataset = deepcv.utils.get_by_identifier(torch_dataset)(**dataset_kwargs)
             except Exception as e:
-                raise ValueError(f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` doesn\'t match type identifier criterias.') from e
+                msg = f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` type cannot be found or instanciated with the following arguments keyword arguments: "{dataset_kwargs}". \nRaised exception: "{e}"'
+                raise ValueError(msg) from e
         else:
             self.pytorch_dataset = torch_dataset(**dataset_kwargs)
 

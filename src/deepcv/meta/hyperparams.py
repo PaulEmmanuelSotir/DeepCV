@@ -68,9 +68,9 @@ class HyperparamsEmbedding(nn.Module):
             # First call of recursion over hp_space dict
             _hp_repr = np.array([])
         for n, v in hp.items():
-            if issubclass(v, Dict):
+            if isinstance(v, Dict):
                 _hp_repr.append(self._from_hp_space(v, _hp_repr))
-            elif isinstance(v, ...):
+            elif True or isinstance(v, ...):
                 raise NotImplementedError
                 self._hp_space[n]
                 _hp_repr.append(...)
@@ -208,8 +208,8 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             # TODO: create and train on 'meta' dataset from MLFlow?
 
     def forward(self, model: Union[nn.Module, int], trainset: Union[DataLoader, int]) -> float:
-        model_capacity = deepcv.meta.nn.get_model_capacity(model) if issubclass(model, nn.Module) else model
-        trainset_size = trainset if issubclass(trainset, int) else len(trainset)
+        model_capacity = deepcv.meta.nn.get_model_capacity(model) if isinstance(model, nn.Module) else model
+        trainset_size = trainset if isinstance(trainset, int) else len(trainset)
         estimation = GeneralizationAcrossScalesPredictor.error_landscape_estimation(self._leastsquares_params, model_capacity, trainset_size)
 
         if self._use_additional_nn_model:
@@ -238,7 +238,7 @@ def to_hyperparameters(hp: Union[Dict[str, Any], Hyperparameters], defaults: Opt
         - raise_if_missing: Boolean indicating whether if this function should raise an exception if `defaults` specifies mandatory (hyper)parameters which are missing in `hp`
     Returns resulting `deepcv.meta.hyperparams.Hyperparameters` object with provided defaults, and eventually also returns missing hyperparameters which are missing according to `defaults` argument, if provided.
     """
-    if not issubclass(hp, Hyperparameters):
+    if not isinstance(hp, Hyperparameters):
         hp = Hyperparameters(**hp)
     if defaults is not None:
         hp, missing = hp.with_defaults(defaults)

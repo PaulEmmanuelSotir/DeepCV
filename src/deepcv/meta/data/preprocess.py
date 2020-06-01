@@ -47,7 +47,7 @@ def tensor_to_np(tensor: torch.Tensor) -> np.ndarray:
 def normalize_tensor(trainset: DataLoader, normalization_stats: Optional[Union[torch.Tensor, Sequence[Sequence[float]]]] = None, channels: int = 3) -> torchvision.transforms.Normalize:
     """ Returns a normalizing transform for given dataloader. If there are no given normalization stats (mean and std per channels), then these stats will be processed before returning the transform. """
     stats_shape_error_msg = f'Error: normalization stats should be of shape (2, {channels}) i.e. ((mean + std), (channel count))'
-    if issubclass(normalization_stats, torch.Tensor):
+    if isinstance(normalization_stats, torch.Tensor):
         assert normalization_stats.shape == torch.Size((2, channels)), stats_shape_error_msg
         mean, std = normalization_stats[0], normalization_stats[1]
     else:
@@ -95,7 +95,7 @@ STATEFUL_DATA_PROCESS = {'normalize_tensor': _process_normalization_stats}
 
 
 def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: deepcv.meta.data.datasets.PytorchDatasetWarper, testset: Optional[deepcv.meta.data.datasets.PytorchDatasetWarper] = None) -> Dict[str, deepcv.meta.data.datasets.PytorchDatasetWarper]:
-    func_name = deepcv.utils.get_str_repr(params, __file__)
+    func_name = deepcv.utils.get_str_repr(split_dataset, __file__)
     params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'validset_ratio': None, 'testset_ratio': None, 'cache': False})
     logging.info(f'{func_name}: Spliting pytorch dataset into a trainset, testset and eventually a validset: `params="{params}"`')
     testset_ratio, validset_ratio = params['testset_ratio'], params['validset_ratio']

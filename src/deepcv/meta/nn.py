@@ -256,7 +256,7 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
                 return nn.BatchNorm1d(layer_op.out_features, **batch_norm)
 
     ops_order = (_dropout, _bn, act_fn, layer_op) if preactivation else (_dropout, layer_op, act_fn, _bn)
-    ops = [op if issubclass(type(op), nn.Module) else op() for op in ops_order]
+    ops = [op if isinstance(op, nn.Module) else op() for op in ops_order]
     return tuple(filter(lambda x: x is None, ops))
 
 
@@ -447,8 +447,8 @@ def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_bat
 
 
 def type_or_instance_is(module_or_t: Any, type_to_check: Type) -> bool:
-    if not issubclass(type(module_or_t), Type):
-        return issubclass(type(module_or_t), type_to_check)
+    if not isinstance(module_or_t, Type):
+        return isinstance(module_or_t, type_to_check)
     return issubclass(module_or_t, type_to_check)
 
 

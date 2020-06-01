@@ -110,8 +110,8 @@ class DeepcvModule(nn.Module):
         self._input_shape = input_shape
 
         # Process module hyperparameters
-        assert self.__class__.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({self.__class__.__name__}) must define "HP_DEFAULTS" class attribute dict.'
-        hp, missing = deepcv.meta.hyperparams.to_hyperparameters(hp, defaults=self.__class__.HP_DEFAULTS, raise_if_missing=True)
+        assert type(self).HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({type(self).__name__}) must define "HP_DEFAULTS" class attribute dict.'
+        hp, missing = deepcv.meta.hyperparams.to_hyperparameters(hp, defaults=type(self).HP_DEFAULTS, raise_if_missing=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Apply object detector neural net architecture on top of shared image embedding features and input image
@@ -177,15 +177,15 @@ class DeepcvModule(nn.Module):
         for i, submodule_spec in enumerate(architecture_spec):
             submodule_type, params = list(submodule_spec.items())[0]
             submodule_name = f'_submodule_{i}'
-            if issubclass(params, List) or issubclass(params, Tuple):
+            if isinstance(params, List) or issubclass(params, Tuple):
                 # Architecture definition specifies a sub-module name explicitly
                 submodule_name, params = params[0], params[1]
-            elif issubclass(params, str):
+            elif isinstance(params, str):
                 # Architecture definition specifies a sub-module name explicitly without any other sub-module parameters
                 submodule_name, params = params, dict()
 
             # Checks if `params` is a valid and if there are eventual invalid or duplicate `submodule_name`(s)
-            if not issubclass(params, Dict):
+            if not isinstance(params, Dict):
                 raise RuntimeError(f'Error: Architecture sub-module spec. must either be a parameters Dict, or a submodule name along with parameters Dict, but got: "{params}".')
             if submodule_name is not None and submodule_name in dict(*submodules).keys() or submodule_name == r'' or not isinstance(submodule_name, str):
                 raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
@@ -211,10 +211,10 @@ class DeepcvModule(nn.Module):
                 module_or_callback = fn(**{n: p for n, p in available_params.items() if n in inspect.signature(fn).parameters})
 
                 # Figure out fn's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
-                if issubclass(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
+                if isinstance(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
                     self._forward_callbacks[submodule_name] = module_or_callback
                     submodules.append((submodule_name, None))
-                elif issubclass(module_or_callback, nn.Module):
+                elif isinstance(module_or_callback, nn.Module):
                     submodules.append((submodule_name, module_or_callback))
                 else:
                     msg = f'Error: Wrong sub-module creator function/class __init__ return type (must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.'
@@ -223,7 +223,7 @@ class DeepcvModule(nn.Module):
             # Store any sub-module name/label references (used to store referenced submodule's output features during model's forward pass in order to reuse these features later in a forward callback (e.g. for residual links))
             if '_from' in params:
                 # Allow multiple referenced sub-module(s) (`_from` entry can either be a list/tuple of referenced sub-modules name/label or a single sub-module name/label)
-                for referenced_submodule in tuple((params['_from'],)) if issubclass(params['_from'], str) else tuple(params['_from']):
+                for referenced_submodule in tuple((params['_from'],)) if issubclass(type(params['_from']), str) else tuple(params['_from']):
                     if referenced_submodule in self._submodule_references:
                         self._submodule_references[referenced_submodule].append(submodule_name)
                     else:
@@ -232,7 +232,7 @@ class DeepcvModule(nn.Module):
             # Get neural network submodules capacity and output features shapes
             self._submodules_capacities.append(deepcv.meta.nn.get_model_capacity(submodules[-1]))
             self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
-            self._features_shapes.append(deepcv.meta.nn.get_out_features_shape(self._net))
+            self._features_shapes.append(deepcv.meta.nn.get_out_features_shape(self._input_shape, self._net))
 
         self._submodules = dict(*submodules)
 
@@ -281,9 +281,9 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
         self._enable_shared_image_embedding_block = enable_shared_block
         self.freeze_shared_image_embedding_block = freeze_shared_block
 
-        if enable_shared_block and not 'shared_image_embedding_block' in self.__class__.__dict__:
+        if enable_shared_block and not getattr(self, 'shared_image_embedding_block', default=None):
             # If class haven't been instanciated yet, define common/shared DeepcvModule image embedding block
-            self.__class__._define_shared_image_embedding_block()
+            type(self)._define_shared_image_embedding_block()
 
     def forward(self, x: torch.Tensor, channel_dim: int = 3) -> torch.Tensor:
         if self._enable_shared_image_embedding_block:
@@ -304,7 +304,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
             # TODO: freeze/unfreeze weights...
             # TODO: handle concurency between different models training at the same time with unfreezed shared weights
         else:
-            logging.warn(self.__class__.SHARED_BLOCK_DISABLED_WARNING_MSG.format('set_freeze_shared_image_embedding_block'))
+            logging.warn(type(self).SHARED_BLOCK_DISABLED_WARNING_MSG.format('set_freeze_shared_image_embedding_block'))
 
     def fork_shared_image_embedding_block(self) -> bool:
         """ Copies/forks basic image embedding convolution block's shared weights to be specific to current model (won't be shared anymore)
@@ -316,7 +316,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
             self._shared_block_forked = True
             return True
         else:
-            logging.warn(self.__class__.SHARED_BLOCK_DISABLED_WARNING_MSG.format('fork_shared_image_embedding_block'))
+            logging.warn(type(self).SHARED_BLOCK_DISABLED_WARNING_MSG.format('fork_shared_image_embedding_block'))
         return False
 
     def merge_shared_image_embedding_block(self):
@@ -331,7 +331,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
             self._shared_block_forked = False
             return True
         else:
-            logging.warn(self.__class__.SHARED_BLOCK_DISABLED_WARNING_MSG.format('merge_shared_image_embedding_block'))
+            logging.warn(type(self).SHARED_BLOCK_DISABLED_WARNING_MSG.format('merge_shared_image_embedding_block'))
         return False
 
     @classmethod
@@ -351,7 +351,7 @@ class DeepcvModuleDescriptor:
     def __init__(self, module: DeepcvModule):
         self.module = module
 
-        if '_architecture_spec' in module.__dict__:
+        if getattr(module, '_architecture_spec', default=None):
             # NOTE: `module.architecture_spec` attribute will be defined if `module._define_nn_architecture` is called
             architecture_spec = module._architecture_spec
         elif 'architecture' in module._hp:
@@ -359,7 +359,7 @@ class DeepcvModuleDescriptor:
             architecture_spec = module._hp['architecture']
         else:
             architecture_spec = None
-            logging.warn(f"Warning: `{self.__class__.__name__}({module.__class__})`: cant find NN architecture, no `module.architecture_spec` attr. nor `architecture` in `module._hp`")
+            logging.warn(f"Warning: `{type(self).__name__}({type(module)})`: cant find NN architecture, no `module.architecture_spec` attr. nor `architecture` in `module._hp`")
 
         # Fills and return a DeepCV module descriptor
         self.capacity = deepcv.meta.nn.get_model_capacity(module)
@@ -372,22 +372,22 @@ class DeepcvModuleDescriptor:
             self.freezed_shared_block = module._freeze_shared_image_embedding_block
             assert not self.did_forked_shared_block or self.uses_shared_block, 'Error: DeepCVModule have inconsistent flags: `_shared_block_forked` cant be True if `_enable_shared_image_embedding_block` is False'
 
-        if '_features_shapes' in module.__dict__:
+        if getattr(module, '_features_shapes', default=None):
             self.submodules_features_shapes = module._features_shapes
             self.submodules_features_dims = map(len, module._features_shapes)
             self.submodules_features_sizes = map(np.prod, module._features_shapes)
         if architecture_spec is not None:
             self.architecture = architecture_spec
             self.submodules_types = [list(subm.keys())[0] for subm in architecture_spec]
-        if '_submodules_capacities' in module.__dict__:
+        if getattr(module, '_submodules_capacities', default=None):
             self.submodules_capacities = module._submodules_capacities
             self.human_readable_capacities = map(deepcv.utils.human_readable_size, module._submodules_capacities)
 
     def __str__(self) -> str:
         """ Ouput a human-readable string representation of the deepcv module based on its descriptor """
         if self.architecture is not None:
-            features = self.submodules_features_shapes if 'submodules_features_shapes' in self.__dict__ else ['UNKNOWN'] * len(self.architecture)
-            capas = self.human_readable_capacities if 'human_readable_capacities' in self.__dict__ else ['UNKNOWN'] * len(self.architecture)
+            features = self.submodules_features_shapes if getattr(self, 'submodules_features_shapes', default=None) else ['UNKNOWN'] * len(self.architecture)
+            capas = self.human_readable_capacities if getattr(self, 'human_readable_capacities', default=None) else ['UNKNOWN'] * len(self.architecture)
             desc_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(self.architecture, features, capas)])
         else:
             desc_str = '(No submodule architecture informations to describe)'

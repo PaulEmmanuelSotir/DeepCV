@@ -210,8 +210,8 @@ def get_by_identifier(identifier: str):
         raise ValueError(f'Error: bad identifier given in `deepcv.utils.get_by_identifier` function (identifier="{identifier}" must match "{regex}" regex)')
 
 
-def get_str_repr(fn_or_type: Union[Type, Callable], src_file: Optional[str] = None):
-    src_file_without_suffix = '.'.join(Path(src_file).parents + [Path(src_file).stem, ]) + '.' if src_file else ''
+def get_str_repr(fn_or_type: Union[Type, Callable], src_file: Optional[Union[str, Path]] = None):
+    src_file_without_suffix = '.'.join([str(Path(src_file).parents), ] + [Path(src_file).stem, ]) + '.' if src_file else ''
     signature = inspect.signature(fn_or_type) if isinstance(fn_or_type, Callable) else ''
     return f'`{src_file_without_suffix}{fn_or_type.__name__}{signature}`'
 
@@ -262,7 +262,7 @@ def import_third_party(src_path: Union[str, Path], namespace: Optional[str] = No
     Returns imported third party module, or `None` if `catch_excepts` is `True` and third party module couldn't be imported.
     """
     def _import_third_party():
-        if not issubclass(src_path, Path):
+        if not isinstance(src_path, Path):
             src_path = Path(src_path)
         if namespace is None:
             namespace = src_path.stem

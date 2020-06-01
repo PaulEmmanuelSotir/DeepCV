@@ -43,8 +43,9 @@ class ProjectContext(KedroContext):
 
     def _create_catalog(self, *args, **kwargs):
         catalog = super()._create_catalog(*args, **kwargs)
-        profile_time = transformers.ProfileTimeTransformer()  # instantiate a built-in transformer
-        catalog.add_transformer(profile_time)  # apply it to the catalog
+        # TODO: find profile time profiler replacement in Kedro 0.16.1 (was available in contrib subpackage of kedro <0.16.0)
+        # profile_time = transformers.ProfileTimeTransformer()  # instantiate a built-in transformer
+        # catalog.add_transformer(profile_time)  # apply it to the catalog
         return catalog
 
 

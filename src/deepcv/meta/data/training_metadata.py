@@ -81,10 +81,17 @@ class Hyperparameters(TrainingMetaData, collections.abc.Mapping):
     def __hash__(self):
         if self._hash is None:
             hash_ = 0
-            for pair in self.iteritems():
+            for pair in self.items():
                 hash_ ^= hash(pair)
             self._hash = hash_
         return self._hash
+
+    def __eq__(self, other: Union[collections.abc.Mapping, Hyperparameters]):
+        """ `__eq__` override so that `self.__uuid` isn't taken into account, which makes it consistent with `__hash__` override """
+        if isinstance(other, Hyperparameters):
+            return self._store == other._store
+        else:
+            return self._store == other
 
     def get_dict_view(self) -> types.MappingProxyType:
         return types.MappingProxyType(self._store)

@@ -52,7 +52,7 @@ class PreprocessedDataset(Dataset):
         return len(self._unerlying_dataset)
 
     def __repr__(self):
-        return __repr__(self._unerlying_dataset)
+        return repr(self._unerlying_dataset)
 
 
 tensor_to_pil = torchvision.transforms.ToPILImage

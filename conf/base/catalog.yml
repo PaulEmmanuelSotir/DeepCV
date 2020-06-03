@@ -1,4 +1,6 @@
 %YAML 1.2
+%TAG !py! tag:yaml.org,2002:python/name:
+%TAG !pyobj! tag:yaml.org,2002:python/object:
 ---
 # Here you can define all your data sets by using simple YAML syntax.
 #
@@ -45,7 +47,7 @@
 
 cifar10_train: &cifar10
   type: deepcv.meta.data.datasets.PytorchDatasetWarper
-  torch_dataset: "torchvision.datasets.CIFAR10"
+  torch_dataset: !py!torchvision.datasets.CIFAR10
   root: "data/01_raw/CIFAR/10/train"
   train: True
   download: True
@@ -57,7 +59,7 @@ cifar10_test:
 
 cifar100_train: &cifar100
   type: deepcv.meta.data.datasets.PytorchDatasetWarper
-  torch_dataset: "torchvision.datasets.CIFAR100"
+  torch_dataset: !py!torchvision.datasets.CIFAR100
   root: "data/01_raw/CIFAR/100/train"
   train: True
   download: True
@@ -68,7 +70,7 @@ cifar100_test:
   train: False
 # imagenet_train: &imagenet
 #   type: deepcv.meta.data.datasets.PytorchDatasetWarper
-#   torch_dataset: "torchvision.datasets.ImageNet"
+#   torch_dataset: !py!torchvision.datasets.ImageNet
 #   root: "data/01_raw/ImageNet/32/train"
 #   split: "train"
 
@@ -79,13 +81,13 @@ cifar100_test:
 
 # football_img_dataset:
 #   type: deepcv.meta.data.datasets.PytorchDatasetWarper
-#   torch_dataset: "deepcv.meta.data.datasets.ImageDataset"
+#   torch_dataset: !py!deepcv.meta.data.datasets.ImageDataset
 #   filepath: data/01_raw/Football/images
 
 #
 # football_vid_dataset:
 #   type: deepcv.meta.data.datasets.PytorchDatasetWarper
-#   torch_dataset: "deepcv.meta.data.datasets.VideoDataset"
+#   torch_dataset: !py!deepcv.meta.data.datasets.VideoDataset
 #   filepath: data/01_raw/Football/videos
 
 # example_iris_data:

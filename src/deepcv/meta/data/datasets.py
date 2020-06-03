@@ -34,17 +34,26 @@ TORCHVISION_DATASETS = {identifier: value for identifier, value in torchvision.d
 class PytorchDatasetWarper(kedro.io.AbstractDataSet):
     def __init__(self, torch_dataset: Union[str, Type[Dataset]], **dataset_kwargs):
         super(PytorchDatasetWarper, self).__init__()
+        self.dataset_kwargs = dataset_kwargs
+
         if isinstance(torch_dataset, str):
             try:
-                self.pytorch_dataset = deepcv.utils.get_by_identifier(torch_dataset)(**dataset_kwargs)
+                # Retreive PyTorch Dataset type from given string identifier
+                self.pytorch_dataset = deepcv.utils.get_by_identifier(torch_dataset)
+                if not isinstance(self.pytorch_dataset, Dataset):
+                    raise TypeError(f'Error: `{torch_dataset}` should either be a `torch.utils.data.Dataset` or an identifier string'
+                                    f' of a type which inherits from `torch.utils.data.Dataset`, got `{self.pytorch_dataset}`')
             except Exception as e:
                 msg = f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` type cannot be found or instanciated with the following arguments keyword arguments: "{dataset_kwargs}". \nRaised exception: "{e}"'
                 raise ValueError(msg) from e
         else:
-            self.pytorch_dataset = torch_dataset(**dataset_kwargs)
+            self.pytorch_dataset = torch_dataset
+
+        # Make sure given `dataset_kwargs` can be used to instanciate PyTorch dataset (raises TypeError otherwise)
+        _bound_args = inspect.signature(self.pytorch_dataset.__init__).bind(**self.dataset_kwargs)
 
     def _load(self) -> Dataset:
-        return self.pytorch_dataset
+        return self.pytorch_dataset(**self.dataset_kwargs)
 
     def _save(self): pass
     def _describe(self): return vars(self)

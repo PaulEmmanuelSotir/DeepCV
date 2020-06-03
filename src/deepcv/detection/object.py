@@ -46,10 +46,10 @@ class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
 
 def get_object_detector_pipelines() -> Dict[str, Pipeline]:
     p1 = Pipeline([node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset',
-                        inputs={'dataset_or_trainset': 'cifar10_train', 'testset': 'cifar10_test', 'params': 'params:split_dataset_ratios'},
+                        inputs=dict(params='params:split_dataset_ratios', dataset_or_trainset='cifar10_train', testset='cifar10_test'),
                         outputs=['trainset', 'validset', 'testset']),
                    node(deepcv.meta.data.preprocess.preprocess, name='preprocess',
-                        inputs={'trainset': 'trainset', 'testset': 'testset', 'validset': 'validset', 'params': 'params:cifar10_preprocessing'},
+                        inputs=dict(trainset='trainset', testset='testset', validset='validset', params='params:cifar10_preprocessing'),
                         outputs=['datasets']),
                    node(create_model, name='create_object_detection_model', inputs=['datasets', 'params:object_detector_model'], outputs=['model']),
                    node(train, name='train_object_detector', inputs=['datasets', 'model', 'params:object_detector_training'], outputs=['ignite_state'])],

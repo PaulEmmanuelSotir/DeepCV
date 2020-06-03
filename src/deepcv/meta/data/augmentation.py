@@ -100,7 +100,7 @@ def sharpness(pil_img: Image, severity: float, max_enhance_factor: float = 1.8, 
 AUGMENTATION_OPS = [autocontrast, equalize, posterize, rotate, solarize, shear_x, shear_y, translate_x, translate_y, color, contrast, brightness, sharpness]
 
 
-def apply_augmentation_reciepe(dataset: torch.utils.data.Dataset, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Mapping]):
+def apply_augmentation_reciepe(dataset: torch.utils.data.Dataset, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Mapping]) -> Dataset:
     """ Applies listed augmentation transforms with given configuration from `hp` Dict.
     .. See [deepcv/conf/base/parameters.yml](./conf/base/parameters.yml) for examples of augmentation reciepe specification
     Args:

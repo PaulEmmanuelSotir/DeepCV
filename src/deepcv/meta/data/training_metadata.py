@@ -86,7 +86,7 @@ class Hyperparameters(TrainingMetaData, collections.abc.Mapping):
             self._hash = hash_
         return self._hash
 
-    def __eq__(self, other: Union[collections.abc.Mapping, Hyperparameters]):
+    def __eq__(self, other: Union[collections.abc.Mapping, "Hyperparameters"]):
         """ `__eq__` override so that `self.__uuid` isn't taken into account, which makes it consistent with `__hash__` override """
         if isinstance(other, Hyperparameters):
             return self._store == other._store

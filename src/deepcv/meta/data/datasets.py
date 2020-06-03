@@ -43,7 +43,9 @@ class PytorchDatasetWarper(kedro.io.AbstractDataSet):
         else:
             self.pytorch_dataset = torch_dataset(**dataset_kwargs)
 
-    def _load(self): pass
+    def _load(self) -> Dataset:
+        return self.pytorch_dataset
+
     def _save(self): pass
     def _describe(self): return vars(self)
 

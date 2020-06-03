@@ -94,7 +94,7 @@ STATEFUL_TRANSFORMS = {'normalize_tensor': {'normalization_stats': ...}}
 STATEFUL_DATA_PROCESS = {'normalize_tensor': _process_normalization_stats}
 
 
-def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: deepcv.meta.data.datasets.PytorchDatasetWarper, testset: Optional[deepcv.meta.data.datasets.PytorchDatasetWarper] = None) -> Dict[str, deepcv.meta.data.datasets.PytorchDatasetWarper]:
+def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: Dataset, testset: Optional[Dataset] = None) -> Dict[str, Dataset]:
     func_name = deepcv.utils.get_str_repr(split_dataset, __file__)
     params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'validset_ratio': None, 'testset_ratio': None, 'cache': False})
     logging.info(f'{func_name}: Spliting pytorch dataset into a trainset, testset and eventually a validset: `params="{params}"`')
@@ -134,7 +134,7 @@ def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperpar
     return {'trainset': trainset, 'validset': validset, 'testset': testset} if validset else {'trainset': trainset, 'testset': testset}
 
 
-def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], trainset: deepcv.meta.data.datasets.PytorchDatasetWarper, testset: deepcv.meta.data.datasets.PytorchDatasetWarper, validset: Optional[deepcv.meta.data.datasets.PytorchDatasetWarper] = None) -> Dict[str, DataLoader]:
+def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], trainset: Dataset, testset: Dataset, validset: Optional[Dataset] = None) -> Dict[str, Dataset]:
     """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `hp` (from `parameters.yml`)
     # TODO: create dataloader to preprocess/augment data by batches?
     Args:
@@ -155,13 +155,13 @@ def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparame
 
     # Preprocess and augment data according to recipes specified in hyperparameters from YAML config (deepcv/conf/base/parameters.yml)
     for ds_idx, ds in enumerate((trainset, validset, testset)):
-        if ds.pytorch_dataset is None or not len(ds.pytorch_dataset) > 0:
-            raise RuntimeError(f'Error: empty dataset `{ds}` provided in {deepcv.utils.get_str_repr(preprocess, __file__)}')
+        if ds is None or not len(ds) > 0:
+            raise RuntimeError(f'Error: Empty dataset `{ds}` provided in {deepcv.utils.get_str_repr(preprocess, __file__)}')
 
         # Data augmentation
         if params['augmentation_reciepe'] is not None:
             logging.info(f'Applying dataset augmentation reciepe ')
-            ds.pytorch_dataset = deepcv.meta.data.augmentation.apply_augmentation_reciepe(params['augmentation_reciepe'], ds.pytorch_dataset)
+            ds = deepcv.meta.data.augmentation.apply_augmentation_reciepe(dataset=ds, hp=params['augmentation_reciepe'])
 
         if ds_idx == 0:
             # If we are preprocessing trainset, we process stateful transforms's missing data
@@ -178,11 +178,11 @@ def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparame
                                                in hyerparameters or there is an issue in transform\'s `STATEFUL_DATA_PROCESS` function)""")
 
         # Define image preprocessing transforms
-        ds.pytorch_dataset.transform = _define_transforms(transform_identifiers=params['transforms'], available_transforms=AVAILABLE_TRANSFORMS)
+        ds.transform = _define_transforms(params['transforms'], AVAILABLE_TRANSFORMS, STATEFUL_TRANSFORMS)
 
         # Setup target preprocessing transforms
         if params['target_transforms'] is not None and len(params['target_transforms']) > 0:
-            ds.pytorch_dataset.target_transform = _define_transforms(transform_identifiers=params['target_transforms'], available_transforms=AVAILABLE_TRANSFORMS)
+            ds.target_transform = _define_transforms(params['target_transforms'], AVAILABLE_TRANSFORMS, STATEFUL_TRANSFORMS)
 
     # If needed, cache/save preprocessed/augmened dataset(s) to disk
     if params['cache']:

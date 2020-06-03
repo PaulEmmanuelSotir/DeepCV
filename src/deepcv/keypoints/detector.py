@@ -73,20 +73,21 @@ def train(datasets: Dict[str, Dataset], encoder: nn.Module, decoder: nn.Module, 
     loss = nn.CrossEntropyLoss()
     opt = optim.SGD
 
-    # Create dataloaders from dataset
+    # Determine maximal eval batch_size which fits in video memory
+    max_eval_batch_size = deepcv.meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=model, device=backend_conf.device, upper_bound=len(datasets['trainset']))
+
+    # Determine num_workers for DataLoaders
     if backend_conf.ngpus_current_node > 0 and backend_conf.distributed:
         workers = max(1, (backend_conf.ncpu - 1) // backend_conf.ngpus_current_node)
     else:
         workers = max(1, multiprocessing.cpu_count() - 1)
 
-    model = nn.Sequencial([encoder, decoder])
-    max_eval_batch_size = meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=encoder, device=backend_conf.device)
-
+    # Create dataloaders from dataset
     dataloaders = []
-    for n, ds in datasets:
+    for n, ds in datasets.items():
         shuffle = True if n == 'trainset' else False
         batch_size = hp['batch_size'] if n == 'trainset' else max_eval_batch_size
-        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers))
+        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers, pin_memory=True))
 
     return deepcv.meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
 

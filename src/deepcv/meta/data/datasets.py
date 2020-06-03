@@ -46,11 +46,13 @@ class PytorchDatasetWarper(kedro.io.AbstractDataSet):
             except Exception as e:
                 msg = f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` type cannot be found or instanciated with the following arguments keyword arguments: "{dataset_kwargs}". \nRaised exception: "{e}"'
                 raise ValueError(msg) from e
-        else:
+        elif issubclass(torch_dataset, Dataset):
             self.pytorch_dataset = torch_dataset
+        else:
+            raise TypeError(f'Error: `torch_dataset={torch_dataset}` should either be a `torch.utils.data.Dataset` or an identifier string')
 
         # Make sure given `dataset_kwargs` can be used to instanciate PyTorch dataset (raises TypeError otherwise)
-        _bound_args = inspect.signature(self.pytorch_dataset.__init__).bind(**self.dataset_kwargs)
+        _bound_args = inspect.signature(self.pytorch_dataset.__init__).bind(**self.dataset_kwargs, self=self.pytorch_dataset)
 
     def _load(self) -> Dataset:
         return self.pytorch_dataset(**self.dataset_kwargs)

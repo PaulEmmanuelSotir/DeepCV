@@ -100,13 +100,14 @@ def sharpness(pil_img: Image, severity: float, max_enhance_factor: float = 1.8, 
 AUGMENTATION_OPS = [autocontrast, equalize, posterize, rotate, solarize, shear_x, shear_y, translate_x, translate_y, color, contrast, brightness, sharpness]
 
 
-def apply_augmentation_reciepe(dataset: torch.utils.data.Dataset, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Mapping]) -> Dataset:
+def apply_augmentation_reciepe(dataset: torch.utils.data.Dataset, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Mapping]) -> Callable:
     """ Applies listed augmentation transforms with given configuration from `hp` Dict.
     .. See [deepcv/conf/base/parameters.yml](./conf/base/parameters.yml) for examples of augmentation reciepe specification
     Args:
         - dataset: Dataset on which data augmentation is performed
         - hp: Augmentation hyperparameters (Mapping or deepcv.meta.hyperparams.Hyperparameters object), must at least contain `transforms` entry, see `hp.with_defaults({...})` in this function code or [augmentation reciepes spec. in ./conf/base/parameters.yml](./conf/base/parameters.yml)
     Returns a new torch.utils.data.DataLoader which samples data from newly created augmented dataset
+    # TODO: use albumentation instead of torchvision
     """
     hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, {'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
                                                             'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
@@ -127,7 +128,7 @@ def apply_augmentation_reciepe(dataset: torch.utils.data.Dataset, hp: Union[deep
     if hp['keep_same_input_shape']:
         raise NotImplementedError
         # TODO: resize (scale and/or crop?) output image to its original size
-    return dataset
+    return torchvision.transforms.Compose(transforms)
 
 
 def augment_and_mix(image: Image, augmentation_chains_count: int = 3, chains_depth: Union[int, Tuple[int, int]] = [1, 3], severity: int = 0.3, transform_chains_dirichlet: float = 1., mix_with_original_beta: float = 1.) -> torch.Tensor:

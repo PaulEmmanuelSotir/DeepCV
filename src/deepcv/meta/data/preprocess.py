@@ -20,8 +20,39 @@ import deepcv.meta.data.datasets
 import deepcv.utils
 
 
-__all__ = ['split_dataset', 'preprocess', 'stateless_transform_factory', 'np_to_tensor', 'tensor_to_np']
+__all__ = ['PreprocessedDataset', 'split_dataset', 'preprocess', 'stateless_transform_factory', 'np_to_tensor', 'tensor_to_np']
 __author__ = 'Paul-Emmanuel Sotir'
+
+
+class PreprocessedDataset(Dataset):
+    """ A Simple PyTorch Dataset which applies given inputs/target transforms to underlying pytorch dataset items """
+
+    def __init__(self, underlying_dataset: Dataset, img_transform: Optional[Callable], target_transform: Optional[Callable] = None, augmentation_transform: Optional[Callable] = None):
+        self._unerlying_dataset = underlying_dataset
+        self._img_transform = img_transform
+        self._target_transform = target_transform
+        self._augmentation_transform = augmentation_transform
+
+    def __getitem__(self, index):
+        data = self._unerlying_dataset.__getitem__(index)
+        if isinstance(data, tuple):
+            # We assume first entry is image and any other entries are targets
+            x, *ys = data
+            if self._img_transform is not None:
+                x = self._img_transform(x)
+            if self._target_transform is not None:
+                ys = (self._target_transform(y) for y in ys)
+            if self._augmentation_transform is not None:
+                raise NotImplementedError
+            return (x, *ys)
+        else:
+            return self._input_transform(data)
+
+    def __len__(self):
+        return len(self._unerlying_dataset)
+
+    def __repr__(self):
+        return __repr__(self._unerlying_dataset)
 
 
 tensor_to_pil = torchvision.transforms.ToPILImage
@@ -104,25 +135,22 @@ def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperpar
     split_lengths = tuple()
     if testset is None:
         if testset_ratio is None:
-            msg = f'Error: {func_name} function either needs an existing `testset` as argument or you must specify a `testset_ratio` in `params` (probably from parameters/preprocessing YAML config)\nProvided dataset spliting parameters: "{params}"'
-            logging.error(msg)
-            raise ValueError(msg)
+            raise ValueError(f'Error: {func_name} function either needs an existing `testset` as argument or you must specify a `testset_ratio` in `params` '
+                             f'(probably from parameters/preprocessing YAML config)\nProvided dataset spliting parameters: "{params}"')
         split_lengths += (int(len(dataset_or_trainset) * testset_ratio),)
 
     # Find validset size to sample from `dataset_or_trainset` if needed
     if validset_ratio is not None:
         split_lengths += (int(len(dataset_or_trainset) * validset_ratio),)
-
-    # Return dataset as is if testset is already existing and not validset needs to be sampled
-    if testset is not None and validset_ratio is None:
+    elif testset is not None:
+        # Testset is already existing and no validset needs to be sampled : return dataset as is
         return {'trainset': dataset_or_trainset, 'testset': testset}
 
     # Perform sampling/splitting
-    trainset_size = len(dataset_or_trainset) - np.sum(split_lengths)
+    trainset_size = int(len(dataset_or_trainset) - np.sum(split_lengths))
     if trainset_size < 1:
-        msg = f'Error in {func_name}: testset and eventual validset size(s) are too large, there is no remaining trainset samples (maybe dataset is too small (`len(dataset_or_trainset)={len(dataset_or_trainset)}`) or there is a mistake in `testset_ratio={testset_ratio}` or `validset_ratio={validset_ratio}` values, whcih must be between 0. and 1.).'
-        logging.error(msg)
-        raise RuntimeError(msg)
+        raise RuntimeError(f'Error in {func_name}: testset and eventual validset size(s) are too large, there is no remaining trainset samples '
+                           f'(maybe dataset is too small (`len(dataset_or_trainset)={len(dataset_or_trainset)}`) or there is a mistake in `testset_ratio={testset_ratio}` or `validset_ratio={validset_ratio}` values, whcih must be between 0. and 1.).')
     trainset, *testset_and_validset = torch.utils.data.random_split(dataset_or_trainset, (trainset_size, *split_lengths))
     if testset is None:
         testset = testset_and_validset[0]
@@ -134,55 +162,51 @@ def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperpar
     return {'trainset': trainset, 'validset': validset, 'testset': testset} if validset else {'trainset': trainset, 'testset': testset}
 
 
-def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], trainset: Dataset, testset: Dataset, validset: Optional[Dataset] = None) -> Dict[str, Dataset]:
-    """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `hp` (from `parameters.yml`)
+def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], datasets: Dict[str, Dataset]) -> Dict[str, PreprocessedDataset]:
+    """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `params`.
+    Preprocess and augment data according to recipes specified in hyperparameters (`params`) from YAML config (see ./conf/base/parameters.yml)
     # TODO: create dataloader to preprocess/augment data by batches?
     Args:
         - params:
-        - trainset:
-        - testset:
-        - validset:
+        - datasets: Dict of PyTorch datasets (must contain 'trainset' and 'testset' entries and eventually a 'validset' entry)
     Returns a dict which contains preprocessed and/or augmented 'trainset', 'testset' and 'validset' datasets
     """
     logging.info('Starting pytorch dataset preprocessing procedure...')
     params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'transforms': ..., 'target_transforms': [], 'cache': False, 'augmentation_reciepe': None})
 
-    # Filter out sateful transforms wich are not used for this preprocessing reciepe
+    # Filter out sateful transforms which are not used for this preprocessing reciepe
     stateful_transforms = copy.deepcopy(STATEFUL_TRANSFORMS)
     stateful_transforms = {transform: data for transform, data in stateful_transforms.items() if transform in params['transforms'] or transform in params['target_transforms']}
     # Try to fill stateful transforms data from `params`
     stateful_transforms = {transf: {name: params[name] if name in params else ... for name, _ in data.items()} for transf, data in stateful_transforms.items()}
 
-    # Preprocess and augment data according to recipes specified in hyperparameters from YAML config (deepcv/conf/base/parameters.yml)
-    for ds_idx, ds in enumerate((trainset, validset, testset)):
-        if ds is None or not len(ds) > 0:
-            raise RuntimeError(f'Error: Empty dataset `{ds}` provided in {deepcv.utils.get_str_repr(preprocess, __file__)}')
+    # Process stateful transforms's missing data from trainset (e.g. mean and variance of trainset images)
+    for transform, data in stateful_transforms.items():
+        # Process transform state from trainset, and only change data which is not provided in `params`
+        to_process = [data_name for data_name, value in data.items() if value == ...]
+        if len(to_process) > 0:
+            processed_state = STATEFUL_DATA_PROCESS[transform](trainset=datasets['trainset'], to_process=to_process)
+            stateful_transforms[transform].update({n: processed_state[n] for n in to_process})
+            missing_data = [data_name for data_name, value in data.items() if value == ...]
+            if len(missing_data) > 0:
+                raise RuntimeError(f"""Error: {deepcv.utils.get_str_repr(preprocess, __file__)} function can`t apply `{transform}` transform, its `STATEFUL_DATA_PROCESS` function did not provided
+                                        some nescessary data and `params` (hyper)parameters doesn\'t prodide it neither. `{missing_data}` transform data is missing (you may need to provide it
+                                        in hyerparameters or there is an issue in transform\'s `STATEFUL_DATA_PROCESS` function)""")
 
-        # Data augmentation
-        if params['augmentation_reciepe'] is not None:
-            logging.info(f'Applying dataset augmentation reciepe ')
-            ds = deepcv.meta.data.augmentation.apply_augmentation_reciepe(dataset=ds, hp=params['augmentation_reciepe'])
+    # Define image preprocessing transforms
+    preprocess_transforms = dict(img_transform=_define_transforms(params['transforms'], AVAILABLE_TRANSFORMS, stateful_transforms))
 
-        if ds_idx == 0:
-            # If we are preprocessing trainset, we process stateful transforms's missing data
-            for transform, data in stateful_transforms.items():
-                # Process transform state from trainset, and only change data which is not provided in `params`
-                to_process = [data_name for data_name, value in data.items() if value == ...]
-                if len(to_process) > 0:
-                    processed_state = STATEFUL_DATA_PROCESS[transform](trainset=ds, to_process=to_process)
-                    stateful_transforms[transform].update({n: processed_state[n] for n in to_process})
-                    missing_data = [data_name for data_name, value in data.items() if value == ...]
-                    if len(missing_data) > 0:
-                        raise RuntimeError(f"""Error: {deepcv.utils.get_str_repr(preprocess, __file__)} function can`t apply `{transform}` transform, its `STATEFUL_DATA_PROCESS` function did not provided
-                                               some nescessary data and `params` (hyper)parameters doesn\'t prodide it neither. `{missing_data}` transform data is missing (you may need to provide it
-                                               in hyerparameters or there is an issue in transform\'s `STATEFUL_DATA_PROCESS` function)""")
+    # Setup target preprocessing transforms
+    if params['target_transforms'] is not None and len(params['target_transforms']) > 0:
+        preprocess_transforms['target_transform'] = _define_transforms(params['target_transforms'], AVAILABLE_TRANSFORMS, stateful_transforms)
 
-        # Define image preprocessing transforms
-        ds.transform = _define_transforms(params['transforms'], AVAILABLE_TRANSFORMS, STATEFUL_TRANSFORMS)
+    # Apply data augmentation
+    if params['augmentation_reciepe'] is not None:
+        logging.info(f'Applying dataset augmentation reciepe ')
+        preprocess_transforms['augmentation_transform'] = deepcv.meta.data.augmentation.apply_augmentation_reciepe(dataset=ds, hp=params['augmentation_reciepe'])
 
-        # Setup target preprocessing transforms
-        if params['target_transforms'] is not None and len(params['target_transforms']) > 0:
-            ds.target_transform = _define_transforms(params['target_transforms'], AVAILABLE_TRANSFORMS, STATEFUL_TRANSFORMS)
+    # Replace datasets with `PreprocessedDataset` instances in order to apply perprocesssing transforms to datasets entries (transforms applied on dataset `__getitem__` calls)
+    datasets = {n: PreprocessedDataset(ds, **preprocess_transforms) for n, ds in datasets.items()}
 
     # If needed, cache/save preprocessed/augmened dataset(s) to disk
     if params['cache']:
@@ -190,7 +214,7 @@ def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparame
         raise NotImplementedError  # TODO: Save preprocessed dataset to disk (data/04_features/)
 
     logging.info(f'Pytorch Dataset preprocessing procedure ({deepcv.utils.get_str_repr(preprocess, __file__)}) done, returning preprocessed/augmented Dataset(s).')
-    return {'trainset': trainset, 'validset': validset, 'testset': testset} if validset else {'trainset': trainset, 'testset': testset}
+    return datasets
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Training loop meta module - training_loop.py - `DeepCV`__  
+""" Training loop meta module - training_loop.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import logging
@@ -64,7 +64,7 @@ class BackendConfig:
         return f'distributed-{self.nnodes}nodes-{self.ngpus}gpus-{self.ngpus_current_node}current-node-gpus'
 
 
-def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}) -> ignite.engine.State:
+def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, async_batch_prefetch: bool = False) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
@@ -109,7 +109,20 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     scheduler = schedule['type'](**{n: eval(v) if 'eval_args' in schedule and n in schedule['eval_args'] else v for n, v in schedule['kwargs'].items()})
 
     def process_function(engine, batch):
+        # Mechanism to load input batchs asynchronously (loads next batch to device during computation on current batch)
+        # TODO: make sure it plays well with distributed setup
+        # TODO: improve this code to avoid strange behavior on first iteration and to avoid loosing last training iteration
         x, y = (convert_tensor(b, device=device, non_blocking=True) for b in batch)
+        if async_batch_prefetch:
+            if getattr(process_function, '_next_batch', default=None) is not None:
+                # Replace (x, y) with previously loaded batch
+                setattr(process_function, '_next_batch', (x, y))
+                x, y = getattr(process_function, '_next_batch')
+            else:
+                # First train iter: move batch to device and return
+                x, y = (convert_tensor(b, device=device, non_blocking=True) for b in batch)
+                setattr(process_function, '_next_batch', (x, y))
+                return dict()
 
         model.train()
         # Supervised part
@@ -122,6 +135,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         return {'batch loss': loss_tensor.item(), }
 
     trainer = Engine(process_function)
+
     # TODO: figure out why 'None' if not distributed?
     # TODO: replace it with torch.utils.data.distributed.DistributedSampler(trainset) ?
     train_sampler = trainset.sampler if backend_conf.distributed else None
@@ -147,13 +161,13 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     valid_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
 
-    def run_validation(engine):
-        torch.cuda.synchronize()
+    @trainer.on(Events.EPOCH_STARTED(every=hp['validate_every']))
+    @trainer.on(Events.COMPLETED)
+    def _run_validation(engine):
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         train_evaluator.run(trainset)
         valid_evaluator.run(validset_testset[0])
-
-    trainer.add_event_handler(Events.EPOCH_STARTED(every=hp['validate_every']), run_validation)
-    trainer.add_event_handler(Events.COMPLETED, run_validation)
 
     if backend_conf.rank == 0:
         if hp['display_iters']:
@@ -174,7 +188,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
                              event_name=Events.ITERATION_COMPLETED(every=hp['log_model_grads_every']))
 
     if hp['crash_iteration'] is not None and hp['crash_iteration'] >= 0:
-        @trainer.on(Events.ITERATION_STARTED(once=hp['crash_iteration']))
+        @ trainer.on(Events.ITERATION_STARTED(once=hp['crash_iteration']))
         def _(engine):
             raise Exception('STOP at iteration: {}'.format(engine.state.iteration))
 

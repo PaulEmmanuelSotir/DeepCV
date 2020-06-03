@@ -394,7 +394,7 @@ def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor,
 #     def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 #         return self.forward(input, target)
 
-def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Iterable[torch.Size], model: Optional[nn.Module], safety_margin: float = 0.75, trial_growth_factor: float = 1.2, device=deepcv.utils.get_device(), **model_kwargs):
+def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Iterable[torch.Size], model: Optional[nn.Module], upper_bound: int = -1, safety_margin: float = 0.6, trial_growth_factor: float = 1.2, device=deepcv.utils.get_device(), **model_kwargs):
     """ Finds largest `batch_size` which could fit in video memory without issues in an evaluation setup (no backprop).
     This function is usefull to estimate best evaluation `batch_size`. If `model` argument is given, then
     This gives an estimate/advice of maximal `batch_size` in a non-distributed setup, assuming you are training given model on current device.
@@ -403,6 +403,7 @@ def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Itera
         - data_shape: Input data tensor shape which will be contained in minibatches during evaluation
         - other_data_shapes: Other data tensor shapes which would be in minibatches dunring evaluation (e.g. targets minibatch). However, this argument can safely be ignored if your other/target data shapes are far smaller than input data size.
         - model: Optional model to be evaluated on batches
+        - upper_bound: Upper bound for returned batch_size. Returned batch_size wont be greater than `upper_bound`. If `upper_bound` < 0, then no upper bound is used.
         - safety_margin: Factor applied to maximal `batch_size` estimate to make sure there is a safety margin in video memory usage
         - trial_growth_factor: `batch_size` exponential growth factor for each `batch_size` trials. (tries greater and greater `batch_size`s until memory overflow occurs)
         - model_kwargs: keyword arguments needed when calling optional `torch.nn.module` model (passed during forward pass along with a minibatch of dummy tensors of `data_shape` shape as input data)
@@ -413,6 +414,8 @@ def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Itera
     max_batch_size = 1
     while True:
         try:
+            if not upper_bound < 0 and int(max_batch_size ** trial_growth_factor) > upper_bound:
+                return min(safety_margin * max_batch_size, upper_bound)
             max_batch_size = int(max_batch_size ** trial_growth_factor)
             x = torch.zeros((max_batch_size, input_shape)).to(device)
             others = [torch.zeros((max_batch_size, shape)).to(device) for shape in other_data_shapes]

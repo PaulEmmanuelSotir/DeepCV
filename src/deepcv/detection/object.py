@@ -46,9 +46,11 @@ class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
 
 
 def get_object_detector_pipelines() -> Dict[str, Pipeline]:
-    p1 = Pipeline([node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset', inputs=dict(params='params:split_dataset_ratios', dataset_or_trainset='cifar10_train', testset='cifar10_test'), outputs='datasets'),
-                   node(deepcv.meta.data.preprocess.preprocess, name='preprocess',
-                        inputs=dict(datasets='datasets', params='params:cifar10_preprocessing'), outputs='preprocessed_datasets'),
+    p1 = Pipeline([node(deepcv.utils.setup_cudnn, name='setup_cudnn_and_seed', inputs=dict(deterministic='params:object_detector_training.deterministic', seed='params:object_detector_training.seed'), outputs=None),
+                   node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset',
+                        inputs=dict(params='params:split_dataset', dataset_or_trainset='cifar10_train', testset='cifar10_test'), outputs='datasets'),
+                   node(deepcv.meta.data.preprocess.preprocess, name='preprocess', inputs=dict(
+                       datasets='datasets', params='params:cifar10_preprocessing'), outputs='preprocessed_datasets'),
                    node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs=['model']),
                    node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:object_detector_training'], outputs=['ignite_state'])],
                   tags=['train', 'detection'])
@@ -57,9 +59,10 @@ def get_object_detector_pipelines() -> Dict[str, Pipeline]:
 
 def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
     # Determine input and output shapes
-    dummy_img, dummy_target = datasets['trainset'][0][0]
+    dummy_img, dummy_target = datasets['trainset'][0]
     input_shape = dummy_img.shape
-    model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
+    # TODO: modify it be an embedding layer
+    model_params['architecture'][-1]['fully_connected']['out_features'] = 1 if isinstance(dummy_target, deepcv.utils.Number) else np.prod(dummy_target.shape)
 
     # Create ObjectDetector model
     model = ObjectDetector(input_shape, model_params)
@@ -67,7 +70,6 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.h
 
 
 def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]) -> ignite.engine.State:
-    # TODO: decide whether we take Datasets or Dataloaders arguments here (depends on how preprocessing is implemented)
     backend_conf = deepcv.meta.ignite_training.BackendConfig(**hp['backend_conf'])
     metrics = {'accuracy': Accuracy(device=backend_conf.device if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()

@@ -3,6 +3,7 @@
 """ Training loop meta module - training_loop.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
+from typing import Union, Dict, Any
 import logging
 import traceback
 import multiprocessing
@@ -89,9 +90,9 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     trainset, *validset_testset = dataloaders
     device = backend_conf.device
 
-    if hp['deterministic']:
+    if backend_conf.distributed:
+        # In distributed setup, we need to have different seed for each workers
         deepcv.utils.set_seeds(backend_conf.rank + hp['seed'])
-    deepcv.utils.setup_cudnn(deterministic=hp['deterministic'])
 
     model = model.to(device)
     model = _setup_distributed_training(device, backend_conf, model, trainset[0])

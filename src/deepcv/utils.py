@@ -31,7 +31,7 @@ import torch
 from kedro.io import DataCatalog
 
 
-__all__ = ['Number', 'set_anyconfig_yaml_parser_priorities', 'setup_cudnn', 'set_seeds', 'set_each_seeds', 'progess_bar', 'get_device',
+__all__ = ['Number', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds', 'setup_cudnn', 'progess_bar', 'get_device',
            'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'get_by_identifier', 'get_str_repr',
            'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -49,14 +49,6 @@ def set_anyconfig_yaml_parser_priorities(pyyaml_priority: Optional[int] = None, 
         anyconfig.backend.yaml.ryaml.Parser._priority = ryaml_priority
 
 
-def setup_cudnn(deterministic: bool = False, use_gpu: bool = torch.cuda.is_available()) -> types.ModuleType:
-    if use_gpu:
-        torch.backends.cudnn.deterministic = deterministic  # Makes training procedure reproducible (may have small performance impact)
-        torch.backends.cudnn.benchmark = use_gpu and not torch.backends.cudnn.deterministic
-        torch.backends.cudnn.fastest = use_gpu  # Disable this if memory issues
-        return torch.backends.cudnn
-
-
 @singledispatch
 def set_seeds(all_seeds: int = 345349):
     set_each_seeds(torch_seed=all_seeds, cuda_seed=all_seeds, np_seed=all_seeds, python_seed=all_seeds)
@@ -72,6 +64,15 @@ def set_each_seeds(torch_seed: int = None, cuda_seed: int = None, np_seed: int =
         np.random.seed(np_seed)
     if python_seed is not None:
         random.seed(python_seed)
+
+
+def setup_cudnn(deterministic: bool = False, use_gpu: bool = torch.cuda.is_available(), seed: Optional[int] = None):
+    if use_gpu:
+        torch.backends.cudnn.deterministic = deterministic  # Makes training procedure reproducible (may have small performance impact)
+        torch.backends.cudnn.benchmark = use_gpu and not torch.backends.cudnn.deterministic
+        torch.backends.cudnn.fastest = use_gpu  # Disable this if memory issues
+    if seed:
+        set_seeds(seed)
 
 
 def progess_bar(iterable: Iterable, desc: str, disable: bool = False):

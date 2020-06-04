@@ -6,6 +6,8 @@
 import copy
 import logging
 import functools
+from pathlib import Path
+from joblib import Memory
 from typing import Optional, Dict, Tuple, List, Iterable, Union, Callable, Any, Sequence
 
 import torch
@@ -17,26 +19,31 @@ import PIL
 import numpy as np
 import albumentations
 
+import deepcv.utils
 import deepcv.meta.hyperparams
 import deepcv.meta.data.datasets
-import deepcv.utils
 
 
 __all__ = ['PreprocessedDataset', 'fn_to_transform', 'split_dataset', 'preprocess', 'tensor_to_np']
 __author__ = 'Paul-Emmanuel Sotir'
+
+# Joblib memory used by `_process_normalization_stats`
+joblib_cache_path = Path('./data/03_primary/joblib_cache')
+joblib_cache_path.mkdir(parents=True, exist_ok=True)
+memory = Memory(joblib_cache_path, verbose=0)
 
 
 class PreprocessedDataset(Dataset):
     """ A Simple PyTorch Dataset which applies given inputs/target transforms to underlying pytorch dataset items """
 
     def __init__(self, underlying_dataset: Dataset, img_transform: Optional[Callable], target_transform: Optional[Callable] = None, augmentation_transform: Optional[Callable] = None):
-        self._unerlying_dataset = underlying_dataset
+        self._underlying_dataset = underlying_dataset
         self._img_transform = img_transform
         self._target_transform = target_transform
         self._augmentation_transform = augmentation_transform
 
     def __getitem__(self, index):
-        data = self._unerlying_dataset.__getitem__(index)
+        data = self._underlying_dataset.__getitem__(index)
         if isinstance(data, tuple):
             # We assume first entry is image and any other entries are targets
             x, *ys = data
@@ -51,7 +58,7 @@ class PreprocessedDataset(Dataset):
             return self._img_transform(data)
 
     def __len__(self):
-        return len(self._unerlying_dataset)
+        return len(self._underlying_dataset)
 
     def __repr__(self):
         return f'{PreprocessedDataset.__name__}[{repr(vars(self))}]'
@@ -107,6 +114,7 @@ def register_transform_processor(transform: Union[str, Callable], processable_ar
     return _warp
 
 
+@memory.cache
 @register_transform_processor(transform=torchvision.transforms.Normalize, processable_args_names=['mean', 'std'])
 def _process_normalization_stats(trainset: Dataset, to_process: Sequence[str]) -> Dict[str, torch.Tensor]:
     assert {'mean', 'std'}.issuperset(to_process), f'Error: {deepcv.utils.get_str_repr(_process_normalization_stats)} can only process `mean` or `std`, not: `{to_process}`'
@@ -151,11 +159,11 @@ def _parse_transforms_specification(transform_identifiers: Sequence, trainset: D
             if not len(spec.items()) == 1:
                 raise ValueError(f'Error: {fn_name}: Invalid transform specification, a transform should be specified by a single transform '
                                  f'type/identifer which can eventually be mapped to a dict of keyword arguments')
-            if not isinstance(spec.items()[0][1], Dict[str, Any]):
+            if not isinstance(next(iter(spec.values())), Dict):
                 raise ValueError(f'Error: {fn_name}: A value mapped to a transform is expected to be a dict of keyword arguments which will '
                                  f'be provided to transform\'s constructor/function, got: `{spec}`')
             # There are user-provided transform keyword arguments in `params` (from YAML)
-            spec, transform_kwargs = spec.items()[0]
+            spec, transform_kwargs = next(iter(spec.items()))
 
         # Check transform specification is a valid string identifier (parsed) or Callable
         elif isinstance(spec, str):

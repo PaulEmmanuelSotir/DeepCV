@@ -5,6 +5,7 @@
 """
 import copy
 import logging
+import functools
 from typing import Optional, Dict, Tuple, List, Iterable, Union, Callable, Any, Sequence
 
 import torch
@@ -46,36 +47,33 @@ class PreprocessedDataset(Dataset):
                 raise NotImplementedError
             return (x, *ys)
         else:
-            return self._input_transform(data)
+            return self._img_transform(data)
 
     def __len__(self):
         return len(self._unerlying_dataset)
 
     def __repr__(self):
-        return repr(self._unerlying_dataset)
+        return f'{PreprocessedDataset.__name__}[{repr(vars(self))}]'
 
 
-tensor_to_pil = torchvision.transforms.ToPILImage
-pil_to_tensor = torchvision.transforms.ToTensor
-
-
-def stateless_transform_factory(fn: Callable) -> Callable[[], Callable]:
-    def _get_transform() -> Callable:
-        return fn
+def fn_to_transform(fn: Callable, *transform_args: Iterable[str]) -> Callable[[], Callable]:
+    def _get_transform(**transform_kwargs) -> Callable:
+        if transform_kwargs:
+            # issuperset is used in case there are some arguments in `transform_args` which are optional/defaulted (may raise later if there are missing required arguments).
+            if set(transform_args).issuperset(transform_kwargs.keys()):
+                raise ValueError(f'Error: `{fn}` transform expected following arguments: `{transform_args}` but got: `{transform_kwargs}`')
+            return functools.partial(fn, **transform_kwargs)
+        else:
+            return fn
     return _get_transform
 
 
-@stateless_transform_factory
-def np_to_tensor(numpy_array: np.ndarray) -> torch.Tensor:
-    return torch.from_numpy(numpy_array)
-
-
-@stateless_transform_factory
+@fn_to_transform
 def tensor_to_np(tensor: torch.Tensor) -> np.ndarray:
     return tensor.numpy
 
 
-def normalize_tensor(trainset: DataLoader, normalization_stats: Optional[Union[torch.Tensor, Sequence[Sequence[float]]]] = None, channels: int = 3) -> torchvision.transforms.Normalize:
+def normalize_tensor(normalization_stats: Optional[Union[torch.Tensor, Sequence[Sequence[float]]]] = None, channels: int = 3) -> torchvision.transforms.Normalize:
     """ Returns a normalizing transform for given dataloader. If there are no given normalization stats (mean and std per channels), then these stats will be processed before returning the transform. """
     stats_shape_error_msg = f'Error: normalization stats should be of shape (2, {channels}) i.e. ((mean + std), (channel count))'
     if isinstance(normalization_stats, torch.Tensor):
@@ -87,17 +85,25 @@ def normalize_tensor(trainset: DataLoader, normalization_stats: Optional[Union[t
     return torchvision.transforms.Normalize(mean, std)
 
 
-def _process_normalization_stats(trainset: Dataset, to_process: Sequence[str], channels: int = 3) -> Tuple[torch.Tensor, torch.Tensor]:
-    if 'normalization_stats' not in to_process:
-        return {}
+def _process_normalization_stats(trainset: Dataset, to_process: Sequence[str]) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert {'mean', 'std'}.issuperset(to_process), f'Error: {deepcv.utils.get_str_repr(_process_normalization_stats)} can only process `mean` or `std`, not: `{to_process}`'
+
+    # Determine channel dimension size (we assume `channel_dim` is the first dim as there isn't batches yet (Dataset))
+    channel_dim = 0
+    channels = trainset[0].shape[channel_dim] if isinstance(trainset[0], torch.Tensor) else trainset[0][0].shape[channel_dim]
 
     # Process mean and std per channel dimension across all trainset image batches
-    mean, std = torch.zeros((channels,)), torch.zeros((channels,))
+    stats = {n: torch.zeros((channels,)) for n in to_process}
     for input_data in trainset:
-        img = input_data if isinstance(input_data, torch.Tensor) else input_data[0]  # Assumes image is the only or first data entry
-        mean += img.mean(dim=-3) / len(trainset.dataset)
-        std += img.std(dim=-3) / len(trainset.dataset)
-    return {'normalization_stats': (mean, std)}
+        img = input_data[0] if isinstance(input_data, tuple) else input_data  # Assumes image is the only or first data entry
+        if isinstance(img, PIL.Image) or isinstance(img, np.ndarray):
+            torchvision.transforms.ToTensor()(img)
+        if 'mean' in stats:
+            stats['mean'] += img.mean(dim=channel_dim) / len(trainset.dataset)
+        if 'std' in stats:
+            stats['std'] += img.std(dim=channel_dim) / len(trainset.dataset)
+
+    return stats
 
 
 def _define_transforms(transform_identifiers: Sequence[object], available_transforms: Dict[str, Callable], stateful_transforms: Dict[str, Dict[str, Any]] = {}) -> torchvision.transforms.Compose:
@@ -105,7 +111,7 @@ def _define_transforms(transform_identifiers: Sequence[object], available_transf
     for transform_name in transform_identifiers:
         if not isinstance(transform_name, str):
                 # Assume given transform is already instanciated
-            transforms.append(transform_name)
+            transforms.append(transform_name())
         elif transform_name in available_transforms:
             # Treat stateful transforms as a special case, e.g. 'normalize' transform. (we need to provide data/state to these transform, e.g., mean and variance statistics over dataset for 'normalize' transform)
             transform_factory_kwargs = stateful_transforms[transform_name] if transform_name in stateful_transforms.keys() else {}
@@ -118,11 +124,12 @@ def _define_transforms(transform_identifiers: Sequence[object], available_transf
 
 
 AVAILABLE_TRANSFORMS = {'normalize_tensor': normalize_tensor, 'pil_to_tensor': pil_to_tensor, 'np_to_tensor': np_to_tensor, 'tensor_to_np': tensor_to_np}
+AVAILABLE_TRANSFORMS.update({n: v for n, v in vars(torchvision.transforms.transforms).items()})
 
 # Handle stateful transforms data, e.g. for normalization stats (can either be passed as a (hyper)parameter through `params` or processed at runtime on trainset)
 STATEFUL_TRANSFORMS = {'normalize_tensor': {'normalization_stats': ...}}
 # Transform state processing functions should take 'trainset' and 'to_process' arguments and return a dict of processed data to be provided to their respective tranform
-STATEFUL_DATA_PROCESS = {'normalize_tensor': _process_normalization_stats}
+STATEFUL_TRANSFORM_ARGS_PROCESS = {'normalize_tensor': _process_normalization_stats}
 
 
 def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: Dataset, testset: Optional[Dataset] = None) -> Dict[str, Dataset]:
@@ -185,7 +192,7 @@ def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparame
         # Process transform state from trainset, and only change data which is not provided in `params`
         to_process = [data_name for data_name, value in data.items() if value == ...]
         if len(to_process) > 0:
-            processed_state = STATEFUL_DATA_PROCESS[transform](trainset=datasets['trainset'], to_process=to_process)
+            processed_state = STATEFUL_TRANSFORM_ARGS_PROCESS[transform](trainset=datasets['trainset'], to_process=to_process)
             stateful_transforms[transform].update({n: processed_state[n] for n in to_process})
             missing_data = [data_name for data_name, value in data.items() if value == ...]
             if len(missing_data) > 0:

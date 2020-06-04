@@ -4,12 +4,13 @@
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import uuid
+import logging
 import inspect
 import threading
 import collections
 import functools as fn
 from pathlib import Path
-from typing import Optional, Type, Union, Iterable, Dict, Any
+from typing import Optional, Type, Union, Iterable, Dict, Any, Tuple
 
 import PIL
 import kedro.io
@@ -24,16 +25,18 @@ import deepcv.utils
 import deepcv.meta.data.training_metadata
 
 
-__all__ = ['TORCHVISION_DATASETS', 'PytorchDatasetWarper', 'get_random_subset_dataloader']
+__all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
 TORCHVISION_DATASETS = {identifier: value for identifier, value in torchvision.datasets.__dict__.items() if inspect.isclass(value) and issubclass(value, Dataset)}
 
 
-class PytorchDatasetWarper(kedro.io.AbstractDataSet):
+class PytorchDataset(kedro.io.AbstractDataSet):
+    """ Kedro dataset which warps a PyTorch dataset ('torch.utils.data.Dataset'). PyTorch Dataset is only instanciated when `PytorchDataset._load` function is called. """
+
     def __init__(self, torch_dataset: Union[str, Type[Dataset]], **dataset_kwargs):
-        super(PytorchDatasetWarper, self).__init__()
+        super(PytorchDataset, self).__init__()
         self.dataset_kwargs = dataset_kwargs
 
         if isinstance(torch_dataset, str):
@@ -64,6 +67,34 @@ class PytorchDatasetWarper(kedro.io.AbstractDataSet):
         """ Returns various statistics about dataset as a `deepcv.meta.data.training_metadata.DatasetStats` (inherits from `deepcv.meta.data.training_metadata.TrainingMetaData`) """
         # TODO: ...
         raise NotImplementedError
+
+
+class BatchPrefetchDataLoader(DataLoader):
+    def __init__(self, *args, batch_device: Union[str, torch.device] = torch.cuda.current_device(), **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.pin_memory:
+            logging.warn(f'Warning: It is recommended to set `pin_memory=True` in your DataLoader when using `{BatchPrefetchDataLoader.__name__}`')
+        self.batch_device = batch_device
+
+    def __iter__(self):
+        iterator = super().__iter__()
+        iterator._prefetched_batch = iterator.__next__().to(device=self.batch_device, non_blocking=True)
+
+        def _warp(next_fn):
+            def _prefetching_next_warper(iterator_self: Iterable) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+                if isinstance(iterator_self._prefetched_batch, StopIteration):
+                    raise iterator_self._prefetched_batch
+                else:
+                    batch = iterator_self._prefetched_batch
+                    try:
+                        iterator_self._prefetched_batch = next_fn(iterator_self).to(device=self.batch_device, non_blocking=True)
+                    except StopIteration as e:
+                        # Catch `StopIteration` to raise it later (during following call to `__next__`)
+                        iterator._prefetched_batch = e
+                    return batch
+            return _prefetching_next_warper
+        iterator.__next__ = _warp(iterator.__next__)
+        return iterator
 
 
 def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int], **dataloader_kwargs) -> DataLoader:

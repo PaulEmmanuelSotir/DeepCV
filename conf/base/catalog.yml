@@ -46,7 +46,7 @@
 # TODO: Replace manual identifier parsing with '!py!name:torchvision.datasets.CIFAR10' tags usage?
 
 cifar10_train: &cifar10
-  type: deepcv.meta.data.datasets.PytorchDatasetWarper
+  type: deepcv.meta.data.datasets.PytorchDataset
   torch_dataset: !py!torchvision.datasets.CIFAR10
   root: "data/01_raw/CIFAR/10/train"
   train: True
@@ -58,7 +58,7 @@ cifar10_test:
   train: False
 
 cifar100_train: &cifar100
-  type: deepcv.meta.data.datasets.PytorchDatasetWarper
+  type: deepcv.meta.data.datasets.PytorchDataset
   torch_dataset: !py!torchvision.datasets.CIFAR100
   root: "data/01_raw/CIFAR/100/train"
   train: True
@@ -69,7 +69,7 @@ cifar100_test:
   root: "data/01_raw/CIFAR/100/test"
   train: False
 # imagenet_train: &imagenet
-#   type: deepcv.meta.data.datasets.PytorchDatasetWarper
+#   type: deepcv.meta.data.datasets.PytorchDataset
 #   torch_dataset: !py!torchvision.datasets.ImageNet
 #   root: "data/01_raw/ImageNet/32/train"
 #   split: "train"
@@ -80,13 +80,13 @@ cifar100_test:
 #   split: "val"
 
 # football_img_dataset:
-#   type: deepcv.meta.data.datasets.PytorchDatasetWarper
+#   type: deepcv.meta.data.datasets.PytorchDataset
 #   torch_dataset: !py!deepcv.meta.data.datasets.ImageDataset
 #   filepath: data/01_raw/Football/images
 
 #
 # football_vid_dataset:
-#   type: deepcv.meta.data.datasets.PytorchDatasetWarper
+#   type: deepcv.meta.data.datasets.PytorchDataset
 #   torch_dataset: !py!deepcv.meta.data.datasets.VideoDataset
 #   filepath: data/01_raw/Football/videos
 

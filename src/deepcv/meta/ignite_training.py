@@ -109,20 +109,11 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     scheduler = schedule['type'](**{n: eval(v) if 'eval_args' in schedule and n in schedule['eval_args'] else v for n, v in schedule['kwargs'].items()})
 
     def process_function(engine, batch):
-        # Mechanism to load input batchs asynchronously (loads next batch to device during computation on current batch)
-        # TODO: make sure it plays well with distributed setup
-        # TODO: improve this code to avoid strange behavior on first iteration and to avoid loosing last training iteration
-        x, y = (convert_tensor(b, device=device, non_blocking=True) for b in batch)
-        if async_batch_prefetch:
-            if getattr(process_function, '_next_batch', default=None) is not None:
-                # Replace (x, y) with previously loaded batch
-                setattr(process_function, '_next_batch', (x, y))
-                x, y = getattr(process_function, '_next_batch')
-            else:
-                # First train iter: move batch to device and return
-                x, y = (convert_tensor(b, device=device, non_blocking=True) for b in batch)
-                setattr(process_function, '_next_batch', (x, y))
-                return dict()
+        if isinstance(dataloaders, Tuple[deepcv.meta.data.datasets.BatchPrefetchDataLoader]):
+            # Don't need to move batches to device memory: Batch comes from `BatchPrefetchDataLoader` which prefetches batches to device memory duing computation
+            x, y = batch
+        else:
+            x, y = (convert_tensor(b, device=device, non_blocking=True) for b in batch)
 
         model.train()
         # Supervised part
@@ -161,8 +152,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     valid_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
 
-    @trainer.on(Events.EPOCH_STARTED(every=hp['validate_every']))
-    @trainer.on(Events.COMPLETED)
+    @ trainer.on(Events.EPOCH_STARTED(every=hp['validate_every']))
+    @ trainer.on(Events.COMPLETED)
     def _run_validation(engine):
         if torch.cuda.is_available():
             torch.cuda.synchronize()

@@ -39,7 +39,8 @@ split_dataset_ratios:
 basic_preprocessing_procedure: &basic_preprocessing_procedure
   cache: true
   transforms:
-    - normalize_tensor
+    - !py!torchvision.transforms.ToTensor
+    - !py!torchvision.transforms.Normalize
   #augmentation_reciepe: *basic_augmentation
 
 mnist_preprocessing:

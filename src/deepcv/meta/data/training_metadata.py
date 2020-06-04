@@ -96,7 +96,7 @@ class Hyperparameters(TrainingMetaData, collections.abc.Mapping):
     def get_dict_view(self) -> types.MappingProxyType:
         return types.MappingProxyType(self._store)
 
-    def with_defaults(self, defaults: Union[Dict[str, Any], 'Hyperparameters'], drop_keys_not_in_defaults: bool = False) -> Tuple['Hyperparameters', List[str]]:
+    def with_defaults(self, defaults: Union[Dict, 'Hyperparameters'], drop_keys_not_in_defaults: bool = False) -> Tuple['Hyperparameters', List[str]]:
         """ Returns a new Hyperaparameter (Frozen dict of hyperparams), with specified defaults
         Args:
             - defaults: Defaults to be applied. Contains default hyperprarmeters with their associated values. If you want to specify some required hyperparameters, set their respective values to ellipsis value `...`.

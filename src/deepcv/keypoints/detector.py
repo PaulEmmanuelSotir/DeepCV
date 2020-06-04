@@ -37,8 +37,8 @@ class KeypointsDetector(base_module.DeepcvModule):
 
     def __init__(self, input_shape: torch.Tensor, hp: Union[Dict[str, Any], hyperparams.Hyperparameters]):
         super().__init__(input_shape, hp)
-        self._define_nn_architecture(self._hp['architecture'])
-        self._initialize_parameters(self._hp['act_fn'])
+        self.define_nn_architecture(self._hp['architecture'])
+        self.initialize_parameters(self._hp['act_fn'])
 
 
 def get_keypoints_detector_pipelines():

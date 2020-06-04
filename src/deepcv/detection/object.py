@@ -41,8 +41,8 @@ class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
 
     def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
         super().__init__(input_shape, hp)
-        self._define_nn_architecture(self._hp['architecture'])
-        self._initialize_parameters(self._hp['act_fn'])
+        self.define_nn_architecture(self._hp['architecture'])
+        self.initialize_parameters(self._hp['act_fn'])
 
 
 def get_object_detector_pipelines() -> Dict[str, Pipeline]:
@@ -62,7 +62,7 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.h
     dummy_img, dummy_target = datasets['trainset'][0]
     input_shape = dummy_img.shape
     # TODO: modify it be an embedding layer
-    model_params['architecture'][-1]['fully_connected']['out_features'] = 1 if isinstance(dummy_target, deepcv.utils.Number) else np.prod(dummy_target.shape)
+    model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape) if isinstance(dummy_target, torch.Tensor) else 1
 
     # Create ObjectDetector model
     model = ObjectDetector(input_shape, model_params)

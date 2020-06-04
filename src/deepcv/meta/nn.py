@@ -45,8 +45,8 @@ class HybridConnectivityGatedNet(deepcv.meta.base_module.DeepcvModule):
         """
         super(HybridConnectivityGatedNet, self).__init__(input_shape, hp)
         submodule_creators = deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS.update({'smg_module': self._smg_module_creator})
-        self._net = self._define_nn_architecture(hp['architecture'], submodule_creators)
-        self._initialize_parameters(hp['act_fn'])
+        self.define_nn_architecture(hp['architecture'], submodule_creators)
+        self.initialize_parameters(hp['act_fn'])
 
         # smg_modules = []
         # for i, module_opts in enumerate(hp['modules']):

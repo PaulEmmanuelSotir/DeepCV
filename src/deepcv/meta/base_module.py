@@ -96,9 +96,9 @@ class DeepcvModule(nn.Module):
     """ DeepCV PyTorch Module model base class
     Handles NN architecture definition tooling for easier model definition (e.g. from a YAML configuration file), model intialization and required/defaults hyperparameters logic.
     Child class must define `HP_DEFAULTS` class attribute, with at least the following keys: `{'architecture': ..., 'act_fn': ...}` and other needed hyperparameters deepending on which sub-module are specified in `architecture` definition
-    For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule._define_nn_architecture`.
-    NOTE: in order `_features_shapes`, `_submodules_capacities` and `self._architecture_spec` attributes to be defined and contain NN sumbmodules informations, you need to call `DeepcvModule._define_nn_architecture` or update it by yourslef according to your NN architecture.
-    NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self._define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` contains architecture definition (similar value than `self._define_nn_architecture`'s `architecture_spec` argument would have).
+    For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule.define_nn_architecture`.
+    NOTE: in order `_features_shapes`, `_submodules_capacities` and `self._architecture_spec` attributes to be defined and contain NN sumbmodules informations, you need to call `DeepcvModule.define_nn_architecture` or update it by yourslef according to your NN architecture.
+    NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self.define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` contains architecture definition (similar value than `self.define_nn_architecture`'s `architecture_spec` argument would have).
     NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which, for example, allows you to define residual/dense links.
     .. See examples of Deepcv model sub-modules architecture definition in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
     """
@@ -110,8 +110,8 @@ class DeepcvModule(nn.Module):
         self._input_shape = input_shape
 
         # Process module hyperparameters
-        assert type(self).HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({type(self).__name__}) must define "HP_DEFAULTS" class attribute dict.'
-        hp, missing = deepcv.meta.hyperparams.to_hyperparameters(hp, defaults=type(self).HP_DEFAULTS, raise_if_missing=True)
+        assert self.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({type(self).__name__}) must define "HP_DEFAULTS" class attribute dict.'
+        self._hp, _missing = deepcv.meta.hyperparams.to_hyperparameters(hp, defaults=self.HP_DEFAULTS, raise_if_missing=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Apply object detector neural net architecture on top of shared image embedding features and input image
@@ -177,7 +177,7 @@ class DeepcvModule(nn.Module):
         for i, submodule_spec in enumerate(architecture_spec):
             submodule_type, params = list(submodule_spec.items())[0]
             submodule_name = f'_submodule_{i}'
-            if isinstance(params, List) or issubclass(params, Tuple):
+            if isinstance(params, List) or isinstance(params, Tuple):
                 # Architecture definition specifies a sub-module name explicitly
                 submodule_name, params = params[0], params[1]
             elif isinstance(params, str):
@@ -195,7 +195,7 @@ class DeepcvModule(nn.Module):
                 submodule_hp_dict = dict(**self._hp)
                 del submodule_hp_dict['architecture']  # Make sure we dont reuse parent DeepCV module architecture spec (if 'architecture' entry is missing in params dict)
                 submodule_hp_dict.update(params)
-                module_or_callback = DeepcvModule(input_shape=self._features_shapes[-1], hp=deepcv.meta.hyperparams.Hyperparameters(submodule_hp_dict))
+                module_or_callback = type(self)(input_shape=self._features_shapes[-1], hp=submodule_hp_dict)
             else:
                 # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
                 fn = submodule_creators.get(submodule_type)
@@ -234,7 +234,7 @@ class DeepcvModule(nn.Module):
             self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
             self._features_shapes.append(deepcv.meta.nn.get_out_features_shape(self._input_shape, self._net))
 
-        self._submodules = dict(*submodules)
+        self._submodules = OrderedDict(submodules)
 
         # Make sure all referenced sub-module exists (i.e. that there is a matching submodule name/label)
         missing = [referenced for referenced in self._submodule_references.keys() if referenced not in self._submodules.keys()]
@@ -352,7 +352,7 @@ class DeepcvModuleDescriptor:
         self.module = module
 
         if getattr(module, '_architecture_spec', default=None):
-            # NOTE: `module.architecture_spec` attribute will be defined if `module._define_nn_architecture` is called
+            # NOTE: `module.architecture_spec` attribute will be defined if `module.define_nn_architecture` is called
             architecture_spec = module._architecture_spec
         elif 'architecture' in module._hp:
             # otherwise, we try to look for architecture/sub-modules configuration in hyperparameters dict

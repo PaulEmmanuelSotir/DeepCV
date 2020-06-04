@@ -26,10 +26,11 @@ from kedro.pipeline import Pipeline, node
 
 import deepcv.utils
 import deepcv.meta.nn
-import deepcv.meta.hyperparams
 import deepcv.meta.base_module
-import deepcv.meta.ignite_training
+import deepcv.meta.hyperparams
 import deepcv.meta.data.preprocess
+import deepcv.meta.ignite_training
+from deepcv.meta.data.datasets import BatchPrefetchDataLoader
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -47,17 +48,16 @@ class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
 def get_object_detector_pipelines() -> Dict[str, Pipeline]:
     p1 = Pipeline([node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset', inputs=dict(params='params:split_dataset_ratios', dataset_or_trainset='cifar10_train', testset='cifar10_test'), outputs='datasets'),
                    node(deepcv.meta.data.preprocess.preprocess, name='preprocess',
-                        inputs=dict(datasets='datasets', params='params:cifar10_preprocessing'),
-                        outputs=['image_transform', 'target_tranform', 'augmentation_transform']),
-                   node(create_model, name='create_object_detection_model', inputs=['datasets', 'params:object_detector_model'], outputs=['model']),
-                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'params:object_detector_training'], outputs=['ignite_state'])],
+                        inputs=dict(datasets='datasets', params='params:cifar10_preprocessing'), outputs='preprocessed_datasets'),
+                   node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs=['model']),
+                   node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:object_detector_training'], outputs=['ignite_state'])],
                   tags=['train', 'detection'])
     return {'object_detector_training': p1}
 
 
 def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
     # Determine input and output shapes
-    dummy_img, dummy_target = datasets['train_loader'][0][0]
+    dummy_img, dummy_target = datasets['trainset'][0][0]
     input_shape = dummy_img.shape
     model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
@@ -87,7 +87,8 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.
     for n, ds in datasets.items():
         shuffle = True if n == 'trainset' else False
         batch_size = hp['batch_size'] if n == 'trainset' else max_eval_batch_size
-        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers, pin_memory=True))
+        dataloaders.append(BatchPrefetchDataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers,
+                                                   pin_memory=not backend_conf.is_cpu, prefetch_device=backend_conf.device))
 
     return deepcv.meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Datasets meta module - datasets.py - `DeepCV`__  
+""" Datasets meta module - datasets.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import uuid
@@ -25,7 +25,7 @@ import deepcv.utils
 import deepcv.meta.data.training_metadata
 
 
-__all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'get_random_subset_dataloader']
+__all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'BatchPrefetchDataLoader', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -70,31 +70,48 @@ class PytorchDataset(kedro.io.AbstractDataSet):
 
 
 class BatchPrefetchDataLoader(DataLoader):
-    def __init__(self, *args, batch_device: Union[str, torch.device] = torch.cuda.current_device(), **kwargs):
+    """ DataLoader which prefetches next data batch to device memory. """
+
+    def __init__(self, *args, prefetch_device: Union[None, str, torch.device] = torch.cuda.current_device(), **kwargs):
+        """ DataLoader constructor. `*args` and `**kwargs` are forwarded to parent class's constructor, see `torch.utils.data.DataLoader.__init__` for more details.
+        In order to data batch being prefetched, set `pin_memory` to True and provide a `prefetch_device` which is not 'cpu' nor `None`.
+        Args:
+            - *args: Positional arguments forwarded to `torch.utils.data.DataLoader.__init__`
+            - prefetch_device: Torch device to which data batches are prefetched. If `None` or 'cpu', then batch prefetching is disable (behaves like `torch.utils.data.DataLoader`)
+            - **kwargs: Keyword arguments forwarded to `torch.utils.data.DataLoader.__init__`
+        """
         super().__init__(*args, **kwargs)
         if not self.pin_memory:
             logging.warn(f'Warning: It is recommended to set `pin_memory=True` in your DataLoader when using `{BatchPrefetchDataLoader.__name__}`')
-        self.batch_device = batch_device
+        self.prefetch_device = prefetch_device
 
     def __iter__(self):
         iterator = super().__iter__()
-        iterator._prefetched_batch = iterator.__next__().to(device=self.batch_device, non_blocking=True)
 
-        def _warp(next_fn):
-            def _prefetching_next_warper(iterator_self: Iterable) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
-                if isinstance(iterator_self._prefetched_batch, StopIteration):
-                    raise iterator_self._prefetched_batch
-                else:
-                    batch = iterator_self._prefetched_batch
-                    try:
-                        iterator_self._prefetched_batch = next_fn(iterator_self).to(device=self.batch_device, non_blocking=True)
-                    except StopIteration as e:
-                        # Catch `StopIteration` to raise it later (during following call to `__next__`)
-                        iterator._prefetched_batch = e
-                    return batch
-            return _prefetching_next_warper
-        iterator.__next__ = _warp(iterator.__next__)
+        if self.is_batch_prefetch_enabled:
+            iterator._prefetched_batch = iterator.__next__().to(device=self.prefetch_device, non_blocking=True)
+
+            def _warp(next_fn):
+                def _prefetching_next_warper(iterator_self: Iterable) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+                    if isinstance(iterator_self._prefetched_batch, StopIteration):
+                        raise iterator_self._prefetched_batch
+                    else:
+                        batch = iterator_self._prefetched_batch
+                        try:
+                            iterator_self._prefetched_batch = next_fn(iterator_self).to(device=self.prefetch_device, non_blocking=True)
+                        except StopIteration as e:
+                            # Catch `StopIteration` to raise it later (during following call to `__next__`)
+                            iterator._prefetched_batch = e
+                        return batch
+                return _prefetching_next_warper
+            iterator.__next__ = _warp(iterator.__next__)
+
         return iterator
+
+    @property
+    def is_batch_prefetch_enabled(self):
+        is_cpu = self.prefetch_device == 'cpu' or (isinstance(self.prefetch_device, torch.device) and self.prefetch_device.type == 'cpu')
+        return self.pin_memory and (is_cpu or self.prefetch_device is None)
 
 
 def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int], **dataloader_kwargs) -> DataLoader:

@@ -15,13 +15,14 @@ from torch.utils.data import Dataset, DataLoader
 
 import PIL
 import numpy as np
+import albumentations
 
 import deepcv.meta.hyperparams
 import deepcv.meta.data.datasets
 import deepcv.utils
 
 
-__all__ = ['PreprocessedDataset', 'split_dataset', 'preprocess', 'stateless_transform_factory', 'np_to_tensor', 'tensor_to_np']
+__all__ = ['PreprocessedDataset', 'fn_to_transform', 'split_dataset', 'preprocess', 'tensor_to_np']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -73,63 +74,146 @@ def tensor_to_np(tensor: torch.Tensor) -> np.ndarray:
     return tensor.numpy
 
 
-def normalize_tensor(normalization_stats: Optional[Union[torch.Tensor, Sequence[Sequence[float]]]] = None, channels: int = 3) -> torchvision.transforms.Normalize:
-    """ Returns a normalizing transform for given dataloader. If there are no given normalization stats (mean and std per channels), then these stats will be processed before returning the transform. """
-    stats_shape_error_msg = f'Error: normalization stats should be of shape (2, {channels}) i.e. ((mean + std), (channel count))'
-    if isinstance(normalization_stats, torch.Tensor):
-        assert normalization_stats.shape == torch.Size((2, channels)), stats_shape_error_msg
-        mean, std = normalization_stats[0], normalization_stats[1]
-    else:
-        assert len(normalization_stats) == 2 and all([len(normalization_stats[i]) == channels for i in range(2)]), stats_shape_error_msg
-        mean, std = torch.FloatTensor(normalization_stats[0]), torch.FloatTensor(normalization_stats[1])
-    return torchvision.transforms.Normalize(mean, std)
+# """ Dict listing all available transforms which can be specified with a string identifier.
+# NOTE: If other transforms are needed, you can still provide it in YAML config by using its type, for example, `!py!torchvision.datasets.CIFAR100`
+# # TODO: Test it (see whether if torchvision transform names are valid)
+# """
+# AVAILABLE_TRANSFORMS = {'tensor_to_np': tensor_to_np} + {n: v for n, v in vars(torchvision.transforms.transforms).items()}
 
 
-def _process_normalization_stats(trainset: Dataset, to_process: Sequence[str]) -> Tuple[torch.Tensor, torch.Tensor]:
+""" `TRANSFORM_ARGS_PROCESSORS` Maps transforms types with their arguments processing function and an iterable of arguments names which can be processed at runtime by this function.  
+If a transform needs arguments which can be processed at runtime instead of beeing provided in YAML config (`parameters.yml`),
+you can register its argument(s) processing function in this Dict or decorate argument(s) processing function with `register_transform_processor`.  
+NOTE: Registered functions should be a `Callable[['trainset', 'to_process'], Dict[str, Any]]`) which returns a dict of processed arguments to be 
+provided to their respective tranform (needed by `deepcv.meta.data.preprocess.preprocess` procedure).
+"""
+TRANSFORM_ARGS_PROCESSORS = dict()
+
+
+def register_transform_processor(transform: Union[str, Callable], processable_args_names: Iterable[str]):
+    """ Append decorated function to `deepcv.meta.data.preprocess.TRANSFORM_ARGS_PROCESSORS`.  
+    If a transform needs arguments which can be proceesed at runtime instead of beeing provided in YAML config (`parameters.yml`),
+    you can register its arguments processing function in `deepcv.meta.data.preprocess.TRANSFORM_ARGS_PROCESSORS` Dict or decorate
+    this function with `register_transform_processor` (needed by `deepcv.meta.data.preprocess.preprocess` procedure).  
+    Args:
+        - transform: Transform which needs keyword arguments proceesed by decorated function
+        - processable_args_names: Transform arguments names which can be processed by decorated function to be provided to transform constructor
+    """
+    def _warp(process_fn: Callable[['trainset', 'to_process'], Dict[str, Any]]):
+        if transform in TRANSFORM_ARGS_PROCESSORS:
+            raise RuntimeError(f'Error: {transform} is already registered in `deepcv.meta.data.preprocess.TRANSFORM_ARGS_PROCESSORS`')
+        TRANSFORM_ARGS_PROCESSORS[transform] = (process_fn, processable_args_names)
+        return process_fn
+    return _warp
+
+
+@register_transform_processor(transform=torchvision.transforms.Normalize, processable_args_names=['mean', 'std'])
+def _process_normalization_stats(trainset: Dataset, to_process: Sequence[str]) -> Dict[str, torch.Tensor]:
     assert {'mean', 'std'}.issuperset(to_process), f'Error: {deepcv.utils.get_str_repr(_process_normalization_stats)} can only process `mean` or `std`, not: `{to_process}`'
 
-    # Determine channel dimension size (we assume `channel_dim` is the first dim as there isn't batches yet (Dataset))
-    channel_dim = 0
-    channels = trainset[0].shape[channel_dim] if isinstance(trainset[0], torch.Tensor) else trainset[0][0].shape[channel_dim]
+    # Determine channel dimension size (we assume channel dim is the first tensor dim as there isn't batches yet (Dataset))
+    dummy_image = trainset[0][0] if isinstance(trainset[0], Tuple) else trainset[0]
+    dummy_image = dummy_image if isinstance(dummy_image, torch.Tensor) else torchvision.transforms.ToTensor()(dummy_image)
+    channels = dummy_image.shape[0]
 
     # Process mean and std per channel dimension across all trainset image batches
     stats = {n: torch.zeros((channels,)) for n in to_process}
     for input_data in trainset:
-        img = input_data[0] if isinstance(input_data, tuple) else input_data  # Assumes image is the only or first data entry
-        if isinstance(img, PIL.Image) or isinstance(img, np.ndarray):
-            torchvision.transforms.ToTensor()(img)
+        img = input_data[0] if isinstance(input_data, Tuple) else input_data  # Assumes image is the only or first data entry
+
+        if not isinstance(img, torch.Tensor):
+            # Convert images to Tensors if needed
+            img = torchvision.transforms.ToTensor()(img)
+
+        dims = tuple(range(1, len(img.shape)))
         if 'mean' in stats:
-            stats['mean'] += img.mean(dim=channel_dim) / len(trainset.dataset)
+            stats['mean'] += img.mean(dim=dims) / len(trainset)
         if 'std' in stats:
-            stats['std'] += img.std(dim=channel_dim) / len(trainset.dataset)
+            stats['std'] += img.std(dim=dims) / len(trainset)
 
     return stats
 
 
-def _define_transforms(transform_identifiers: Sequence[object], available_transforms: Dict[str, Callable], stateful_transforms: Dict[str, Dict[str, Any]] = {}) -> torchvision.transforms.Compose:
+def _parse_transforms_specification(transform_identifiers: Sequence, trainset: Dataset, transform_args_processors: Dict = TRANSFORM_ARGS_PROCESSORS) -> torchvision.transforms.Compose:
+    """ Parses a transforms specification sequence.  
+    Finds transforms type if string identifier is provided, find its arguments from `params`/YAML and/or process it (`TRANSFORM_ARGS_PROCESSORS`) if any, instanciate those transforms and returns their composition.  
+    Args:
+        - transform_identifiers: Transforms specification to be parsed (probably comes from YAML configuration file, see preprocessing procedures transforms lists in `./conf/base/parameters.yml`)
+        - trainset: Trainset Dataset to be provided to functions registered in `transform_args_processors`. See `deepcv.meta.data.preprocess.register_transform_processor` for more details.
+        - transform_args_processors: Dict providing function which can process transforms arguments at runtime from `trainset`. See `deepcv.meta.data.preprocess.register_transform_processor` for more details.
+    """
+    fn_name = deepcv.utils.get_str_repr(_parse_transforms_specification, __file__)
     transforms = []
-    for transform_name in transform_identifiers:
-        if not isinstance(transform_name, str):
-                # Assume given transform is already instanciated
-            transforms.append(transform_name())
-        elif transform_name in available_transforms:
-            # Treat stateful transforms as a special case, e.g. 'normalize' transform. (we need to provide data/state to these transform, e.g., mean and variance statistics over dataset for 'normalize' transform)
-            transform_factory_kwargs = stateful_transforms[transform_name] if transform_name in stateful_transforms.keys() else {}
-            # Instanciate transform
-            transforms.append(available_transforms[transform_name](**transform_factory_kwargs))
-        else:
-            # TODO: parse identifiers like for submodules in 'deepcv.meta.base_module.DeepcvModule' model base class (especially for transforms from torchvision.transforms)
-            raise ValueError(f'Error: {deepcv.utils.get_str_repr(_define_transforms, __file__)} couldn\'t find "{transform_name}" tranform. Available transforms: "{available_transforms}"')
+
+    for spec in transform_identifiers:
+        transform_kwargs = {}
+        if isinstance(spec, Dict):
+            if not len(spec.items()) == 1:
+                raise ValueError(f'Error: {fn_name}: Invalid transform specification, a transform should be specified by a single transform '
+                                 f'type/identifer which can eventually be mapped to a dict of keyword arguments')
+            if not isinstance(spec.items()[0][1], Dict[str, Any]):
+                raise ValueError(f'Error: {fn_name}: A value mapped to a transform is expected to be a dict of keyword arguments which will '
+                                 f'be provided to transform\'s constructor/function, got: `{spec}`')
+            # There are user-provided transform keyword arguments in `params` (from YAML)
+            spec, transform_kwargs = spec.items()[0]
+
+        # Check transform specification is a valid string identifier (parsed) or Callable
+        elif isinstance(spec, str):
+            spec = deepcv.utils.get_by_identifier(spec)  # Try to retreive tranform by its string identifier (raises otherwise)
+        elif not isinstance(spec, Callable):
+            raise ValueError(f'Error: {fn_name} couldn\'t find `{spec}` tranform, transform specification should either be a string identifier or tranform `Callable` type.')
+
+        # Process any missing transform arguments from trainset (only process arguments which are not already provided in `params`/YAML) (e.g. process mean and variance of trainset images)
+        if spec in transform_args_processors:
+            process_fn, processable_args_names = transform_args_processors[spec]
+            to_process = [arg_name for arg_name in processable_args_names if arg_name not in transform_kwargs]
+            if len(to_process) > 0:
+                # There are missing transform argument(s) to be processed
+                processed_state = process_fn(trainset=trainset, to_process=to_process)
+                transform_kwargs.update({n: processed_state[n] for n in to_process})
+
+        # Instanciate/call tranform with arguments from spec (YAML) and/or from its runtime processing function
+        transforms.append(spec(**transform_kwargs))
+
     return torchvision.transforms.Compose(transforms)
 
 
-AVAILABLE_TRANSFORMS = {'normalize_tensor': normalize_tensor, 'pil_to_tensor': pil_to_tensor, 'np_to_tensor': np_to_tensor, 'tensor_to_np': tensor_to_np}
-AVAILABLE_TRANSFORMS.update({n: v for n, v in vars(torchvision.transforms.transforms).items()})
+def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], datasets: Dict[str, Dataset]) -> Dict[str, PreprocessedDataset]:
+    """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `params`.
+    Preprocess and augment data according to recipes specified in hyperparameters (`params`) from YAML config (see ./conf/base/parameters.yml)
+    # TODO: create dataloader to preprocess/augment data by batches?
+    Args:
+        - params:
+        - datasets: Dict of PyTorch datasets (must contain 'trainset' and 'testset' entries and eventually a 'validset' entry)
+    Returns a dict which contains preprocessed and/or augmented 'trainset', 'testset' and 'validset' datasets
+    """
+    fn_name = deepcv.utils.get_str_repr(preprocess, __file__)
+    logging.info(f'Starting pytorch dataset preprocessing procedure... ({fn_name})')
+    params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'transforms': ..., 'target_transforms': [], 'cache': False, 'augmentation_reciepe': None})
 
-# Handle stateful transforms data, e.g. for normalization stats (can either be passed as a (hyper)parameter through `params` or processed at runtime on trainset)
-STATEFUL_TRANSFORMS = {'normalize_tensor': {'normalization_stats': ...}}
-# Transform state processing functions should take 'trainset' and 'to_process' arguments and return a dict of processed data to be provided to their respective tranform
-STATEFUL_TRANSFORM_ARGS_PROCESS = {'normalize_tensor': _process_normalization_stats}
+    # Define image preprocessing transforms
+    preprocess_transforms = dict(img_transform=_parse_transforms_specification(params['transforms'], trainset=datasets['trainset']))
+
+    # Setup target preprocessing transforms
+    if params['target_transforms'] is not None and len(params['target_transforms']) > 0:
+        preprocess_transforms['target_transform'] = _parse_transforms_specification(params['target_transforms'], trainset=datasets['trainset'])
+
+    # Apply data augmentation
+    if params['augmentation_reciepe'] is not None:
+        logging.info(f'Applying dataset augmentation reciepe ')
+        # TODO: (WIP) use same transforms parsing procedure for augmentation: _parse_transforms_specification(params['augmentation_reciepe']['tranforms'], trainset=datasets['trainset'])
+        preprocess_transforms['augmentation_transform'] = deepcv.meta.data.augmentation.apply_augmentation_reciepe(dataset=ds, hp=params['augmentation_reciepe'])
+
+    # Replace datasets with `PreprocessedDataset` instances in order to apply perprocesssing transforms to datasets entries (transforms applied on dataset `__getitem__` calls)
+    datasets = {n: PreprocessedDataset(ds, **preprocess_transforms) for n, ds in datasets.items()}
+
+    # If needed, cache/save preprocessed/augmened dataset(s) to disk
+    if params['cache']:
+        logging.info('`deepcv.meta.data.preprocess.preprocess` function is saving resulting dataset to disk (`params["cache"] == True`)')
+        raise NotImplementedError  # TODO: Save preprocessed dataset to disk (data/04_features/)
+
+    logging.info(f'Pytorch Dataset preprocessing procedure ({deepcv.utils.get_str_repr(preprocess, __file__)}) done, returning preprocessed/augmented Dataset(s).')
+    return datasets
 
 
 def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: Dataset, testset: Optional[Dataset] = None) -> Dict[str, Dataset]:
@@ -167,61 +251,6 @@ def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperpar
         logging.info(f'{func_name}: Saving resulting dataset to disk (`params["cache"] == True`)...')
         raise NotImplementedError  # TODO: save to (data/03_primary/)
     return {'trainset': trainset, 'validset': validset, 'testset': testset} if validset else {'trainset': trainset, 'testset': testset}
-
-
-def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], datasets: Dict[str, Dataset]) -> Dict[str, PreprocessedDataset]:
-    """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `params`.
-    Preprocess and augment data according to recipes specified in hyperparameters (`params`) from YAML config (see ./conf/base/parameters.yml)
-    # TODO: create dataloader to preprocess/augment data by batches?
-    Args:
-        - params:
-        - datasets: Dict of PyTorch datasets (must contain 'trainset' and 'testset' entries and eventually a 'validset' entry)
-    Returns a dict which contains preprocessed and/or augmented 'trainset', 'testset' and 'validset' datasets
-    """
-    logging.info('Starting pytorch dataset preprocessing procedure...')
-    params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'transforms': ..., 'target_transforms': [], 'cache': False, 'augmentation_reciepe': None})
-
-    # Filter out sateful transforms which are not used for this preprocessing reciepe
-    stateful_transforms = copy.deepcopy(STATEFUL_TRANSFORMS)
-    stateful_transforms = {transform: data for transform, data in stateful_transforms.items() if transform in params['transforms'] or transform in params['target_transforms']}
-    # Try to fill stateful transforms data from `params`
-    stateful_transforms = {transf: {name: params[name] if name in params else ... for name, _ in data.items()} for transf, data in stateful_transforms.items()}
-
-    # Process stateful transforms's missing data from trainset (e.g. mean and variance of trainset images)
-    for transform, data in stateful_transforms.items():
-        # Process transform state from trainset, and only change data which is not provided in `params`
-        to_process = [data_name for data_name, value in data.items() if value == ...]
-        if len(to_process) > 0:
-            processed_state = STATEFUL_TRANSFORM_ARGS_PROCESS[transform](trainset=datasets['trainset'], to_process=to_process)
-            stateful_transforms[transform].update({n: processed_state[n] for n in to_process})
-            missing_data = [data_name for data_name, value in data.items() if value == ...]
-            if len(missing_data) > 0:
-                raise RuntimeError(f"""Error: {deepcv.utils.get_str_repr(preprocess, __file__)} function can`t apply `{transform}` transform, its `STATEFUL_DATA_PROCESS` function did not provided
-                                        some nescessary data and `params` (hyper)parameters doesn\'t prodide it neither. `{missing_data}` transform data is missing (you may need to provide it
-                                        in hyerparameters or there is an issue in transform\'s `STATEFUL_DATA_PROCESS` function)""")
-
-    # Define image preprocessing transforms
-    preprocess_transforms = dict(img_transform=_define_transforms(params['transforms'], AVAILABLE_TRANSFORMS, stateful_transforms))
-
-    # Setup target preprocessing transforms
-    if params['target_transforms'] is not None and len(params['target_transforms']) > 0:
-        preprocess_transforms['target_transform'] = _define_transforms(params['target_transforms'], AVAILABLE_TRANSFORMS, stateful_transforms)
-
-    # Apply data augmentation
-    if params['augmentation_reciepe'] is not None:
-        logging.info(f'Applying dataset augmentation reciepe ')
-        preprocess_transforms['augmentation_transform'] = deepcv.meta.data.augmentation.apply_augmentation_reciepe(dataset=ds, hp=params['augmentation_reciepe'])
-
-    # Replace datasets with `PreprocessedDataset` instances in order to apply perprocesssing transforms to datasets entries (transforms applied on dataset `__getitem__` calls)
-    datasets = {n: PreprocessedDataset(ds, **preprocess_transforms) for n, ds in datasets.items()}
-
-    # If needed, cache/save preprocessed/augmened dataset(s) to disk
-    if params['cache']:
-        logging.info('`deepcv.meta.data.preprocess.preprocess` function is saving resulting dataset to disk (`params["cache"] == True`)')
-        raise NotImplementedError  # TODO: Save preprocessed dataset to disk (data/04_features/)
-
-    logging.info(f'Pytorch Dataset preprocessing procedure ({deepcv.utils.get_str_repr(preprocess, __file__)}) done, returning preprocessed/augmented Dataset(s).')
-    return datasets
 
 
 if __name__ == '__main__':

@@ -123,7 +123,7 @@ def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, insp
             raise ValueError('Error: `forward_func` argument of `deepcv.meta.nn.func_to_module._warper` function cannot have keyword defaults (`__kwdefaults__` not supported)')
         signature = inspect.signature(forward_func)
         init_params = [n if type(n) is inspect.Parameter else signature.parameters[n] for n in init_params]
-        forward_params = [p for n, p in signature.parameters.items() if n not in init_params]
+        forward_params = [p for n, p in signature.parameters.items() if p not in init_params]
         init_signature = signature.replace(parameters=init_params, return_annotation=nn.Module)
         forward_signature = signature.replace(parameters=forward_params, return_annotation=signature.return_annotation)
 
@@ -257,7 +257,7 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
 
     ops_order = (_dropout, _bn, act_fn, layer_op) if preactivation else (_dropout, layer_op, act_fn, _bn)
     ops = [op if isinstance(op, nn.Module) else op() for op in ops_order]
-    return tuple(filter(lambda x: x is None, ops))
+    return tuple(filter(lambda x: x is not None, ops))
 
 
 def conv_layer(conv2d: dict, act_fn: type = nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> nn.Module:
@@ -438,12 +438,15 @@ def find_best_eval_batch_size(input_shape: torch.Size, *other_data_shapes: Itera
     return safety_margin * max_batch_size
 
 
-def get_model_capacity(model: nn.Module):
+def get_model_capacity(model: Optional[nn.Module]):
+    if model is None:
+        return 0
     return sum([np.prod(param.shape) for param in model.parameters(recurse=True)])
 
 
 def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_batches: bool = True) -> torch.Size:
     """ Performs a forward pass with a dummy input tensor to figure out module's output shape """
+    module.eval()
     with torch.no_grad():
         dummy_batch_x = torch.unsqueeze(torch.zeros(input_shape), dim=0) if input_batches else torch.zeros(input_shape)
         return module(dummy_batch_x).shape
@@ -491,9 +494,9 @@ class TestNNMetaModule:
         def _case3(param1, param2=3): assert param1 == 3 and param2 == 3
         def _case4(param1: torch.Tensor, **kwparams): return kwparams
 
-        M1 = func_to_module('M1')(_case1)
-        M2 = func_to_module('M2')(_case2)
-        M3 = func_to_module('M3')(_case3)
+        _M1 = func_to_module('M1')(_case1)
+        _M2 = func_to_module('M2')(_case2)
+        _M3 = func_to_module('M3')(_case3)
         M4 = func_to_module('M4', ['truc', 'bidule'])(_case4)
 
         m4 = M4(truc='1', bidule=2)

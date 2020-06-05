@@ -47,7 +47,7 @@ object_detector_model:
     - _deepcvmodule: *basic_backbone
     #- _deepcvmodule: *lager_backbone
     - !py!deepcv.meta.nn.Flatten
-    - fully_connected: { out_features: 10 }
+    - fully_connected: {}
 
 keypoints_encoder_model:
   act_fn: !py!torch.nn.ReLU

@@ -1,16 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" DeepCV model base class meta module - base_module.py - `DeepCV`__  
+""" DeepCV model base class meta module - base_module.py - `DeepCV`__
 Defines DeepCV model base class
 .. moduleauthor:: Paul-Emmanuel Sotir
 
-*To-Do List* 
+*To-Do List*
     - TODO: optimize support for residual/dense links
     - TODO: Try to unfreeze batch_norm parameters of shared image embedding block (with its other parameters freezed) and compare performances across various tasks
 """
 import types
 import inspect
 import logging
+import functools
 from collections import OrderedDict
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
 
@@ -29,11 +30,10 @@ __all__ = ['BASIC_SUBMODULE_CREATORS', 'DeepcvModule', 'DeepcvModuleWithSharedIm
 __author__ = 'Paul-Emmanuel Sotir'
 
 MODULE_CREATOR_CALLBACK_RETURN_T = Callable[[torch.Tensor, Dict[str, torch.Tensor]], torch.Tensor]
-MODULE_CREATOR_MODULE_RETURN_T = nn.Module
 
 
 def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: deepcv.meta.hyperparams.Hyperparameters) -> nn.Module:
-    prev_dim = len(prev_shapes[1:])
+    prev_dim = len(prev_shapes[-1][1:])
     if prev_dim >= 4:
         return nn.AvgPool3d(**submodule_params)
     elif prev_dim >= 2:
@@ -57,7 +57,7 @@ def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[
     return deepcv.meta.nn.fc_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
 
 
-def _residual_dense_link(is_residual: bool = True):
+def _residual_dense_link(is_residual: bool = True) -> Callable[['submodule_params', 'prev_named_submodules', 'prev_submodules', int], MODULE_CREATOR_CALLBACK_RETURN_T]:
     """ Creates a residual or dense link sub-module which concatenates or adds features from direct previous sub-module and another sub-module
     Output features shapes of these two submodules must be the same, except for the channels/filters dimension if this is a dense link.
     `submodule_params` Argument must contain a `_from` entry giving the other sub-module reference (sub-module name) from which output is added to previous sub-module output.
@@ -66,11 +66,9 @@ def _residual_dense_link(is_residual: bool = True):
     By default interpolation is 'linear'; If needed you can specify a `scaling_mode` parameter in `submodule_params` to change algorithm used for upsampling (valid values: 'nearest' | 'linear' | 'bilinear' | 'bicubic' | 'trilinear' | 'area').
     Note that scaling/interpolation of residual/dense tensors is only supported for 1D, 2D and 3D features, without taking into account channel and minibatch dimensions. Also note that `minibatch` dimension is required by [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
     """
-    def _create_link_submodule(submodule_params, prev_named_submodules: Dict[str, nn.Module], prev_submodules: List[nn.Module], channel_dim: int = -3) -> MODULE_CREATOR_CALLBACK_RETURN_T:
-        def _forward_callback(x: torch.Tensor, prev_named_submodules_out: Dict[str, torch.Tensor]):
-            if submodule_params['from'] not in prev_named_submodules:
-                raise ValueError(f"Error: Couldn't find previous sub-module name reference '{submodule_params['from']}' in NN architecture.")
-            y = prev_named_submodules[submodule_params['_from']]
+    def _create_link_submodule(submodule_params, channel_dim: int = -3) -> MODULE_CREATOR_CALLBACK_RETURN_T:
+        def _forward_callback(x: torch.Tensor, referenced_submodules_out: Dict[str, torch.Tensor]):
+            y = referenced_submodules_out[submodule_params['_from']]
 
             # If target output shape (which is the same as `x` features shape) is different from `y` features shapes, we perform a down or up scaling (interpolation) if allowed
             if x.shape[channel_dim:] != y.shape[channel_dim:]:
@@ -86,6 +84,7 @@ def _residual_dense_link(is_residual: bool = True):
         return _forward_callback
 
     _create_link_submodule.__doc__ = _residual_dense_link.__doc__
+    return _create_link_submodule
 
 
 BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected,
@@ -119,16 +118,18 @@ class DeepcvModule(nn.Module):
             referenced_output_features = {}
             for name, subm in self._submodules.items():
                 if name in self._forward_callbacks:
-                    # Forward pass through sub-module
-                    x = self._forward_callbacks[name](x, referenced_output_features)
-                    # Update `_submodule_references` and free stored output features if there isn't any referrers referencing a submodule anymore (i.e. all forward callbacks have consumed stored output features for a given referenced sub-module)
+                    current_subm_references = {}
+                    # Find referer's referenced features from `self._submodule_references` and free stored output features if there isn't any referrers referencing a submodule anymore (i.e. all forward callbacks have consumed stored output features for a given referenced sub-module)
                     for referenced_submodule, referrers in self._submodule_references.items():
                         if name in referrers:
+                            current_subm_references[referenced_submodule] = referenced_output_features[referenced_submodule]
                             self._submodule_references[referenced_submodule].remove(name)
                             if len(self._submodule_references[referenced_submodule]) == 0:
                                 # There isn't referrer submodules to take stored features as input anymore, so we free memory for this reference (e.g. residual or dense link)
                                 del self._submodule_references[referenced_submodule]
                                 del referenced_output_features[referenced_submodule]
+                    # Forward pass through sub-module
+                    x = self._forward_callbacks[name](x, current_subm_references)
                 else:
                     # Forward pass through sub-module
                     x = subm(x)
@@ -175,7 +176,7 @@ class DeepcvModule(nn.Module):
         # Parse submodule NN architecture spec in order to define PyTorch model's submodules accordingly
         submodules = []
         for i, submodule_spec in enumerate(architecture_spec):
-            submodule_type, params = list(submodule_spec.items())[0]
+            submodule_type, params = list(submodule_spec.items())[0] if isinstance(submodule_spec, Dict) else (submodule_spec, {})
             submodule_name = f'_submodule_{i}'
             if isinstance(params, List) or isinstance(params, Tuple):
                 # Architecture definition specifies a sub-module name explicitly
@@ -187,7 +188,7 @@ class DeepcvModule(nn.Module):
             # Checks if `params` is a valid and if there are eventual invalid or duplicate `submodule_name`(s)
             if not isinstance(params, Dict):
                 raise RuntimeError(f'Error: Architecture sub-module spec. must either be a parameters Dict, or a submodule name along with parameters Dict, but got: "{params}".')
-            if submodule_name is not None and submodule_name in dict(*submodules).keys() or submodule_name == r'' or not isinstance(submodule_name, str):
+            if submodule_name is not None and submodule_name in OrderedDict(submodules).keys() or submodule_name == r'' or not isinstance(submodule_name, str):
                 raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
 
             if submodule_type == '_deepcvmodule':
@@ -195,30 +196,35 @@ class DeepcvModule(nn.Module):
                 submodule_hp_dict = dict(**self._hp)
                 del submodule_hp_dict['architecture']  # Make sure we dont reuse parent DeepCV module architecture spec (if 'architecture' entry is missing in params dict)
                 submodule_hp_dict.update(params)
-                module_or_callback = type(self)(input_shape=self._features_shapes[-1], hp=submodule_hp_dict)
+                deepcv_submodule = type(self)(input_shape=self._features_shapes[-1], hp=submodule_hp_dict)
+                submodules.append((submodule_name, deepcv_submodule))
             else:
-                # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
-                fn = submodule_creators.get(submodule_type)
-                if not fn:
-                    # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
-                    try:
-                        fn = deepcv.utils.get_by_identifier(submodule_type)
-                    except Exception as e:
-                        raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
+                if isinstance(submodule_type, str):
+                    # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
+                    fn_or_type = submodule_creators.get(submodule_type)
+                    if not fn_or_type:
+                        # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
+                        try:
+                            fn_or_type = deepcv.utils.get_by_identifier(submodule_type)
+                        except Exception as e:
+                            raise RuntimeError(f'Error: Could not locate module/function named "{submodule_type}" given module creators: "{submodule_creators.keys()}"') from e
+                else:
+                    fn_or_type = submodule_type
 
-                # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn)
+                # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn_or_type)
                 available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
-                module_or_callback = fn(**{n: p for n, p in available_params.items() if n in inspect.signature(fn).parameters})
+                module_or_callback = fn_or_type(**{n: p for n, p in available_params.items() if n in inspect.signature(fn_or_type).parameters})
 
-                # Figure out fn's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
-                if isinstance(module_or_callback, MODULE_CREATOR_CALLBACK_RETURN_T):
+                # Figure out fn_or_type's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
+                if isinstance(module_or_callback, nn.Module):
+                    submodules.append((submodule_name, module_or_callback))
+                elif isinstance(module_or_callback, Callable) and len(inspect.Signature.from_callable(module_or_callback).parameters) == 2:
+                    # Module_or_callback is assumed to be a callback which signature should match 'MODULE_CREATOR_CALLBACK_RETURN_T' (we only check if it's a Callable which takes two parameters)
                     self._forward_callbacks[submodule_name] = module_or_callback
                     submodules.append((submodule_name, None))
-                elif isinstance(module_or_callback, nn.Module):
-                    submodules.append((submodule_name, module_or_callback))
                 else:
-                    msg = f'Error: Wrong sub-module creator function/class __init__ return type (must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.'
-                    raise RuntimeError(msg)
+                    raise RuntimeError(f'Error: Wrong sub-module creator function/class __init__ return type '
+                                       f'(must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.')
 
             # Store any sub-module name/label references (used to store referenced submodule's output features during model's forward pass in order to reuse these features later in a forward callback (e.g. for residual links))
             if '_from' in params:
@@ -230,7 +236,7 @@ class DeepcvModule(nn.Module):
                         self._submodule_references[referenced_submodule] = set([submodule_name])
 
             # Get neural network submodules capacity and output features shapes
-            self._submodules_capacities.append(deepcv.meta.nn.get_model_capacity(submodules[-1]))
+            self._submodules_capacities.append(deepcv.meta.nn.get_model_capacity(submodules[-1][1]))
             self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
             self._features_shapes.append(deepcv.meta.nn.get_out_features_shape(self._input_shape, self._net))
 
@@ -291,11 +297,11 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
             x = torch.cat([x, self.shared_image_embedding_block(x)], dim=channel_dim)
         return super().forward(x)
 
-    @property
+    @ property
     def freeze_shared_image_embedding_block(self) -> bool:
         return self._freeze_shared_image_embedding_block
 
-    @freeze_shared_image_embedding_block.setter
+    @ freeze_shared_image_embedding_block.setter
     def set_freeze_shared_image_embedding_block(self, freeze_weights: bool):
         if self._enable_shared_image_embedding_block:
             self._freeze_shared_image_embedding_block = freeze_weights
@@ -334,7 +340,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
             logging.warn(type(self).SHARED_BLOCK_DISABLED_WARNING_MSG.format('merge_shared_image_embedding_block'))
         return False
 
-    @classmethod
+    @ classmethod
     def _define_shared_image_embedding_block(cls, in_channels: int = 3):
         logging.info('Creating shared image embedding block of DeepcvModule models...')
         conv_opts = {'act_fn': nn.ReLU, 'batch_norm': {'affine': True, 'eps': 1e-05, 'momentum': 0.0736}}

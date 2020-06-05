@@ -65,7 +65,7 @@ class BackendConfig:
         return f'distributed-{self.nnodes}nodes-{self.ngpus}gpus-{self.ngpus_current_node}current-node-gpus'
 
 
-def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, async_batch_prefetch: bool = False) -> ignite.engine.State:
+def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
@@ -80,7 +80,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     # TODO: add support for cross-validation
     # TODO: Report training metrics and results to MLFlow?
     """
-    TRAINING_HP_DEFAULTS = {'output_path': ..., 'optimizer_opts': ..., 'shceduler': ..., 'epochs': ...,
+    TRAINING_HP_DEFAULTS = {'output_path': ..., 'optimizer_opts': ..., 'scheduler': ..., 'epochs': ...,
                             'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1,
                             'display_iters': 1000, 'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
@@ -95,7 +95,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         deepcv.utils.set_seeds(backend_conf.rank + hp['seed'])
 
     model = model.to(device)
-    model = _setup_distributed_training(device, backend_conf, model, trainset[0])
+    model = _setup_distributed_training(device, backend_conf, model, (trainset.batch_size, *trainset.dataset[0][0].shape))
 
     if backend_conf.local_rank == 0 and backend_conf.rank == 0:
         # Create output directory if current node is master or if not distributed
@@ -106,8 +106,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
 
     loss = loss.to(device)
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
-    schedule = hp['scheduler']
-    scheduler = schedule['type'](**{n: eval(v) if 'eval_args' in schedule and n in schedule['eval_args'] else v for n, v in schedule['kwargs'].items()})
+    args_to_eval = hp['scheduler']['eval_args'] if 'eval_args' in hp['scheduler'] else {}
+    scheduler = hp['scheduler']['type'](**{n: eval(v, __locals={'hp': hp, 'iterations': len(trainset)}) if n in args_to_eval else v for n, v in hp['scheduler']['kwargs'].items()})
 
     def process_function(engine, batch):
         if isinstance(dataloaders, Tuple[deepcv.meta.data.datasets.BatchPrefetchDataLoader]):

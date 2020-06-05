@@ -70,13 +70,13 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.h
 
 
 def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]) -> ignite.engine.State:
+    """ Train object detector model
+    .. See Fastai blog post about AdamW for more details about optimizer: https://www.fast.ai/2018/07/02/adam-weight-decay/
+    """
     backend_conf = deepcv.meta.ignite_training.BackendConfig(**hp['backend_conf'])
     metrics = {'accuracy': Accuracy(device=backend_conf.device if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()
-    opt = optim.SGD
-
-    # Determine maximal eval batch_size which fits in video memory
-    max_eval_batch_size = deepcv.meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=model, device=backend_conf.device, upper_bound=len(datasets['trainset']))
+    opt = optim.AdamW
 
     # Determine num_workers for DataLoaders
     if backend_conf.ngpus_current_node > 0 and backend_conf.distributed:
@@ -88,7 +88,7 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.
     dataloaders = []
     for n, ds in datasets.items():
         shuffle = True if n == 'trainset' else False
-        batch_size = hp['batch_size'] if n == 'trainset' else max_eval_batch_size
+        batch_size = hp['batch_size'] if n == 'trainset' else hp['batch_size'] * 32
         dataloaders.append(BatchPrefetchDataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers,
                                                    pin_memory=not backend_conf.is_cpu, prefetch_device=backend_conf.device))
 

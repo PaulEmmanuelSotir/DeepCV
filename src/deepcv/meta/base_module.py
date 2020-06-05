@@ -384,7 +384,7 @@ class DeepcvModuleDescriptor:
             self.submodules_features_sizes = map(np.prod, module._features_shapes)
         if architecture_spec is not None:
             self.architecture = architecture_spec
-            self.submodules_types = [list(subm.keys())[0] for subm in architecture_spec]
+            self.submodules = {n: str(m) for n, m in module._submodules.items()}
         if hasattr(module, '_submodules_capacities'):
             self.submodules_capacities = module._submodules_capacities
             self.human_readable_capacities = map(deepcv.utils.human_readable_size, module._submodules_capacities)
@@ -394,7 +394,7 @@ class DeepcvModuleDescriptor:
         if self.architecture is not None:
             features = self.submodules_features_shapes if hasattr(self, 'submodules_features_shapes') else ['UNKNOWN'] * len(self.architecture)
             capas = self.human_readable_capacities if hasattr(self, 'human_readable_capacities') else ['UNKNOWN'] * len(self.architecture)
-            desc_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(self.architecture, features, capas)])
+            desc_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(self.submodules.items(), features, capas)])
         else:
             desc_str = '(No submodule architecture informations to describe)'
 

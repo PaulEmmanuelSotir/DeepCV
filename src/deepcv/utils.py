@@ -158,8 +158,8 @@ def human_readable_size(size_bytes: int, format_to_str: bool = True) -> Union[st
         return 0., size_units[0]
 
     # Handle negative sizes ;-)
-    sign = size_bytes / math.abs(size_bytes)
-    size_bytes = math.abs(size_bytes)
+    sign = size_bytes / abs(size_bytes)
+    size_bytes = abs(size_bytes)
 
     # Find out 1024-base power (bytes size unit)
     i = int(math.floor(math.log(size_bytes, 1024)))

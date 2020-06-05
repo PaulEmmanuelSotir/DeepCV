@@ -100,32 +100,32 @@ def sharpness(pil_img: Image, severity: float, max_enhance_factor: float = 1.8, 
 AUGMENTATION_OPS = [autocontrast, equalize, posterize, rotate, solarize, shear_x, shear_y, translate_x, translate_y, color, contrast, brightness, sharpness]
 
 
-def apply_augmentation_reciepe(dataset: torch.utils.data.Dataset, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Mapping]) -> Callable:
-    """ Applies listed augmentation transforms with given configuration from `hp` Dict.
+def apply_augmentation_reciepe(datasets: Tuple[torch.utils.data.Dataset], params: Union[deepcv.meta.hyperparams.Hyperparameters, Mapping]) -> Callable:
+    """ Applies listed augmentation transforms with given configuration from `params` Dict.
     .. See [deepcv/conf/base/parameters.yml](./conf/base/parameters.yml) for examples of augmentation reciepe specification
     Args:
-        - dataset: Dataset on which data augmentation is performed
-        - hp: Augmentation hyperparameters (Mapping or deepcv.meta.hyperparams.Hyperparameters object), must at least contain `transforms` entry, see `hp.with_defaults({...})` in this function code or [augmentation reciepes spec. in ./conf/base/parameters.yml](./conf/base/parameters.yml)
-    Returns a new torch.utils.data.DataLoader which samples data from newly created augmented dataset
+        - datasets: Tuple of Datasets on which data augmentation is performed
+        - params: Augmentation hyperparameters (Mapping or deepcv.meta.hyperparams.Hyperparameters object), must at least contain `transforms` entry, see `params.with_defaults({...})` in this function code or [augmentation reciepes spec. in ./conf/base/parameters.yml](./conf/base/parameters.yml)
+    Returns a transform which returns augmented image(s) from original image
     # TODO: use albumentation instead of torchvision
     """
-    hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, {'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
-                                                            'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
+    params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, {'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
+                                                                    'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
     transforms = []
 
-    if hp.get('augmix') is not None:
+    if params.get('augmix') is not None:
         augmix_defaults = {'augmentation_chains_count': ..., 'transform_chains_dirichlet': ..., 'mix_with_original_beta': ...}
-        augmix_params, _ = deepcv.meta.hyperparams.to_hyperparameters(hp['augmix'], augmix_defaults)
-        augmix_transform = functools.partial(augment_and_mix, chains_depth=hp['augmentation_ops_depth'], **augmix_params)
+        augmix_params, _ = deepcv.meta.hyperparams.to_hyperparameters(params['augmix'], augmix_defaults)
+        augmix_transform = functools.partial(augment_and_mix, chains_depth=params['augmentation_ops_depth'], **augmix_params)
         # TODO: apply augmentation transforms
         raise NotImplementedError
     else:
         raise NotImplementedError
         # TODO: sample randomly augmentation ops
-        for t in hp['transforms']:
+        for t in params['transforms']:
             transforms.append(t)
 
-    if hp['keep_same_input_shape']:
+    if params['keep_same_input_shape']:
         raise NotImplementedError
         # TODO: resize (scale and/or crop?) output image to its original size
     return torchvision.transforms.Compose(transforms)

@@ -255,7 +255,7 @@ class DeepcvModule(nn.Module):
                 _raise_if_no_act_fn('convolution')
                 nn.init.xavier_normal_(module.weight.data, gain=xavier_gain)
                 module.bias.data.fill_(0.)
-            elif deepcv.utils.is_fully_connected(module):
+            elif deepcv.meta.nn.is_fully_connected(module):
                 _raise_if_no_act_fn('fully connected')
                 nn.init.xavier_uniform_(module.weight.data, gain=xavier_gain)
                 module.bias.data.fill_(0.)
@@ -281,7 +281,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
         self._enable_shared_image_embedding_block = enable_shared_block
         self.freeze_shared_image_embedding_block = freeze_shared_block
 
-        if enable_shared_block and not getattr(self, 'shared_image_embedding_block', default=None):
+        if enable_shared_block and not hasattr(self, 'shared_image_embedding_block'):
             # If class haven't been instanciated yet, define common/shared DeepcvModule image embedding block
             type(self)._define_shared_image_embedding_block()
 
@@ -351,7 +351,7 @@ class DeepcvModuleDescriptor:
     def __init__(self, module: DeepcvModule):
         self.module = module
 
-        if getattr(module, '_architecture_spec', default=None):
+        if hasattr(module, '_architecture_spec'):
             # NOTE: `module.architecture_spec` attribute will be defined if `module.define_nn_architecture` is called
             architecture_spec = module._architecture_spec
         elif 'architecture' in module._hp:
@@ -372,27 +372,27 @@ class DeepcvModuleDescriptor:
             self.freezed_shared_block = module._freeze_shared_image_embedding_block
             assert not self.did_forked_shared_block or self.uses_shared_block, 'Error: DeepCVModule have inconsistent flags: `_shared_block_forked` cant be True if `_enable_shared_image_embedding_block` is False'
 
-        if getattr(module, '_features_shapes', default=None):
+        if hasattr(module, '_features_shapes'):
             self.submodules_features_shapes = module._features_shapes
             self.submodules_features_dims = map(len, module._features_shapes)
             self.submodules_features_sizes = map(np.prod, module._features_shapes)
         if architecture_spec is not None:
             self.architecture = architecture_spec
             self.submodules_types = [list(subm.keys())[0] for subm in architecture_spec]
-        if getattr(module, '_submodules_capacities', default=None):
+        if hasattr(module, '_submodules_capacities'):
             self.submodules_capacities = module._submodules_capacities
             self.human_readable_capacities = map(deepcv.utils.human_readable_size, module._submodules_capacities)
 
     def __str__(self) -> str:
         """ Ouput a human-readable string representation of the deepcv module based on its descriptor """
         if self.architecture is not None:
-            features = self.submodules_features_shapes if getattr(self, 'submodules_features_shapes', default=None) else ['UNKNOWN'] * len(self.architecture)
-            capas = self.human_readable_capacities if getattr(self, 'human_readable_capacities', default=None) else ['UNKNOWN'] * len(self.architecture)
+            features = self.submodules_features_shapes if hasattr(self, 'submodules_features_shapes') else ['UNKNOWN'] * len(self.architecture)
+            capas = self.human_readable_capacities if hasattr(self, 'human_readable_capacities') else ['UNKNOWN'] * len(self.architecture)
             desc_str = '\n\t'.join([f'- {n}({p}) output_features_shape={s}, capacity={c}' for (n, p), s, c in zip(self.architecture, features, capas)])
         else:
             desc_str = '(No submodule architecture informations to describe)'
 
-        if isinstance(module, DeepcvModuleWithSharedImageBlock):
+        if isinstance(self.module, DeepcvModuleWithSharedImageBlock):
             desc_str += '\n SIEB (Shared Image Embedding Block) usage:'
             if self.uses_shared_block:
                 desc_str += 'This module makes use of shared image embedding block applied to input image:'

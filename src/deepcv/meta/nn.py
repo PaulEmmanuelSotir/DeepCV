@@ -134,12 +134,12 @@ def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, insp
                 super(_Module, self).__init__()
                 bound_args = init_signature.bind(*args, **kwargs)
                 bound_args.apply_defaults()
-                self.__dict__.update(bound_args.arguments)
+                self._forward_args_from_init = bound_args.arguments
 
             def forward(self, *inputs, **kwargs) -> torch.Tensor:
                 bound_args = forward_signature.bind(*inputs, **kwargs)
                 bound_args.apply_defaults()
-                return forward_func(**bound_args.arguments, **vars(self))
+                return forward_func(**bound_args.arguments, **self._forward_args_from_init)
 
         _Module.__name__ = typename
         _Module.__doc__ = f'Module created at runtime from `{forward_func.__name__}` forward function.\nInitial forward function documentation:\n' + forward_func.__doc__
@@ -209,7 +209,7 @@ def concat_coords_channels(features: torch.Tensor, channel_dim: int = 1, align_c
         - channel_dim: Channel dimension index in feature maps (without eventual batch dim), 0 by default. Supports negative dim index.
     """
     assert features.dim() == 4 or features.dim(
-    ) == 5, f'Error: {deeepcv.utils.get_str_repr(concat_coords_channels, __file__)} only support 2D or 3D input features (i.e. features dim of 4 or 5 with batch and channel dims), but got `features.dim()={features.dim()}`.'
+    ) == 5, f'Error: {deepcv.utils.get_str_repr(concat_coords_channels, __file__)} only support 2D or 3D input features (i.e. features dim of 4 or 5 with batch and channel dims), but got `features.dim()={features.dim()}`.'
     assert channel_dim < features.dim() and channel_dim >= -features.dim(), 'Invalid argument: `channel_dim` must be in [-features.dim() ; features.dim()[ range'
 
     affine_matrices = torch.zeros((features.shape[0],) + ((2, 3) if features.dim() == 4 else (3, 4)))
@@ -232,12 +232,12 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
         - dropout_prob: Dropout probability (if dropout_prob is None or 0., then no dropout ops is used)
         - batch_norm: (if batch_norm is None, then no batch norm is used)
         - preactivation: Boolean specifying whether to use preactivatation operation order: "(?dropout) - (?BN) - Act - Layer" or default operation order: "(?Dropout) - Layer - Act - (?BN)"
-    Note:
-        Note that dropout used along with batch norm may be unrecommended (see respective warning message).
+    Returns layer operations as a tuple of `torch.nn.Modules` 
+    Note: Dropout used along with batch norm may be unrecommended (see respective warning message).
     """
-    if 'weight' not in vars(layer_op):
+    if not hasattr(layer_op, 'weight'):
         raise ValueError(f'Error: Bad layer operation module argument, no `weight` attribute found in layer_op="{layer_op}"')
-    if 'out_channels' not in vars(layer_op) and 'out_features' not in vars(layer_op):
+    if batch_norm is not None and not hasattr(layer_op, 'out_channels') and not hasattr(layer_op, 'out_features'):
         raise ValueError(f'Error: Bad layer op module argument, no `out_channels` nor `out_features` attribute in `layer_op={layer_op}`')
 
     def _dropout() -> Optional[nn.Module]:
@@ -286,7 +286,7 @@ class ConvWithMetaLayer(nn.Module):
     def __init__(self, preactivation: bool = False):
         raise NotImplementedError
         self.conv = nn.Conv2d(16, 3, (3, 3))  # TODO: preactivation, etc...
-        self.meta = layer(layer_op=self.conv, act_fn=nn.ReLU, dropout_prob=0., batch_norm=None, preactivation=preactivation)
+        self.meta = nn.Sequential(*layer(layer_op=self.conv, act_fn=nn.ReLU, dropout_prob=0., batch_norm=None, preactivation=preactivation))
         self.RANDOM_PROJ = torch.randn_like(self.conv.weights)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

@@ -81,13 +81,6 @@ def tensor_to_np(tensor: torch.Tensor) -> np.ndarray:
     return tensor.numpy
 
 
-# """ Dict listing all available transforms which can be specified with a string identifier.
-# NOTE: If other transforms are needed, you can still provide it in YAML config by using its type, for example, `!py!torchvision.datasets.CIFAR100`
-# # TODO: Test it (see whether if torchvision transform names are valid)
-# """
-# AVAILABLE_TRANSFORMS = {'tensor_to_np': tensor_to_np} + {n: v for n, v in vars(torchvision.transforms.transforms).items()}
-
-
 """ `TRANSFORM_ARGS_PROCESSORS` Maps transforms types with their arguments processing function and an iterable of arguments names which can be processed at runtime by this function.  
 If a transform needs arguments which can be processed at runtime instead of beeing provided in YAML config (`parameters.yml`),
 you can register its argument(s) processing function in this Dict or decorate argument(s) processing function with `register_transform_processor`.  
@@ -210,7 +203,7 @@ def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparame
     if params['augmentation_reciepe'] is not None:
         logging.info(f'Applying dataset augmentation reciepe ')
         # TODO: (WIP) use same transforms parsing procedure for augmentation: _parse_transforms_specification(params['augmentation_reciepe']['tranforms'], trainset=datasets['trainset'])
-        preprocess_transforms['augmentation_transform'] = deepcv.meta.data.augmentation.apply_augmentation_reciepe(dataset=ds, hp=params['augmentation_reciepe'])
+        preprocess_transforms['augmentation_transform'] = deepcv.meta.data.augmentation.apply_augmentation_reciepe(datasets=datasets, params=params['augmentation_reciepe'])
 
     # Replace datasets with `PreprocessedDataset` instances in order to apply perprocesssing transforms to datasets entries (transforms applied on dataset `__getitem__` calls)
     datasets = {n: PreprocessedDataset(ds, **preprocess_transforms) for n, ds in datasets.items()}

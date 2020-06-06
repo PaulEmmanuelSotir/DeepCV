@@ -355,8 +355,8 @@ def is_data_parallelization_usefull_heuristic(model: nn.Module, batch_shape: tor
         5.  # TODO: improve this heuristic score according to GPU bandwidth and FLOPs?
     heuristic = float(capacity_score + batch_score + gpus_score)
     if print_msg:
-        negation, lt_gt_op = ('not', '>') if heuristic > 0.5 else ('', '<')
-        logging.info(f'DataParallelization may {negation} be helpfull to improve training performances: heuristic {lt_gt_op} 0.5 (heuristic = capacity_score({float(capacity_score):.3f}) + batch_score({float(batch_score):.3f}) + gpus_score({float(gpus_score)}) = {heuristic:.3f})')
+        may_or_wont, lt_gt_op = ('may', '>') if heuristic > 0.5 else ('wont', '<')
+        logging.info(f'DataParallelization {may_or_wont} be helpfull to improve training performances: heuristic({heuristic:.3f}) {lt_gt_op} 0.5 (heuristic({heuristic:.3f}) = capacity_score({float(capacity_score):.3f}) + batch_score({float(batch_score):.3f}) + gpus_score({float(gpus_score):.3f}))')
     return heuristic > 0.5
 
 

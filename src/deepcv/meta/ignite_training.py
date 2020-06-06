@@ -36,23 +36,20 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 class BackendConfig:
-    def __init__(self, device=None, dist_backend: dist.Backend = None, dist_url: str = '', local_rank: Optional[int] = 0):
+    def __init__(self, device=None, dist_backend: Optional[dist.Backend] = None, dist_url: Optional[str] = None, local_rank: int = 0):
         self.device = deepcv.utils.get_device(devid=local_rank) if device is None else device
         self.is_cpu = self.device.type == 'cpu'
         self.ncpu = multiprocessing.cpu_count()
         self.dist_backend = dist_backend
         self.dist_url = dist_url
-        self.distributed = dist_backend is not None and dist_backend != ''
         self.local_rank = local_rank
         self.ngpus_current_node = torch.cuda.device_count()
-        self.rank, self.ngpus, self.nnodes = 0, 0, 1
+        self.rank, self.nnodes = 0, 1
 
         if self.distributed:
             self.rank = dist.get_rank()
-            self.ngpus = dist.get_world_size()
+            self.gpus_world_size = dist.get_world_size()
             self.nnodes = dist.get_world_size() // self.ngpus_current_node  # TODO: fix issue: self.nnodes correct only if each nodes have the same GPU count
-        else:
-            self.ngpus = self.ngpus_current_node
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -60,9 +57,13 @@ class BackendConfig:
     def __str__(self) -> str:
         if self.is_cpu:
             return f'single-node-cpu-{self.ncpu}'
-        if self.ngpus <= 1:
-            return 'single-gpu'
-        return f'distributed-{self.nnodes}nodes-{self.ngpus}gpus-{self.ngpus_current_node}current-node-gpus'
+        if self.distributed:
+            return f'distributed-{self.nnodes}avg_nodes-{self.gpus_world_size}gpus_world_size-{self.ngpus_current_node}current-node-gpus(rank={self.rank})'
+        return f'single-node-{self.ngpus_current_node}-available-gpus'
+
+    @property
+    def distributed(self):
+        return self.dist_backend is not None and self.dist_backend != '' and self.dist_url is not None and self.dist_url != ''
 
 
 def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}) -> ignite.engine.State:
@@ -81,8 +82,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     # TODO: Report training metrics and results to MLFlow?
     """
     TRAINING_HP_DEFAULTS = {'output_path': ..., 'optimizer_opts': ..., 'scheduler': ..., 'epochs': ...,
-                            'validate_every': 1, 'checkpoint_every': 1000, 'log_model_grads_every': -1,
-                            'display_iters': 1000, 'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
+                            'validate_every_epochs': 1, 'save_every_iters': 1000, 'log_model_grads_iters': -1,
+                            'log_every_iters': 100, 'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
     hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
@@ -107,7 +108,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     loss = loss.to(device)
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
     args_to_eval = hp['scheduler']['eval_args'] if 'eval_args' in hp['scheduler'] else {}
-    scheduler = hp['scheduler']['type'](**{n: eval(v, __locals={'hp': hp, 'iterations': len(trainset)}) if n in args_to_eval else v for n, v in hp['scheduler']['kwargs'].items()})
+    scheduler = hp['scheduler']['type'](optimizer=optimizer, **{n: eval(v, {'hp': hp, 'iterations': len(trainset)})
+                                                                if n in args_to_eval else v for n, v in hp['scheduler']['kwargs'].items()})
 
     def process_function(engine, batch):
         if isinstance(dataloaders, Tuple[deepcv.meta.data.datasets.BatchPrefetchDataLoader]):
@@ -128,20 +130,24 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
 
     trainer = Engine(process_function)
 
-    # TODO: figure out why 'None' if not distributed?
-    # TODO: replace it with torch.utils.data.distributed.DistributedSampler(trainset) ?
-    train_sampler = trainset.sampler if backend_conf.distributed else None
+    # TODO: Figure out if sampler handling is done right
+    train_sampler = torch.utils.data.distributed.DistributedSampler(trainset) if backend_conf.distributed else None
+    if backend_conf.distributed and not callable(getattr(train_sampler, 'set_epoch', None)):
+        raise ValueError(f'Error: `trainset` DataLoader\'s sampler should have a method `set_epoch` (train_sampler=`{train_sampler}`)')
     to_save = {'trainer': trainer, 'model': model, 'optimizer': optimizer, 'scheduler': scheduler}
     metric_names = ['batch loss', ]
     common.setup_common_training_handlers(trainer,
                                           train_sampler=train_sampler,
                                           to_save=to_save,
-                                          save_every_iters=hp['checkpoint_every'],
+                                          save_every_iters=hp['save_every_iters'],
                                           output_path=hp['output_path'],
                                           lr_scheduler=scheduler,
+                                          with_gpu_stats=True,
                                           output_names=metric_names,
-                                          with_pbar_on_iters=hp['display_iters'],
-                                          log_every_iters=10,)
+                                          with_pbars=True,
+                                          with_pbar_on_iters=True,
+                                          log_every_iters=hp['log_every_iters'],
+                                          device=backend_conf.device)
 
     if backend_conf.rank == 0:
         tb_logger = TensorboardLogger(log_dir=hp['output_path'])
@@ -153,18 +159,18 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     valid_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
 
-    @ trainer.on(Events.EPOCH_STARTED(every=hp['validate_every']))
+    @ trainer.on(Events.EPOCH_STARTED(every=hp['validate_every_epochs']))
     @ trainer.on(Events.COMPLETED)
     def _run_validation(engine):
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and not backend_conf.is_cpu:
             torch.cuda.synchronize()
         train_evaluator.run(trainset)
         valid_evaluator.run(validset_testset[0])
 
     if backend_conf.rank == 0:
-        if hp['display_iters']:
-            ProgressBar(persist=False, desc='Train evaluation').attach(train_evaluator)
-            ProgressBar(persist=False, desc='Test evaluation').attach(valid_evaluator)
+        event = Events.ITERATION_COMPLETED(every=hp['log_every_iters'] if hp['log_every_iters'] else None)
+        ProgressBar(persist=False, desc='Train evaluation').attach(train_evaluator, metric_names='all', event_name=event)
+        ProgressBar(persist=False, desc='Test evaluation').attach(valid_evaluator, metric_names='all')
 
         log_handler = OutputHandler(tag='train', metric_names=list(metrics.keys()), global_step_transform=global_step_from_engine(trainer))
         tb_logger.attach(train_evaluator, log_handler=log_handler, event_name=Events.COMPLETED)
@@ -175,9 +181,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         # Store the best model by validation accuracy:
         common.save_best_model_by_val_score(hp['output_path'], valid_evaluator, model=model, metric_name='accuracy', n_saved=3, trainer=trainer, tag='val')
 
-        if hp['log_model_grads_every'] is not None and hp['log_model_grads_every'] > 0:
-            tb_logger.attach(trainer, log_handler=GradsHistHandler(model, tag=model.__class__.__name__),
-                             event_name=Events.ITERATION_COMPLETED(every=hp['log_model_grads_every']))
+        if hp['log_model_grads_iters'] is not None and hp['log_model_grads_iters'] > 0:
+            tb_logger.attach(trainer, log_handler=GradsHistHandler(model, tag=model.__class__.__name__), event_name=Events.ITERATION_COMPLETED(every=hp['log_model_grads_iters']))
 
     if hp['crash_iteration'] is not None and hp['crash_iteration'] >= 0:
         @ trainer.on(Events.ITERATION_STARTED(once=hp['crash_iteration']))
@@ -189,14 +194,13 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     try:
         logging.info(f'> ignite runs training loop for "{model}" model...')
         state = trainer.run(trainset, max_epochs=hp['epochs'])
-        logging.info(f'Ignite training procedure of "{model}" model sucessfully done.')
+        logging.info(f'Training of "{model}" model done sucessfully.')
         return state
     except Exception as e:
         logging.error(f'Ignite training loop of "{model}" model failed, exception "{e}" raised\n### Traceback ###\n{traceback.format_exc()}')
-        raise RuntimeError(f'Error: Error occured during ignite training loop of "{model}" model...') from e
+        raise RuntimeError(f'Error: `{e}` exception raised during ignite training loop of "{type(model).__name__}" model...') from e
     finally:
         if backend_conf.rank == 0:
-
             tb_logger.close()
 
 

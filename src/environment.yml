@@ -24,6 +24,7 @@ dependencies:
         - mlflow=1.7.*
         - hyperopt=0.2.*
         - jupyter=1.0.*
+        - pynvml=8.0.*
         - ignite=0.3.*
         - pillow=7.0.*
         - click=7.1.*

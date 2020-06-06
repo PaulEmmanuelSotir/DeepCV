@@ -70,7 +70,8 @@ basic_training_params: &basic_ignite_training
     type: !py!ignite.contrib.handlers.PiecewiseLinear
     eval_args: ["milestones_values"]
     kwargs:
-      milestones_values: "[[0, 0.0], [20 * iterations, hp['lr']], [hp['epochs'] * iterations, 0.0]]"
+      param_name: "lr"
+      milestones_values: "[[0, 0.0], [20 * iterations, hp['optimizer_opts']['lr']], [hp['epochs'] * iterations, 0.0]]"
   # scheduler:
   #   type: !py!deepcv.meta.one_cycle.OneCyclePolicy
   #   kwargs:
@@ -80,10 +81,10 @@ basic_training_params: &basic_ignite_training
   #     max_momentum: 1e-2
   resume_from: ""
   crash_iteration: -1
-  validate_every: 1 # Epoch
-  checkpoint_every: # Iters
-  log_model_grads_every: # Iters
-  display_iters: # Iters
+  validate_every_epochs: 1
+  save_every_iters: 1000
+  log_model_grads_iters: -1
+  log_every_iters: 100
   seed: 563454
   deterministic: true
   backend_conf:
@@ -93,11 +94,17 @@ basic_training_params: &basic_ignite_training
 
 object_detector_training:
   <<: *basic_ignite_training
-  output_path: ""
+  output_path: "data/04_training/object_detection/"
   epochs: 80
   batch_size: 32
   optimizer_opts:
-    { betas: [0.9, 0.999], eps: 1e-08, weight_decay: 1e-2, amsgrad: false }
+    {
+      lr: 1e-3,
+      betas: [0.9, 0.999],
+      eps: 1e-08,
+      weight_decay: 1e-2,
+      amsgrad: false,
+    }
   # SGD: { lr: 0.1, momentum: 1e-4, weight_decay: 0., dampening: 1e-4, nesterov: true }
 # object_detector_hp_search:
 #   cross_validation: false

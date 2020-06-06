@@ -32,8 +32,8 @@ from kedro.io import DataCatalog
 
 
 __all__ = ['Number', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds', 'setup_cudnn', 'progess_bar', 'get_device',
-           'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'get_by_identifier', 'get_str_repr',
-           'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
+           'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'recursive_getattr', 'get_by_identifier',
+           'get_str_repr', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
@@ -192,6 +192,35 @@ def yolo(self: DataCatalog, *search_terms):
 # Mokey patch catalog yolo loading :-) (code from https://waylonwalker.com/notes/kedro/)
 DataCatalog.yolo = yolo
 DataCatalog.yolo.__doc__ = "You Only Load Once. (Queries and loads from given search terms)"
+
+
+def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Optional[Type] = None, default: Optional[Any] = None) -> Any:
+    """ Recursively look for an attribute (`attr_name`) in given `obj` object and in any underlying/encapsulated objects of type 'type'.
+    For example, this function may be usefull as `torch.utils.data.Dataset` child classes often encapsulates another dataset which could contain the attribute you look for (e.g. `Subset` Dataset encapsulates another Dataset).
+    For such an usage, you would set `recurse_on_type` to `torch.utils.data.Dataset`, so that this function will look for `attr_name` attribute in `obj` (your dataset) and in all `obj`'s attributes which are Datasets, recursively.
+    NOTE: Relies on `vars` to look for encapsulated attributes of `recurse_on_type` type.
+    Args:
+        - obj: Object in which recursive attribute lookup is done
+        - attr_name: Attribute name to be looked for
+        - recurse_on_type: Type over which recursion is done; If `None`, `recurse_on_type` defaults to `type(obj)` which is the child-most class type (won't recurse over any parent class types in this case)
+        - default: Default value to return if attribute can't be found
+    Returns attribute's value if found or `default` value otherwise
+    """
+    if recurse_on_type is None:
+        recurse_on_type = type(obj)
+    underlying_objs = [obj]
+
+    while len(underlying_objs) > 0:
+        for o in underlying_objs:
+            if hasattr(o, attr_name):
+                return getattr(o, attr_name, default)
+
+        next_recursion_objs = []
+        for underlying_o in underlying_objs:
+            next_recursion_objs.extend([o for o in vars(underlying_o).values() if isinstance(o, recurse_on_type)])
+        underlying_objs = next_recursion_objs
+
+    return default
 
 
 def get_by_identifier(identifier: str):

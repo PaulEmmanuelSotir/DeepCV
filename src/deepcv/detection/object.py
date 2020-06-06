@@ -13,6 +13,7 @@ from collections import OrderedDict
 from typing import Any, Dict, Optional, Tuple, Callable, List, Iterable, Union
 
 import torch
+import torchvision
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim as optim
@@ -61,8 +62,13 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.h
     # Determine input and output shapes
     dummy_img, dummy_target = datasets['trainset'][0]
     input_shape = dummy_img.shape
-    # TODO: modify it be an embedding layer
-    model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape) if isinstance(dummy_target, torch.Tensor) else 1
+    if not hasattr(model_params['architecture'][-1]['fully_connected'], 'out_features'):
+        # Architecture's last FC output layer doesn't specify output features size, so we deduce it from dataset's target classes or target shape
+        classes = deepcv.utils.recursive_getattr(datasets['trainset'], 'classes', recurse_on_type=Dataset)
+        if classes is not None:
+            model_params['architecture'][-1]['fully_connected']['out_features'] = len(classes)
+        elif isinstance(dummy_target, torch.Tensor):
+            model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
     # Create ObjectDetector model
     model = ObjectDetector(input_shape, model_params)

@@ -66,6 +66,14 @@ class BackendConfig:
         return self.dist_backend is not None and self.dist_backend != '' and self.dist_url is not None and self.dist_url != ''
 
 
+# TODO: Replace data batch prefectching of custom DataLoader with code in ITERATION_STARTED callback:
+# @trainer.on(Events.ITERATION_STARTED)
+# def switch_batch(engine):
+#     prefetched_batch = switch_batch._next_batch
+#     switch_batch._next_batch = engine.state.batch
+#     engine.state.batch = prefetched_batch
+
+
 def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
@@ -112,7 +120,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
                                                                 if n in args_to_eval else v for n, v in hp['scheduler']['kwargs'].items()})
 
     def process_function(engine, batch):
-        if isinstance(dataloaders, Tuple[deepcv.meta.data.datasets.BatchPrefetchDataLoader]):
+        if isinstance(trainset, deepcv.meta.data.datasets.BatchPrefetchDataLoader):
             # Don't need to move batches to device memory: Batch comes from `BatchPrefetchDataLoader` which prefetches batches to device memory duing computation
             x, y = batch
         else:
@@ -126,7 +134,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         optimizer.zero_grad()
         loss_tensor.backward()
         optimizer.step()
-        return {'batch loss': loss_tensor.item(), }
+        return {'batch_loss': loss_tensor.item(), }
 
     trainer = Engine(process_function)
 
@@ -135,7 +143,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     if backend_conf.distributed and not callable(getattr(train_sampler, 'set_epoch', None)):
         raise ValueError(f'Error: `trainset` DataLoader\'s sampler should have a method `set_epoch` (train_sampler=`{train_sampler}`)')
     to_save = {'trainer': trainer, 'model': model, 'optimizer': optimizer, 'scheduler': scheduler}
-    metric_names = ['batch loss', ]
+    metric_names = ['batch_loss', ]
     common.setup_common_training_handlers(trainer,
                                           train_sampler=train_sampler,
                                           to_save=to_save,
@@ -169,8 +177,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
 
     if backend_conf.rank == 0:
         event = Events.ITERATION_COMPLETED(every=hp['log_every_iters'] if hp['log_every_iters'] else None)
-        ProgressBar(persist=False, desc='Train evaluation').attach(train_evaluator, metric_names='all', event_name=event)
-        ProgressBar(persist=False, desc='Test evaluation').attach(valid_evaluator, metric_names='all')
+        ProgressBar(persist=False, desc='Train evaluation').attach(train_evaluator, event_name=event)
+        ProgressBar(persist=False, desc='Test evaluation').attach(valid_evaluator)
 
         log_handler = OutputHandler(tag='train', metric_names=list(metrics.keys()), global_step_transform=global_step_from_engine(trainer))
         tb_logger.attach(train_evaluator, log_handler=log_handler, event_name=Events.COMPLETED)

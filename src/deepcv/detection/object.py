@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Object detection module - object.py - `DeepCV`__  
+""" Object detection module - object.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 
 *To-Do List*
@@ -31,7 +31,7 @@ import deepcv.meta.base_module
 import deepcv.meta.hyperparams
 import deepcv.meta.data.preprocess
 import deepcv.meta.ignite_training
-from deepcv.meta.data.datasets import BatchPrefetchDataLoader
+from deepcv.meta.data.datasets import batch_prefetch_dataloader_patch
 
 __all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -95,9 +95,7 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.
     for n, ds in datasets.items():
         shuffle = True if n == 'trainset' else False
         batch_size = hp['batch_size'] if n == 'trainset' else hp['batch_size'] * 32
-        # TODO: workaround ignite which is incompatible with custom DataLoader classes and make usage of deepcv.meta.data.datasets.BatchPrefetchDataLoader
-        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers,
-                                      pin_memory=not backend_conf.is_cpu))
+        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers, pin_memory=not backend_conf.is_cpu))
 
     return deepcv.meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
 

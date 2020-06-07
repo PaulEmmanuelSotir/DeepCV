@@ -87,6 +87,7 @@ basic_training_params: &basic_ignite_training
   log_every_iters: 20
   seed: 563454
   deterministic: true
+  prefetch_batches: true
   backend_conf:
     local_rank: 0
     dist_url: "" # "env://"

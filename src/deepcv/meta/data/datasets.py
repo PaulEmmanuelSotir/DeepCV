@@ -10,7 +10,7 @@ import threading
 import collections
 import functools as fn
 from pathlib import Path
-from typing import Optional, Type, Union, Iterable, Dict, Any, Tuple
+from typing import Optional, Type, Union, Iterable, Dict, Any, Tuple, Callable
 
 import PIL
 import kedro.io
@@ -25,7 +25,7 @@ import deepcv.utils
 import deepcv.meta.data.training_metadata
 
 
-__all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'BatchPrefetchDataLoader', 'get_random_subset_dataloader']
+__all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'batch_prefetch_dataloader_patch', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -69,49 +69,44 @@ class PytorchDataset(kedro.io.AbstractDataSet):
         raise NotImplementedError
 
 
-class BatchPrefetchDataLoader(DataLoader):
-    """ DataLoader which prefetches next data batch to device memory. """
+def batch_prefetch_dataloader_patch(dataloader__iter__: Callable[[DataLoader], Any], device: Union[None, str, torch.device] = torch.cuda.current_device()) -> DataLoader:
+    """ Monkey-patch given DataLoader's `__iter__` function to prefetche next data batch to device memory during compute.
+    NOTE: In order to data batches being prefetched to GPU memory, set `pin_memory` to True and provide a `device` which is not 'cpu' nor `None`.
+    NOTE: You won't need to move tensors batches from given dataloader to GPU device memory anymore; i.e., wont need to call `x.to(device)`
+    Args:
+        - dataloader__iter__: Dataloader's `__iter__` function which will prefetch batches (`dataloader.__iter__().__next__` will be monkey patched)
+        - device: Torch device to which data batches are prefetched. If `None` or 'cpu', then batch prefetching is disabled and no changes are made to `dataloader`
+    Returns given dataloader's `__iter__` patched function so that data batches are prefetched
+    """
+    # if not dataloader.pin_memory:
+    #     logging.warn(f'Warning: Dataloader wont prefetch data batches: set `pin_memory=True` in your DataLoader when instanciating `{type(dataloader).__name__}`')
+    #     return dataloader
+    if device is None or device == 'cpu' or (isinstance(device, torch.device) and device.type == 'cpu'):
+        logging.warn(f'Warning: Dataloader wont prefetch data batches: given `device` is `"cpu"` or `None`.')
+        return dataloader__iter__
 
-    def __init__(self, *args, prefetch_device: Union[None, str, torch.device] = torch.cuda.current_device(), **kwargs):
-        """ DataLoader constructor. `*args` and `**kwargs` are forwarded to parent class's constructor, see `torch.utils.data.DataLoader.__init__` for more details.
-        In order to data batch being prefetched, set `pin_memory` to True and provide a `prefetch_device` which is not 'cpu' nor `None`.
-        Args:
-            - *args: Positional arguments forwarded to `torch.utils.data.DataLoader.__init__`
-            - prefetch_device: Torch device to which data batches are prefetched. If `None` or 'cpu', then batch prefetching is disable (behaves like `torch.utils.data.DataLoader`)
-            - **kwargs: Keyword arguments forwarded to `torch.utils.data.DataLoader.__init__`
-        """
-        super().__init__(*args, **kwargs)
-        if not self.pin_memory:
-            logging.warn(f'Warning: It is recommended to set `pin_memory=True` in your DataLoader when using `{BatchPrefetchDataLoader.__name__}`')
-        self.prefetch_device = prefetch_device
+    def __iter__patch(self):
+        iterator = dataloader__iter__(self)
+        iterator._prefetched_batch = iterator.__next__().to(device=__iter__patch.prefetch_device, non_blocking=True)
 
-    def __iter__(self):
-        iterator = super().__iter__()
+        def _warp__next__(next_fn):
+            def __next__patch(iterator_self: Iterable) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+                if isinstance(iterator_self._prefetched_batch, StopIteration):
+                    raise iterator_self._prefetched_batch
+                else:
+                    batch = iterator_self._prefetched_batch
+                    try:
+                        iterator_self._prefetched_batch = next_fn(iterator_self).to(device=__iter__patch.prefetch_device, non_blocking=True)
+                    except StopIteration as e:
+                        # Catch `StopIteration` to raise it later (during following call to `__next__`)
+                        iterator._prefetched_batch = e
+                    return batch
+            return __next__patch
 
-        if self.is_batch_prefetch_enabled:
-            iterator._prefetched_batch = iterator.__next__().to(device=self.prefetch_device, non_blocking=True)
-
-            def _warp(next_fn):
-                def _prefetching_next_warper(iterator_self: Iterable) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
-                    if isinstance(iterator_self._prefetched_batch, StopIteration):
-                        raise iterator_self._prefetched_batch
-                    else:
-                        batch = iterator_self._prefetched_batch
-                        try:
-                            iterator_self._prefetched_batch = next_fn(iterator_self).to(device=self.prefetch_device, non_blocking=True)
-                        except StopIteration as e:
-                            # Catch `StopIteration` to raise it later (during following call to `__next__`)
-                            iterator._prefetched_batch = e
-                        return batch
-                return _prefetching_next_warper
-            iterator.__next__ = _warp(iterator.__next__)
-
+        iterator.__next__ = _warp__next__(iterator.__next__)
         return iterator
-
-    @property
-    def is_batch_prefetch_enabled(self):
-        is_cpu = self.prefetch_device == 'cpu' or (isinstance(self.prefetch_device, torch.device) and self.prefetch_device.type == 'cpu')
-        return self.pin_memory and (is_cpu or self.prefetch_device is None)
+    __iter__patch.prefetch_device = device
+    return __iter__patch
 
 
 def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int], **dataloader_kwargs) -> DataLoader:

@@ -67,11 +67,8 @@ class BackendConfig:
 
 
 # TODO: Replace data batch prefectching of custom DataLoader with code in ITERATION_STARTED callback:
-# @trainer.on(Events.ITERATION_STARTED)
-# def switch_batch(engine):
-#     prefetched_batch = switch_batch._next_batch
-#     switch_batch._next_batch = engine.state.batch
-#     engine.state.batch = prefetched_batch
+    # @ignite_engine.on(Events.ITERATION_STARTED)
+    # def _prefetch_data_batch(engine):
 
 
 def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, dataloaders: Tuple[DataLoader], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}) -> ignite.engine.State:
@@ -91,7 +88,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     """
     TRAINING_HP_DEFAULTS = {'output_path': ..., 'optimizer_opts': ..., 'scheduler': ..., 'epochs': ...,
                             'validate_every_epochs': 1, 'save_every_iters': 1000, 'log_model_grads_iters': -1,
-                            'log_every_iters': 100, 'seed': None, 'deterministic': False, 'resume_from': '', 'crash_iteration': -1}
+                            'log_every_iters': 100, 'seed': None, 'deterministic': False, 'prefetch_batches': True, 'resume_from': '', 'crash_iteration': -1}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
     hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
@@ -103,7 +100,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         # In distributed setup, we need to have different seed for each workers
         deepcv.utils.set_seeds(backend_conf.rank + hp['seed'])
 
-    model = model.to(device)
+    model = model.to(device, non_blocking=True)
     model = _setup_distributed_training(device, backend_conf, model, (trainset.batch_size, *trainset.dataset[0][0].shape))
 
     if backend_conf.local_rank == 0 and backend_conf.rank == 0:
@@ -119,8 +116,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     scheduler = hp['scheduler']['type'](optimizer=optimizer, **{n: eval(v, {'hp': hp, 'iterations': len(trainset)})
                                                                 if n in args_to_eval else v for n, v in hp['scheduler']['kwargs'].items()})
 
-    def process_function(engine, batch):
-        if isinstance(trainset, deepcv.meta.data.datasets.BatchPrefetchDataLoader):
+    def process_function(engine: Engine, batch: Tuple[torch.Tensor]):
+        if hasattr(engine._dataloader_iter, 'prefetch_device'):
             # Don't need to move batches to device memory: Batch comes from `BatchPrefetchDataLoader` which prefetches batches to device memory duing computation
             x, y = batch
         else:
@@ -167,9 +164,18 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     valid_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
 
-    @ trainer.on(Events.EPOCH_STARTED(every=hp['validate_every_epochs']))
-    @ trainer.on(Events.COMPLETED)
-    def _run_validation(engine):
+    # Setup data prefetch by patching dataloader(need at first iteration of ignite engine due to internal ignite dataloader handling which stupidly dangerously replaces dataloader(see `ignite.engine._update_dataloader` dumb function))
+    if hp['prefetch_batches']:
+        @trainer.on(Events.EPOCH_STARTED)
+        def _setup_dataloader_prefetching(engine: Engine):
+            @engine.on(Events.GET_BATCH_STARTED(once=1))
+            def _after_stupid_ignite_dataloader_replacement(engine: Engine):
+                if(engine.state.dataloader.pin_memory):
+                    deepcv.meta.data.datasets.batch_prefetch_dataloader_patch(engine._dataloader_iter, device=backend_conf.device)
+
+    @trainer.on(Events.EPOCH_STARTED(every=hp['validate_every_epochs']))
+    @trainer.on(Events.COMPLETED)
+    def _run_validation(engine: Engine):
         if torch.cuda.is_available() and not backend_conf.is_cpu:
             torch.cuda.synchronize()
         train_evaluator.run(trainset)
@@ -205,7 +211,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         logging.info(f'Training of "{model}" model done sucessfully.')
         return state
     except Exception as e:
-        logging.error(f'Ignite training loop of "{model}" model failed, exception "{e}" raised\n### Traceback ###\n{traceback.format_exc()}')
+        logging.error(f'Ignite training loop of "{type(model).__name__}" model failed, exception "{e}" raised\n### Traceback ###\n{traceback.format_exc()}')
         raise RuntimeError(f'Error: `{e}` exception raised during ignite training loop of "{type(model).__name__}" model...') from e
     finally:
         if backend_conf.rank == 0:

@@ -26,6 +26,8 @@ from ignite.contrib.handlers import TensorboardLogger, ProgressBar
 from ignite.contrib.handlers.tensorboard_logger import OutputHandler, OptimizerParamsHandler, GradsHistHandler
 import ignite.contrib.handlers
 
+import mlflow
+
 import deepcv.utils
 import deepcv.meta.nn
 import deepcv.meta.hyperparams
@@ -178,8 +180,12 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     def _run_validation(engine: Engine):
         if torch.cuda.is_available() and not backend_conf.is_cpu:
             torch.cuda.synchronize()
-        train_evaluator.run(trainset)
-        valid_evaluator.run(validset_testset[0])
+        train_state = train_evaluator.run(trainset)
+        for n, v in train_state.metrics.items():
+            mlflow.log_metric(f'train_{n}', v, step=trainer.state.epoch)
+        valid_state = valid_evaluator.run(validset_testset[0])
+        for n, v in valid_state.metrics.items():
+            mlflow.log_metric(f'valid_{n}', float(v), step=trainer.state.epoch)
 
     if backend_conf.rank == 0:
         event = Events.ITERATION_COMPLETED(every=hp['log_every_iters'] if hp['log_every_iters'] else None)

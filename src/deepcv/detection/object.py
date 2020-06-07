@@ -54,7 +54,7 @@ def get_object_detector_pipelines() -> Dict[str, Pipeline]:
                        datasets='datasets', params='params:cifar10_preprocessing'), outputs='preprocessed_datasets'),
                    node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs='model'),
                    node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:object_detector_training'], outputs='ignite_state')],
-                  tags=['train', 'detection'])
+                  tags=['train', 'detection'])  # 'train' tag is necessary for mlflow support (project hooks defined in `deepcv.run` creates/ends mlflow run for each `train` pipelines)
     return {'object_detector_training': p1}
 
 

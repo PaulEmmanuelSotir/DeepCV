@@ -61,7 +61,9 @@ class PytorchDataset(kedro.io.AbstractDataSet):
         return self.pytorch_dataset(**self.dataset_kwargs)
 
     def _save(self): pass
-    def _describe(self): return vars(self)
+
+    def _describe(self):
+        return vars(self) + {attr: getattr(self, attr) for attr in dir(self) if attr not in vars(self)}
 
     def get_dataset_stats(self) -> deepcv.meta.data.training_metadata.DatasetStats:
         """ Returns various statistics about dataset as a `deepcv.meta.data.training_metadata.DatasetStats` (inherits from `deepcv.meta.data.training_metadata.TrainingMetaData`) """

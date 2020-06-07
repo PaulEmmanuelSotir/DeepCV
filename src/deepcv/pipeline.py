@@ -22,6 +22,7 @@ def create_pipelines(**kwargs) -> Dict[str, Pipeline]:
         kwargs: Ignore any additional arguments added in the future.
     Returns:
         A mapping from a pipeline name to a ``Pipeline`` object.
+    NOTE: When creating training pipelines, 'train' tag is necessary for mlflow support (project hooks defined in `deepcv.run` creates/ends mlflow run for each `train` pipelines)
     """
     pipeline_mapping = {}
     pipeline_mapping.update({n: p.decorate(*DECORATORS) for n, p in deepcv.detection.object.get_object_detector_pipelines().items()})

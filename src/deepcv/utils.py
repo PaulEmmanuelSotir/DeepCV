@@ -17,6 +17,7 @@ import logging
 import builtins
 import threading
 import importlib
+import collections.abc
 from pathlib import Path
 import importlib.machinery
 from types import SimpleNamespace
@@ -198,7 +199,7 @@ def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Optional[Type] 
     """ Recursively look for an attribute (`attr_name`) in given `obj` object and in any underlying/encapsulated objects of type 'type'.
     For example, this function may be usefull as `torch.utils.data.Dataset` child classes often encapsulates another dataset which could contain the attribute you look for (e.g. `Subset` Dataset encapsulates another Dataset).
     For such an usage, you would set `recurse_on_type` to `torch.utils.data.Dataset`, so that this function will look for `attr_name` attribute in `obj` (your dataset) and in all `obj`'s attributes which are Datasets, recursively.
-    NOTE: Relies on `vars` to look for encapsulated attributes of `recurse_on_type` type.
+    NOTE: Relies on `dir` to look for encapsulated attributes of `recurse_on_type` type and ignores '__\w+__' attributes 
     Args:
         - obj: Object in which recursive attribute lookup is done
         - attr_name: Attribute name to be looked for
@@ -209,6 +210,7 @@ def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Optional[Type] 
     if recurse_on_type is None:
         recurse_on_type = type(obj)
     underlying_objs = [obj]
+    seen_hashes = set()  # `seen_hashes` is used to keep track of objects hashes to avoid infinite looping of recursive attribute lookup in case of circular encapsulation
 
     while len(underlying_objs) > 0:
         for o in underlying_objs:
@@ -217,9 +219,14 @@ def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Optional[Type] 
 
         next_recursion_objs = []
         for underlying_o in underlying_objs:
-            next_recursion_objs.extend([o for o in vars(underlying_o).values() if isinstance(o, recurse_on_type)])
+            # TODO: avoid infinite loop when performing recursion in case of self reference attributes (partially resolved by `hash` function usage)
+            attributes = [getattr(underlying_o, n) for n in dir(underlying_o) if not (n.startswith('__') and n.endswith('__'))]
+            if isinstance(underlying_o, collections.abc.Hashable):
+                seen_hashes.add(hash(underlying_o))
+            # Remove already seen objects from `attribute` (based on their `hash`), to avoid infinite looping in an eventual circular encapsulation (e.g. self reference attribute)
+            attributes = [a for a in attributes if not (isinstance(a, collections.abc.Hashable) and hash(a) in seen_hashes)]
+            next_recursion_objs.extend([o for o in attributes if isinstance(o, recurse_on_type)])
         underlying_objs = next_recursion_objs
-
     return default
 
 

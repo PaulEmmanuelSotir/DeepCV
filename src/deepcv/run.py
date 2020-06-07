@@ -30,19 +30,19 @@ class ProjectMainHooks:
 
     @hook_impl
     def before_pipeline_run(self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog):
-        if 'train' in run_params.get('tags', default=[]):
+        if 'train' in run_params.get('tags', []):
             if mlflow.active_run() is None:
                 mlflow.start_run(run_name=f'run_`{run_params["run_id"]}`_pipeline_`{run_params["pipeline_name"]}`')
 
     @hook_impl
     def after_pipeline_run(self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog):
-        if 'train' in run_params.get('tags', default=[]):
+        if 'train' in run_params.get('tags', []):
             if mlflow.active_run() is not None:
                 mlflow.end_run()
 
     @hook_impl
     def on_pipeline_error(self, error: Exception, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog):
-        if 'train' in run_params.get('tags', default=[]):
+        if 'train' in run_params.get('tags', []):
             if mlflow.active_run() is not None:
                 mlflow.end_run()
 
@@ -70,7 +70,7 @@ class ProjectContext(KedroContext):
     project_version = "0.16.1"  # `project_version` is the version of kedro used to generate the project
     package_name = "deepcv"
 
-    hooks = (ProjectMainHooks())
+    hooks = (ProjectMainHooks(),)
 
     def __init__(self, project_path: Union[Path, str], env: str = None, extra_params: Dict[str, Any] = None):
         super().__init__(project_path=project_path, env=env, extra_params=extra_params)

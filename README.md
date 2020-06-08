@@ -159,6 +159,8 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 - 💤Create more sophisticated video inference interpolation by avoiding end-to-end model inference on each frame and by making inference conditionned on previous frames's embedding and inference
 - 💤Implement timeseries models for high-level (low dimensionality) video features understanding
 - 💤Implement a pipeline for video stiching and add support for video stabilization, audio-and/or-visual synchronization, image compression (lossless or lossy), watermark removal, visual tracking, pose estimation
+- 💤Implement more tools for faster deep learning model convergence and generalization, thanks to active learning, boosting and meta-learning techniques
+- Read more papers and implement DeepCV accordingly ;-) (generic papers which seems relevant but I didn't read yet: [Fantastic Generalization Measures and Where to Find Them](https://openreview.net/forum?id=SJgIPJBFvH), [https://openreview.net/forum?id=HJg2b0VYDr](https://openreview.net/forum?id=HJg2b0VYDr), ect ... ...)
 - 💤...
 
 __Interesting third party projects which could be integrated into DeepCV__

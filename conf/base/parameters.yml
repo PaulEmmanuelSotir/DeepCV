@@ -95,7 +95,6 @@ basic_training_params: &basic_ignite_training
 
 train_object_detector:
   <<: *basic_ignite_training
-  output_path: "data/04_training/object_detection/"
   epochs: 80
   batch_size: 32
   optimizer_opts:

@@ -28,7 +28,7 @@ __all__ = ['PreprocessedDataset', 'fn_to_transform', 'split_dataset', 'preproces
 __author__ = 'Paul-Emmanuel Sotir'
 
 # Joblib memory used by `_process_normalization_stats`
-joblib_cache_path = Path('./data/03_primary/joblib_cache')
+joblib_cache_path = Path.cwd() / 'data/03_primary/joblib_cache'
 joblib_cache_path.mkdir(parents=True, exist_ok=True)
 memory = Memory(joblib_cache_path, verbose=0)
 

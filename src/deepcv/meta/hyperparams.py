@@ -12,6 +12,7 @@ import types
 import logging
 import collections
 import multiprocessing
+from pathlib import Path
 from typing import Sequence, Iterable, Callable, Dict, Tuple, Any, Union, Optional, List
 
 import torch
@@ -283,6 +284,15 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
         nni.report_final_result(rslt)
 
     logging.info(f'######## NNI Hyperparameter search trial NO#{nni.get_trial_id()} done! ########')
+
+
+def generate_hp_space_template(hyperparams: Union[Dict[str, Any], Hyperparameters], save_filename: str, exclude_params: Optional[Sequence[str]] = None, include_params: Optional[Sequence[str]] = None) -> Optional[Path]:
+    pass
+
+
+def parse_hp_space(hp_space_yml: Union[Path, str]) -> Optional[HyperparameterSpace]:
+    """ Creates a 'HyperparameterSpace' instance from given hyperparameter space YAML config filepath (Should follow NNI's hp space specs) """
+    pass
 
 
 if __name__ == '__main__':

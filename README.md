@@ -1,17 +1,22 @@
 # DeepCV README.md (_Work In Progress_)
-
+__Project authored by Paul-Emmanuel SOTIR__ <paulemmanuel.sotir@oultook.com>  
 _This project is under Open Source MIT License, see [./LICENSE](./LICENSE) or more details._  
 
-__By Paul-Emmanuel SOTIR <paulemmanuel.sotir@oultook.com>__  
-__WIP: This Project is still under active development, and at an early stage of development__  
 
-DeepCV is a Kedro PyTorch project which aims to simplify the implementation of simple vision tasks. DeepCV allows you to easily define vision processing pipelines by leveraging recent DeepLearning algorithms along with the usual OpenCV tools.  
+__It's not the best choice, it's DeepCV choice!__
 
-Some of DeepCV's main features are:
-- The [`deepcv.meta`](./src/deepcv/meta) python module contains various utilities to make it easier to [define models](./src/deepcv/meta/base_module.py), [train models with ignite](./src/deepcv/meta/ignite_training.py), [search hyperparameters with NNI](./src/deepcv/meta/hyperparams.py), follow and visualize training experiments with MLFlow/kedro/TensorboardX..., [preprocess](./src/deepcv/meta/data/preprocess.py) and [augment data](./src/deepcv/meta/data/augmentation.py), schedule learning rate(s) with [One Cycle policy](./src/deepcv/meta/one_cycle.py), perform meta-learning thanks to various tools like [`HyperparametersEmbedding`](./src/deepcv/meta/hyperparams.py) and as well as meta deep-learning abstractions (e.g. [`Experiment`, `DatasetStats`, `Task`, `Hyperparameters`, `HyperparameterSpace`](./src/deepcv/meta/data/training_metadata.py)) stored for each experiments in a 'metadataset', ...
-- [`deepcv.meta.base_module.DeepcvModule`](./src/deepcv/meta/base_module.py) A base class for easier DeepCV model definition: model sub-modules (NN blocks or layers) can be defined in a simple and generic manner in [`./conf/base/parameters.yml`](./conf/base/parameters.yml) and a shared image embedding block of a few convolution layers can allow learning to be transferred between any DeepCV image models by sharing, training, forking and/or merging these shared weights.
+Given that __DeepCV is still at an early stage of developement__, someone interested in this project right now would better see DeepCV as a project template, à la Kedro project template, rather than a fully stable vision/deep learning framework.
+
+__DeepCV__ is a __Kedro__/__PyTorch__ project which aims to simplify the implementation of simple vision tasks. __DeepCV__ allows you to easily create, train, debug and deploy vision processing pipelines by leveraging recent DeepLearning algorithms along with the usual OpenCV tooling.  
+
+Some of DeepCV's main features which are already implemented are:
+- The [`deepcv.meta`](./src/deepcv/meta) python module contains various utilities to make it easier to [define models](./src/deepcv/meta/base_module.py), [train models with ignite](./src/deepcv/meta/ignite_training.py), [search hyperparameters with NNI](./src/deepcv/meta/hyperparams.py), [preprocess](./src/deepcv/meta/data/preprocess.py) and [augment data](./src/deepcv/meta/data/augmentation.py), schedule learning rate(s) with [One Cycle policy](./src/deepcv/meta/one_cycle.py), perform meta-learning thanks to various tools like [`HyperparametersEmbedding`](./src/deepcv/meta/hyperparams.py) and as well as meta deep-learning abstractions (e.g. [`Experiment`, `DatasetStats`, `Task`, `Hyperparameters`, `HyperparameterSpace`](./src/deepcv/meta/data/training_metadata.py)) stored for each experiments in a 'metadataset', ...
+- [`deepcv.meta.base_module.DeepcvModule`](./src/deepcv/meta/base_module.py) A base class for easier DeepCV model definition: model sub-modules (NN blocks or layers) can be defined in a simple and generic manner in [`./conf/base/parameters.yml`](./conf/base/parameters.yml). This model base class greatly simplifies pytorch model definition without loosing in expressivity.
+- DeepCV contains various tooling common to any Machine Learning / DeepLearning / Vision projects which are , like: Machine Learning experiments management, state-of-the-art Deep Learning architecture definition, model training and insights, Python vision  learning to be transferred between any DeepCV image models by sharing, training, forking and/or merging these shared weights.
 - [`./conf/base/parameters.yml`] can also specify data augmentation and preprocessing recipes.
+- Quickly follow and visualize and compare training experiments and vision pipelines with MLFlow Web UI, Kedro-viz, TensorboardX, NNI Web UI, Jupyter notebooks...,
 - ...
+
 
 ## Install instructions
 
@@ -117,7 +122,7 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 - ♻Save training directory to MLFlow and delete it once training is done (+ allow to recover it & name it after run id)
 - ♻Implement more tooling for hyperparameter scheduling: allow multiple schedulers and tools for easier "super-convergence"
 - ♻Improve Hyperparameters/HyperparameterSpace/HyperparameterEmbedding/GeneralizationAcrossScalesPredictor implementations
-- ♻Fully implement HybridConnectivityGatedNet model (+ refactor it to make usage of newest version of  [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) model base class)
+- ♻Fully implement HybridConnectivityGatedNet model (+ refactor it to make usage of newest version of [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) model base class)
 - ♻Train object detection model + perform its hp search + Human detection model
 - ♻Train HRNet implementation on CIFAR10/100 and try to reproduce their results
 - ♻Implement OneCycle Policy along with optional learning rate scales varying for each layers or conv blocks + momentum and eventually investigate similar policies for other hyperprarmeters (e.g. dropout_prob, L2, ...) + consider to integrate fastai to deepcv dependencies in order to reuse its OneCycle policy implemetation?
@@ -148,6 +153,11 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 - 💤add a simple open-source implementation of wave function collapsing, optimize it -> Future work : Procedural Content Generation: Use a GAN to generates slots (learn scenes manifold by semantic clusters) used by Wave Function Collapse (+ Growing Grids as space filling algorithm to determine tile shapes)
 - 💤Finish implementation of 'meta convolution layers' and try to train it
 - 💤Fix, test DeepCV project packaging and deployment and improve modularity/portability
+- 💤Integrate Kornia (https://github.com/kornia/kornia) pytorch-based vision library as third party dependency
+- 💤Find best performing video loading library (at least faster ffmpeg, e.g. video decoding directly to GPU memory ) for a broadly used codec and implement video processing tooling (convertion, preprocessing, image pipeline application, input and target interpolation, distributed video processing, ...)
+- 💤Implement various basic video pipeline processing tools
+- 💤Create more sophisticated video inference interpolation by avoiding end-to-end model inference on each frame and by making inference conditionned on previous frames's embedding and inference
+- 💤Implement timeseries models for high-level (low dimensionality) video features understanding
 - 💤...
 
 __Interesting third party projects which could be integrated into DeepCV__

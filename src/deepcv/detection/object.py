@@ -47,15 +47,15 @@ class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
 
 
 def get_object_detector_pipelines() -> Dict[str, Pipeline]:
-    p1 = Pipeline([node(deepcv.utils.setup_cudnn, name='setup_cudnn_and_seed', inputs=dict(deterministic='params:object_detector_training.deterministic', seed='params:object_detector_training.seed'), outputs=None),
+    p1 = Pipeline([node(deepcv.utils.setup_cudnn, name='setup_cudnn_and_seed', inputs=dict(deterministic='params:train_object_detector.deterministic', seed='params:train_object_detector.seed'), outputs=None),
                    node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset',
                         inputs=dict(params='params:split_dataset', dataset_or_trainset='cifar10_train', testset='cifar10_test'), outputs='datasets'),
                    node(deepcv.meta.data.preprocess.preprocess, name='preprocess', inputs=dict(
                        datasets='datasets', params='params:cifar10_preprocessing'), outputs='preprocessed_datasets'),
                    node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs='model'),
-                   node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:object_detector_training'], outputs='ignite_state')],
-                  tags=['train', 'detection'])  # 'train' tag is necessary for mlflow support (project hooks defined in `deepcv.run` creates/ends mlflow run for each `train` pipelines)
-    return {'object_detector_training': p1}
+                   node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:train_object_detector'], outputs='ignite_state')],
+                  tags=['train', 'detection'])  # NOTE: For MLflow experiments/runs tracking support, pipeline(s) (or at least one node of the pipeline(s)) which involves training should have a 'train' tag (project hooks defined in `deepcv.run` creates/ends mlflow run for each `train` pipelines)
+    return {'train_object_detector': p1}
 
 
 def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):

@@ -9,31 +9,32 @@ dependencies:
         - pip
         - setuptools
         - autopep8
-        - pylint=2.4.*
-        - pytest=5.4.*
-        - coverage=5.0.*
-        - joblib=0.14.*
-        - matplotlib=3.2.*
-        - pandas=1.0.*
-        - scikit-learn>=0.22
-        - scikit-image=0.16.*
-        - seaborn=0.10.*
-        - pytorch=1.4.*
-        - torchvision=0.5.*
-        - albumentations=0.4.*
-        - mlflow=1.7.*
-        - hyperopt=0.2.*
-        - jupyter=1.0.*
-        - pynvml=8.0.*
-        - ignite=0.3.*
-        - pillow=7.0.*
-        - click=7.1.*
-        - hilbertcurve=1.0.*
-        - tensorboardX=2.*
-        - networkx=2.*
-        - gym-atari=0.17.*
+        - pylint=2.4.* # Python linter
+        - pytest=5.4.* # Python unit testing framework.
+        - coverage=5.0.* # Tool for measuring code testing coverage of Python
+        - joblib=0.14.* # Used for transparent disk-caching of functions and lazy re-evaluation with `joblib.Memory`
+        - matplotlib=3.2.* # Basic data plotting and visualization library
+        - pandas=1.0.* # Fast, powerful, flexible and easy to use open source data analysis and manipulation tool (built around `pandas.Dataframe` data container, like PyTorch is built around 'torch.Tensor' or numpy reling on 'numpy.ndarray')
+        - scikit-learn>=0.22 # Machine learning toolkit (very common depedency for non-deep-learning machine learning project)
+        - scikit-image=0.16.* # Extends scikit-learn with a collection of algorithms for image processing
+        - seaborn=0.10.* # Visualization/plotting library
+        - pytorch=1.4.* # PyTorch DeepLearning framework, developped by Facebook. PyTorch is one of the main dependencies of DeepCV.
+        - torchvision=0.5.* # Vision tooling and datasets for PyTorch
+        - albumentations=0.4.* # Image augmentation trasforms library (allows coherent/target-aware image transform)
+        - mlflow=1.8.* # OpenSource platform for managing machine learning lifecycle (Tracking experiments, packaging ML code, Manage and deploy ML models, MLFlow Web UI for experiment tracking)
+        - hyperopt=0.2.* # TODO: remove this dependency (use NNI instead)
+        - jupyter=1.0.* # Jupyter notebooks
+        - pynvml=8.0.* # Allows ignite to output GPU usage information in progress bars
+        - ignite=0.3.* # High-level library to help with training neural networks in PyTorch (see 'deepcv.meta.ignite_training')
+        - pillow=7.0.* # Image loading and preprocessing (PIL.Image)
+        - click=7.1.* # CLI Tooling (see 'kedro_cli.py')
+        - hilbertcurve=1.0.* # Used for an alternative approach to CoordConv where we append a single feature map of Hilbert Curve coordinates instead of euclidian coordinates on two features maps (see 'deepcv.meta.nn.concat_hilbert_coords_channel' function)
+        - tensorflow=2.* # Needed for tensorboard (Web UI Dashboard to visualize/track an experiment)
+        - tensorboardX=2.* # Tensorboard for pytorch
+        - networkx=2.* # Graph library for creation, manipulation, study of the structure, dynamics, and function of complex networks/graphs.
+        - gym-atari=0.17.* # Gym is a toolkit for developing and comparing reinforcement learning algorithms (by OpenAI )
         - pip:
-                  - kedro[pandas.CSVDataSet]==0.16.1
-                  - kedro-viz
-                  - ruamel.yaml
-                  - nni
+                  - kedro[pandas.CSVDataSet]==0.16.1 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
+                  - kedro-viz==3.3.0 # Allows Kedro data pipelines visualization
+                  - ruamel.yaml # YAML configuration parsing library used as backend of anyconfig instead of PyYAML (which is used by Kedro to load configuration files)
+                  - nni # Microsoft Neural Network Inteligence: Open source AutoML toolkit to automate machine learning lifecycle, including feature engineering, neural architecture search, model compression and hyper-parameter tuning (mainly used for the later)

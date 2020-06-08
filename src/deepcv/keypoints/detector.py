@@ -50,8 +50,8 @@ def get_keypoints_detector_pipelines():
                         outputs=['datasets']),
                    node(create_model, name='create_keypoints_encoder_model', inputs=['datasets', 'params:keypoints_encoder_model'], outputs=['encoder']),
                    node(create_model, name='create_keypoints_decoder_model', inputs=['datasets', 'params:keypoints_decoder_model'], outputs=['decoder']),
-                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'params:object_detector_training'], outputs=['ignite_state'])],
-                  name='object_detector_training')
+                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'params:train_object_detector'], outputs=['ignite_state'])],
+                  name='train_object_detector')
     return [p1]
 
 

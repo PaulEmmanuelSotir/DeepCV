@@ -110,13 +110,16 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 - 👍fix code and YAML config files in order to be able to run basic kedro pipelines and build documentation
 - 👍Run and Debug whole object detector pipeline
 - 👍Look into possible implementation of AugMix into deepcv (+ see any improved versions of AugMix)
+- 👍Full Experiment tracking MLFlow integration
 - ♻parse and process [deepcv.meta.data.augmentation](./src/deepcv/meta/data/augmentation.py) recipes from parameters.yml
 - ♻Implement HRNet architecture, create `multiscale fusion` submodule similar to HRNet's `features fusion`
-- ♻MLFlow integration : save models and tensorboard logs as artifacts, save metrics, hyperprarmeter search integration if needed, test dashboard/versionning, and eventually setup custom experiments storage for meta-learning
-- ♻Improve Hyperparameters/HyperparameterSpace/HyperparameterEmbedding/GeneralizationAcrossScalesPredictor implementations + integrate with NNI (remove any hyperopt usage)
+- ♻Basic NNI Hyperparameter search integration (and remove any hyperopt usage)
+- ♻Save training directory to MLFlow and delete it once training is done (+ allow to recover it & name it after run id)
+- ♻Implement more tooling for hyperparameter scheduling: allow multiple schedulers and tools for easier "super-convergence"
+- ♻Improve Hyperparameters/HyperparameterSpace/HyperparameterEmbedding/GeneralizationAcrossScalesPredictor implementations
 - ♻Fully implement HybridConnectivityGatedNet model (+ refactor it to make usage of newest version of  [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) model base class)
-- ♻NNI Hyperparameter search integration
-- ♻Train object detection model + its hp search + Human detection model
+- ♻Train object detection model + perform its hp search + Human detection model
+- ♻Train HRNet implementation on CIFAR10/100 and try to reproduce their results
 - ♻Implement OneCycle Policy along with optional learning rate scales varying for each layers or conv blocks + momentum and eventually investigate similar policies for other hyperprarmeters (e.g. dropout_prob, L2, ...) + consider to integrate fastai to deepcv dependencies in order to reuse its OneCycle policy implemetation?
 - ♻Implement architectures templates/patterns for multiscale neural net inputs and outputs + eventually gaussian blur kernels applied to convolutions activations with decreasing blur kernel size during training steps (+ rapid SOTA review from citing papers of these techniques)
 - ♻Train, vizualize and investigate the effect of various contrastive losses like [deepcv.meta.contrastive.JensenShannonDivergenceConsistencyLoss or deepcv.meta.contrastive.TripletMarginLoss](./src/deepcv/meta/contrastive.py) for embeddings and supervised training setups (à la contrastive learning for pretraining or additional loss term in supervised training setup) -> look for other contrastive or generative and combine thoose approaches with classical supervised losses
@@ -126,9 +129,9 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
     - [pytorch implementation 2 (seems a bit sketchy but applied to images)](https://github.com/vfdev-5/UDA-pytorch)
 - ♻Implement basic image feature/keypoints detection and matching and compare it against classical/non-ML vision approaches like SIFT, ORB, ...: Feature extraction and matching using lightweight CNNs, improving the reliability and reproducibility of image processing pipelines compared to implementations that rely on classical feature extractors such as SIFT, ORB, ...
 - ♻Implement a mechanism to choose which pipelines/models/third-party projects/dependencies to enable or not (i.e. optional plugins to DeepCV) by following Kedro "modular pipelines" guidelines 
-- ♻Implement unit tests and sanity checks
-- ♻Implement more tooling for hyperparameter scheduling: allow multiple schedulers and tools for easier "super-convergence"
-- ♻Train HRNet implementation on CIFAR10/100 and try to reproduce their results
+- ♻Implement more unit tests and sanity checks
+- semi-automated hyperparameter search with NNI (generated template of hp search space from model and training parameters + specfic mechanisms for model architecture)
+- 💤Implement a Web app merging and managing all web UIs (Tensorboard, Kedro Viz, MLFlow UI, NNI UI, Jupyter (Lab), and allow custom dashboards with Streamlit (www.streamlit.io) or Dash(plotly devs) + eventually a simple UI for thrid party git repository installation (Flask interface to install_thrid_party.py)) (+ Google facets, GGPlot, Seaborn, plotly, matplotlib tooling in notebook/custom dashboards)
 - 💤Start Ensembling and stacking utilities module implementation
 - 💤Create jupyter notebook(s) for basic prototyping and training results visualization + implement utility tools for jupyter notebooks
 - 💤Implement Uncertainty estimation utilities in [deepcv.meta.uncertainty.estimation module](./src/deepcv/meta/uncertainty/estimation.py), see: https://ai.googleblog.com/2020/01/can-you-trust-your-models-uncertainty.html
@@ -144,6 +147,7 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
   - benchmark performances on imagenet, compare speed and size with L3C (use benchmarking code from https://github.com/fab-jul/L3C-PyTorch)
 - 💤add a simple open-source implementation of wave function collapsing, optimize it -> Future work : Procedural Content Generation: Use a GAN to generates slots (learn scenes manifold by semantic clusters) used by Wave Function Collapse (+ Growing Grids as space filling algorithm to determine tile shapes)
 - 💤Finish implementation of 'meta convolution layers' and try to train it
+- 💤Fix, test DeepCV project packaging and deployment and improve modularity/portability
 - 💤...
 
 __Interesting third party projects which could be integrated into DeepCV__

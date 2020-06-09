@@ -2,7 +2,6 @@ deepcv.stabilize package
 ========================
 
 .. automodule:: deepcv.stabilize
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
+   :members:
+   :undoc-members:
+   :show-inheritance:

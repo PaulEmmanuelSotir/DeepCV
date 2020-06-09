@@ -1,5 +1,6 @@
 
 # Lists all available 'deepcv' sub-modules
+__version__ = '0.0.2'
 __all__ = ['3D', 'camera_pose', 'caption', 'completion', 'detection', 'enhance', 'feature_extractor', 'human_pose',
            'lossless', 'meta', 'reinforcement', 'segmentation', 'stabilize', 'styling', 'synchronization', 'tracking',
            'pipeline', 'run', 'utils', 'hooks']

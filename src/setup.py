@@ -52,16 +52,16 @@ setup(
     install_requires=requires,
     extras_require={
         "docs": [
-            "sphinx>=1.6.3, <2.0",
-            "sphinx_rtd_theme==0.4.1",
-            "nbsphinx==0.3.4",
-            "nbstripout==0.3.3",
-            "recommonmark==0.5.0",
-            "sphinx-autodoc-typehints==1.6.0",
-            "sphinx_copybutton==0.2.5",
-            "jupyter_client>=5.1.0, <6.0",
-            "tornado>=4.2, <6.0",
-            "ipykernel>=4.8.1, <5.0",
+            "sphinx",
+            "sphinx_rtd_theme",
+            "nbsphinx",
+            "nbstripout",
+            "recommonmark",
+            "sphinx-autodoc-typehints",
+            "sphinx_copybutton",
+            "jupyter_client",
+            "tornado",
+            "ipykernel",
         ]
     },
 )

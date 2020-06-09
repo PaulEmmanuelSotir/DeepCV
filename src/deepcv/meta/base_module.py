@@ -296,16 +296,24 @@ class DeepcvModule(nn.Module):
                 pass
             return False
 
+        # For each sub component (sub torch.nn.module) of this model, we look for its source file and all source files it depends on recursively (only sources within project directory are taken into account)
         for subm in self._submodules.values():
             module = inspect.getmodule(type(subm))
             source = inspect.getsourcefile(type(subm))
             if source is not None:
                 _add_if_source_in_project_path(source)
             if module is not None:
-                for name in dir(module).items():
-                    # TODO: make it recursive on project source files
-                    if isinstance(getattr(module, name, None), types.ModuleType):
-                        is_in_project_path = _add_if_source_in_project_path(getattr(module, name))
+                # Recursively search for all module dependencies which are located in project directory
+                modules = {module, }
+                while len(modules) > 0:
+                    for m in modules:
+                        for name in dir(m).items():
+                            sub_module = getattr(m, name, None)
+                            if isinstance(sub_module, types.ModuleType) and hasattr(sub_module, '__file__'):  # if sub module doesn't have __file__ it is assumed to be built-in (ignored)
+                                if _add_if_source_in_project_path(sub_module.__file__) and m not in modules:
+                                    modules.add(sub_module)
+                        modules.remove(m)
+        return python_sources
 
 
 class DeepcvModuleWithSharedImageBlock(DeepcvModule):

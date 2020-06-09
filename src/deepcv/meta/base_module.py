@@ -277,6 +277,36 @@ class DeepcvModule(nn.Module):
                 raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
         self.apply(_xavier_init)
 
+    @property
+    def needed_python_sources(self, project_path: Union[str, Path]) -> Set[str]:
+        """ Returns Python source files needed for model inference/deployement/serving.  
+        This function can be usefull, for example, if you want to log model to mlflow and be able to deploy it easyly with any supported way: Local mlflow REST API enpoint, Docker image, Azure ML, Amazon Sagemaker, Apache Spark UDF, ...  
+        .. See [mlflow.pytorch API](https://www.mlflow.org/docs/latest/python_api/mlflow.pytorch.html) and [MLFLow Model built-in-deployment-tools](https://www.mlflow.org/docs/latest/models.html#built-in-deployment-tools)  
+        NOTE: Depending on your need, there are other ways to deploy a model or a pipeline from DeepCV: For example, Kedro and PyTorch also provides tooling for machine learning model(s)/pipeline(s) deployement, serving, portability and reproductibility.   
+        NOTE: PARTIALY TESTED: Be warned this function tries to retreive all module's source file dependencies within this project directory recursively but may fail to find some sources in some corner cases; So you may have to add some source files by your own.
+        """
+        python_sources = set()
+
+        def _add_if_source_in_project_path(source):
+            try:
+                if source not in python_sources and Path(source).relative_to(project_path):
+                    python_sources.add(source)
+                    return True
+            except ValueError:
+                pass
+            return False
+
+        for subm in self._submodules.values():
+            module = inspect.getmodule(type(subm))
+            source = inspect.getsourcefile(type(subm))
+            if source is not None:
+                _add_if_source_in_project_path(source)
+            if module is not None:
+                for name in dir(module).items():
+                    # TODO: make it recursive on project source files
+                    if isinstance(getattr(module, name, None), types.ModuleType):
+                        is_in_project_path = _add_if_source_in_project_path(getattr(module, name))
+
 
 class DeepcvModuleWithSharedImageBlock(DeepcvModule):
     """ Deepcv Module With Shared Image Block model base class

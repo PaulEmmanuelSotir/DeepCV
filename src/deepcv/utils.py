@@ -298,7 +298,7 @@ def import_third_party(src_path: Union[str, Path], namespace: Optional[str] = No
         catch_excepts: Boolean indicating whether if exceptions should be catched if importlib can't import Python third party module or not. (defaults to `False`)
     Returns imported third party module, or `None` if `catch_excepts` is `True` and third party module couldn't be imported.
     """
-    def _import_third_party():
+    def _import_third_party_fn(src_path: str, namespace: Optional[str]):
         if not isinstance(src_path, Path):
             src_path = Path(src_path)
         if namespace is None:
@@ -307,6 +307,7 @@ def import_third_party(src_path: Union[str, Path], namespace: Optional[str] = No
         third_party = loader.load_module(namespace)
         return third_party
 
+    _import_third_party = partial(_import_third_party_fn, src_path=src_path, namespace=namespace)
     if catch_excepts:
         try:
             return _import_third_party()

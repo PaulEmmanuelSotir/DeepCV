@@ -25,7 +25,7 @@ class OneCyclePolicy:
         self.base_momentum = base_momentum
         self.max_momentum = max_momentum
 
-    def next_lr(self) -> Union[Tuple(float, float), float]:
+    def next_lr(self) -> Union[Tuple[float, float], float]:
         raise NotImplementedError
 
 

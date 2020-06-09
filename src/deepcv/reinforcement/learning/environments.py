@@ -7,12 +7,11 @@ File gathering various policy models for reinforcement learning problems.
 *TODO-List*  
     - TODO: Implement Custom GYM environments #capt'ain_obvious
 """
-import gym
+#import gym
 
-__all__ = ['CodeEnvironment']
+#__all__ = ['CodeEnvironment']
 
 
-
-class CodeEnvironment(gym.Env):
-    def __init__(self):
-        super(CodeEnvironment, self).__init__()
+# class CodeEnvironment(gym.Env):
+#     def __init__(self):
+#         super(CodeEnvironment, self).__init__()

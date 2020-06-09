@@ -20,7 +20,7 @@ import deepcv
 import deepcv.utils
 
 
-singan = deepcv.utils.import_third_party(deepcv.utils.source_dir(deepcv.__file__) / '..' / r'third_party' / 'SinGAN' / 'singan')
+singan = deepcv.utils.import_third_party(deepcv.utils.source_dir(deepcv.__file__) / '..' / r'third_party' / 'SinGAN' / 'singan', catch_excepts=True)
 
 
 __all__ = ['DistilledSinGAN', 'train_distilled_singan']

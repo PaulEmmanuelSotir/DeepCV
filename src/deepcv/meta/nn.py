@@ -19,7 +19,7 @@ from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, 
 import numpy as np
 
 import torch
-import torch.nn as nn
+import torch.nn
 import torch.nn.functional as F
 import torch.distributions as tdist
 from hilbertcurve.hilbertcurve import HilbertCurve
@@ -36,7 +36,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 class HybridConnectivityGatedNet(deepcv.meta.base_module.DeepcvModule):
     """ Implementation of Hybrid Connectivity Gated Net (HCGN), residual/dense conv block architecture from the following paper: https://arxiv.org/pdf/1908.09699.pdf """
-    HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
+    HP_DEFAULTS = {'architecture': ..., 'act_fn': torch.nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
     def __init__(self, input_shape: torch.Size, hp: Dict[str, Any]):
         """ HybridConnectivityGatedNet __init__ function
@@ -54,8 +54,8 @@ class HybridConnectivityGatedNet(deepcv.meta.base_module.DeepcvModule):
         #     gating = 'TODO'  # TODO: !!
         #     raise NotImplementedError
         #     ops = [('cell1', squeeze_cell(hp)), ('cell2', multiscale_exitation_cell(hp)), ('gating', gating)]
-        #     smg_modules.append((f'smg_module_{i}', nn.Sequential(OrderedDict(ops))))
-        # self.net = nn.Sequential(OrderedDict(smg_modules))
+        #     smg_modules.append((f'smg_module_{i}', torch.nn.Sequential(OrderedDict(ops))))
+        # self.net = torch.nn.Sequential(OrderedDict(smg_modules))
 
     def forward(self, x: torch.Tensor):
         """ Forward propagation of given input tensor through conv hybrid gated neural network
@@ -102,33 +102,35 @@ def to_multiscale_outputs_model(model: deepcv.meta.base_module.DeepcvModule, sca
     raise NotImplementedError
 
 
-def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, inspect.Parameter]]] = None) -> Callable[[Callable], Type[nn.Module]]:
+def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, inspect.Parameter]]] = None) -> Callable[[Callable], Type[torch.nn.Module]]:
     """ Returns a decorator which creates a new ``torch.nn.Module``-based class using ``forward_func`` as underlying forward function.
-    Note: If ``init_params`` isn't empty, then returned ``nn.Module``-based class won't have the same signature as ``forward_func``.
+    Note: If ``init_params`` isn't empty, then returned ``torch.nn.Module``-based class won't have the same signature as ``forward_func``.
     This is because some arguments provided to ``forward_func`` will instead be attributes of created module, taken by class's ``__init__`` function.
     Args:
-        - typename: Returned nn.Module class's ``__name__``
+        - typename: Returned torch.nn.Module class's ``__name__``
         - init_params: An iterable of string parameter name(s) of ``forward_func`` which should be taken by class's ``__init__`` function instead of ``forward`` function.
     TODO: Test this tooling function with unit tests extensively
     """
     if init_params is None:
         init_params = []
 
-    def _warper(forward_func: Callable, typename: str, init_params: Sequence[Union[str, inspect.Parameter]]) -> Type[nn.Module]:
-        """ Returned decorator converting a function to a nn.Module class
+    def _warper(forward_func: Callable, typename: str, init_params: Sequence[Union[str, inspect.Parameter]]) -> Type[torch.nn.Module]:
+        """ Returned decorator converting a function to a torch.nn.Module class
         Args:
-            - forward_func: Function from which nn.Module-based class is built. ``forward_func`` will be called on built module's ``forward`` function call.
+            - forward_func: Function from which torch.nn.Module-based class is built. ``forward_func`` will be called on built module's ``forward`` function call.
         """
         if forward_func.__kwdefaults__ is not None and forward_func.__kwdefaults__ != {}:
             raise ValueError('Error: `forward_func` argument of `deepcv.meta.nn.func_to_module._warper` function cannot have keyword defaults (`__kwdefaults__` not supported)')
         signature = inspect.signature(forward_func)
         init_params = [n if type(n) is inspect.Parameter else signature.parameters[n] for n in init_params]
         forward_params = [p for n, p in signature.parameters.items() if p not in init_params]
-        init_signature = signature.replace(parameters=init_params, return_annotation=nn.Module)
+        init_signature = signature.replace(parameters=init_params, return_annotation=torch.nn.Module)
         forward_signature = signature.replace(parameters=forward_params, return_annotation=signature.return_annotation)
 
-        class _Module(nn.Module):
-            """ nn.Module generated at runtime from given forward function by `deepcv.meta.nn.func_to_module` tooling function. """
+        class _Module(torch.nn.Module):
+            """ torch.nn.Module generated at runtime from given forward function by `deepcv.meta.nn.func_to_module` tooling function. """
+
+            __module__ = globals().get('__module__')
 
             def __init__(self, *args, **kwargs):
                 super(_Module, self).__init__()
@@ -167,7 +169,7 @@ def flatten(x: torch.Tensor, from_dim: int = 0) -> torch.Tensor:
     return x.view(*x.shape[:from_dim + 1], -1)
 
 
-def multi_head_forward(x: torch.Tensor, heads: Iterable[nn.Module], concat_dim: int = 1, new_dim: bool = False) -> torch.Tensor:
+def multi_head_forward(x: torch.Tensor, heads: Iterable[torch.nn.Module], concat_dim: int = 1, new_dim: bool = False) -> torch.Tensor:
     """ Forwards `x` tensor throught multiple head modules: contenates each given head module's output over features first dimension or a new dimension
     Args:
         - x: input tensor to be forwarded through head modules
@@ -224,10 +226,10 @@ ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', init_params=['channe
 ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align_corners'])(concat_coords_channels)
 
 
-def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] = None, batch_norm: Optional[dict] = None, preactivation: bool = False) -> Tuple[nn.Module]:
+def layer(layer_op: torch.nn.Module, act_fn: torch.nn.Module, dropout_prob: Optional[float] = None, batch_norm: Optional[dict] = None, preactivation: bool = False) -> Tuple[torch.nn.Module]:
     """ Defines neural network layer operations
     Args:
-        - layer_op: Layer operation to be used (e.g. nn.Conv2D, nn.Linear, ...).
+        - layer_op: Layer operation to be used (e.g. torch.nn.Conv2D, torch.nn.Linear, ...).
         - act_fn: Activation function
         - dropout_prob: Dropout probability (if dropout_prob is None or 0., then no dropout ops is used)
         - batch_norm: (if batch_norm is None, then no batch norm is used)
@@ -240,53 +242,53 @@ def layer(layer_op: nn.Module, act_fn: nn.Module, dropout_prob: Optional[float] 
     if batch_norm is not None and not hasattr(layer_op, 'out_channels') and not hasattr(layer_op, 'out_features'):
         raise ValueError(f'Error: Bad layer op module argument, no `out_channels` nor `out_features` attribute in `layer_op={layer_op}`')
 
-    def _dropout() -> Optional[nn.Module]:
+    def _dropout() -> Optional[torch.nn.Module]:
         if dropout_prob is not None and dropout_prob != 0.:
             if batch_norm is not None:
                 logging.warn("""Warning: Dropout used along with batch norm may be unrecommended, see
                                 [CVPR 2019 paper: 'Understanding the Disharmony Between Dropout and Batch Normalization by Variance'](https://zpascal.net/cvpr2019/Li_Understanding_the_Disharmony_Between_Dropout_and_Batch_Normalization_by_Variance_CVPR_2019_paper.pdf)""")
-            return nn.Dropout(p=dropout_prob)
+            return torch.nn.Dropout(p=dropout_prob)
 
-    def _bn() -> Optional[nn.Module]:
+    def _bn() -> Optional[torch.nn.Module]:
         if batch_norm is not None:
             # Applies Batch_narm after activation function : see reddit thread about it : https://www.reddit.com/r/MachineLearning/comments/67gonq/d_batch_normalization_before_or_after_relu/
             if layer_op.weight.dim() == 4:
-                return nn.BatchNorm2d(layer_op.out_channels, **batch_norm)
+                return torch.nn.BatchNorm2d(layer_op.out_channels, **batch_norm)
             elif layer_op.weight.dim() < 4:
-                return nn.BatchNorm1d(layer_op.out_features, **batch_norm)
+                return torch.nn.BatchNorm1d(layer_op.out_features, **batch_norm)
 
     ops_order = (_dropout, _bn, act_fn, layer_op) if preactivation else (_dropout, layer_op, act_fn, _bn)
-    ops = [op if isinstance(op, nn.Module) else op() for op in ops_order]
+    ops = [op if isinstance(op, torch.nn.Module) else op() for op in ops_order]
     return tuple(filter(lambda x: x is not None, ops))
 
 
-def conv_layer(conv2d: dict, act_fn: type = nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> nn.Module:
-    return nn.Sequential(*layer(nn.Conv2d(**conv2d), act_fn(), dropout_prob, batch_norm))
+def conv_layer(conv2d: dict, act_fn: type = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
+    return torch.nn.Sequential(*layer(torch.nn.Conv2d(**conv2d), act_fn(), dropout_prob, batch_norm))
 
 
-def fc_layer(linear: dict, act_fn: type = nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> nn.Module:
-    return nn.Sequential(*layer(nn.Linear(**linear), act_fn(), dropout_prob, batch_norm))
+def fc_layer(linear: dict, act_fn: type = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
+    return torch.nn.Sequential(*layer(torch.nn.Linear(**linear), act_fn(), dropout_prob, batch_norm))
 
 
-def resnet_net_block(hp: SimpleNamespace) -> nn.Module:
+def resnet_net_block(hp: SimpleNamespace) -> torch.nn.Module:
     raise NotImplementedError
     ops = [('conv1', conv_layer(**hp.conv2d)), ('conv2', conv_layer(**hp.conv2d))]
-    return nn.Sequential(OrderedDict(ops))
+    return torch.nn.Sequential(OrderedDict(ops))
 
 
-def squeeze_cell(hp: SimpleNamespace) -> nn.Module:
+def squeeze_cell(hp: SimpleNamespace) -> torch.nn.Module:
     raise NotImplementedError
 
 
-def multiscale_exitation_cell(hp: SimpleNamespace) -> nn.Module:
+def multiscale_exitation_cell(hp: SimpleNamespace) -> torch.nn.Module:
     raise NotImplementedError
 
 
-class ConvWithMetaLayer(nn.Module):
+class ConvWithMetaLayer(torch.nn.Module):
     def __init__(self, preactivation: bool = False):
         raise NotImplementedError
-        self.conv = nn.Conv2d(16, 3, (3, 3))  # TODO: preactivation, etc...
-        self.meta = nn.Sequential(*layer(layer_op=self.conv, act_fn=nn.ReLU, dropout_prob=0., batch_norm=None, preactivation=preactivation))
+        self.conv = torch.nn.Conv2d(16, 3, (3, 3))  # TODO: preactivation, etc...
+        self.meta = torch.nn.Sequential(*layer(layer_op=self.conv, act_fn=torch.nn.ReLU, dropout_prob=0., batch_norm=None, preactivation=preactivation))
         self.RANDOM_PROJ = torch.randn_like(self.conv.weights)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -299,46 +301,46 @@ class ConvWithMetaLayer(nn.Module):
         return self.conv(x)
 
 
-def meta_layer(input_feature_shape: torch.Size, target_module: nn.Parameter):
+def meta_layer(input_feature_shape: torch.Size, target_module: torch.nn.Parameter):
     """ A 'parallel'/'meta' layer applied to previous layer/block's features to infer global statistics of next layer's weight matrix
     Args:
         - layer_op: Underlying layer operation module
     """
     raise NotImplementedError
-    conv = nn.Conv2d(16, 3, (3, 3))
-    underlying_layer_ops = layer(layer_op=conv, act_fn=nn.ReLU, dropout_prob=None, batch_norm=None, preactivation=False)
+    conv = torch.nn.Conv2d(16, 3, (3, 3))
+    underlying_layer_ops = layer(layer_op=conv, act_fn=torch.nn.ReLU, dropout_prob=None, batch_norm=None, preactivation=False)
     ops = [('underlying_layer_ops', underlying_layer_ops), ]
 
-    return nn.Sequential(OrderedDict(ops))
+    return torch.nn.Sequential(OrderedDict(ops))
 
 
-def get_gain_name(act_fn: Type[nn.Module]) -> str:
-    """ Intended to be used with nn.init.calculate_gain(str):
-    .. Example: nn.init.calculate_gain(get_gain_act_name(nn.ReLU))
+def get_gain_name(act_fn: Type[torch.nn.Module]) -> str:
+    """ Intended to be used with torch.nn.init.calculate_gain(str):
+    .. Example: torch.nn.init.calculate_gain(get_gain_act_name(torch.nn.ReLU))
     """
-    if act_fn is nn.ReLU:
+    if act_fn is torch.nn.ReLU:
         return 'relu'
-    elif act_fn is nn.LeakyReLU:
+    elif act_fn is torch.nn.LeakyReLU:
         return 'leaky_relu'
-    elif act_fn is nn.Tanh:
+    elif act_fn is torch.nn.Tanh:
         return 'tanh'
-    elif act_fn is nn.Identity:
+    elif act_fn is torch.nn.Identity:
         return 'linear'
     else:
         raise Exception("Unsupported activation function, can't initialize it.")
 
 
-def data_parallelize(model: nn.Module, print_msg: bool = True) -> nn.Module:
-    """ Make use of all available GPU using nn.DataParallel if there are multiple GPUs available
+def data_parallelize(model: torch.nn.Module, print_msg: bool = True) -> torch.nn.Module:
+    """ Make use of all available GPU using torch.nn.DataParallel if there are multiple GPUs available
     NOTE: ensure to be using different random seeds for each process if you use techniques like data-augmentation or any other techniques which needs random numbers different for each steps. TODO: make sure this isn't already done by Pytorch?
     """
     if torch.cuda.device_count() > 1:
-        print(f'> Using "nn.DataParallel({model})" on {torch.cuda.device_count()} GPUs.')
-        model = nn.DataParallel(model)
+        print(f'> Using "torch.nn.DataParallel({model})" on {torch.cuda.device_count()} GPUs.')
+        model = torch.nn.DataParallel(model)
     return model
 
 
-def is_data_parallelization_usefull_heuristic(model: nn.Module, batch_shape: torch.Size, print_msg: bool = True) -> bool:
+def is_data_parallelization_usefull_heuristic(model: torch.nn.Module, batch_shape: torch.Size, print_msg: bool = True) -> bool:
     """ Returns whether if data parallelization could be helpfull in terms of performances using a heuristic from model capacity, GPU count, batch_size and dataset's shape
     Args:
         - model: Model to be trained (computes its parameters capacity)
@@ -369,9 +371,9 @@ def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor,
         return torch.mean(batch_loss).item()
 
 
-# class generic_mulltiscale_class_loss(nn.loss._Loss):
+# class generic_mulltiscale_class_loss(torch.nn.loss._Loss):
 #     def __init__(self, reduction: str = 'mean') -> None:
-#         self._terms = [nn.loss.MultiLabelMarginLoss, nn.loss.BCELoss, nn.loss.MultiLabelSoftMarginLoss, nn.loss.KLDivLoss]
+#         self._terms = [torch.nn.loss.MultiLabelMarginLoss, torch.nn.loss.BCELoss, torch.nn.loss.MultiLabelSoftMarginLoss, torch.nn.loss.KLDivLoss]
 
 #     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 #         raise NotImplementedError
@@ -380,8 +382,8 @@ def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor,
 #         return self.forward(input, target)
 
 
-# class generic_mulltiscale_class_reg_loss(nn.loss._Loss):
-#     TERMS = [nn.loss.PoissonNLLLoss, nn.loss.SmoothL1Loss, nn.loss.MSELoss, nn.loss.HingeEmbeddingLoss, nn.loss.CosineEmbeddingLoss]
+# class generic_mulltiscale_class_reg_loss(torch.nn.loss._Loss):
+#     TERMS = [torch.nn.loss.PoissonNLLLoss, torch.nn.loss.SmoothL1Loss, torch.nn.loss.MSELoss, torch.nn.loss.HingeEmbeddingLoss, torch.nn.loss.CosineEmbeddingLoss]
 
 #     def __init__(self, reduction: str = 'mean', weights: torch.Tensor = torch.Tensor([1.] * len(TERMS))) -> None:
 #         self._norm_factors = torch.Tensor([1. / len(TERMS))] * len(TERMS))
@@ -396,13 +398,13 @@ def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor,
 #         return self.forward(input, target)
 
 
-def get_model_capacity(model: Optional[nn.Module]):
+def get_model_capacity(model: Optional[torch.nn.Module]):
     if model is None:
         return 0
     return sum([np.prod(param.shape) for param in model.parameters(recurse=True)])
 
 
-def get_out_features_shape(input_shape: torch.Size, module: nn.Module, input_batches: bool = True) -> torch.Size:
+def get_out_features_shape(input_shape: torch.Size, module: torch.nn.Module, input_batches: bool = True) -> torch.Size:
     """ Performs a forward pass with a dummy input tensor to figure out module's output shape """
     module.eval()
     with torch.no_grad():
@@ -416,33 +418,33 @@ def type_or_instance_is(module_or_t: Any, type_to_check: Type) -> bool:
     return issubclass(module_or_t, type_to_check)
 
 
-def is_fully_connected(module_or_t: Union[nn.Module, Type]) -> bool:
-    return type_or_instance_is(module_or_t, nn.Linear)
+def is_fully_connected(module_or_t: Union[torch.nn.Module, Type]) -> bool:
+    return type_or_instance_is(module_or_t, torch.nn.Linear)
 
 
-def is_conv(module_or_t: Union[nn.Module, Type]) -> bool:
+def is_conv(module_or_t: Union[torch.nn.Module, Type]) -> bool:
     from torch.nn.modules.conv import _ConvNd
     return type_or_instance_is(module_or_t, _ConvNd)
 
 # TODO: implement nn reflection tools (e.g. is_conv, contains_conv, parameter_summary, ...)
 
 
-def contains_conv(op_t: Union[nn.Module, Type]) -> bool:
+def contains_conv(op_t: Union[torch.nn.Module, Type]) -> bool:
     raise NotImplementedError
 
 
-def contains_only_convs(op_t: Union[nn.Module, Type]) -> bool:
+def contains_only_convs(op_t: Union[torch.nn.Module, Type]) -> bool:
     raise NotImplementedError
 
 
-def parameter_summary(op_t: Union[nn.Module, Type], pprint: bool = False) -> dict:
+def parameter_summary(op_t: Union[torch.nn.Module, Type], pprint: bool = False) -> dict:
     raise NotImplementedError
 
 
 class TestNNMetaModule:
     def test_is_conv(self):
-        convs = [nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.ConvTranspose1d, nn.ConvTranspose2d, nn.ConvTranspose3d, nn.Conv2d(3, 16, (3, 3))]
-        not_convs = [nn.Linear, nn.Linear(32, 32), tuple(), int, 54, torch.Tensor(), nn.Fold, nn.Conv2d(3, 16, (3, 3)).weight]
+        convs = [torch.nn.Conv1d, torch.nn.Conv2d, torch.nn.Conv3d, torch.nn.ConvTranspose1d, torch.nn.ConvTranspose2d, torch.nn.ConvTranspose3d, torch.nn.Conv2d(3, 16, (3, 3))]
+        not_convs = [torch.nn.Linear, torch.nn.Linear(32, 32), tuple(), int, 54, torch.Tensor(), torch.nn.Fold, torch.nn.Conv2d(3, 16, (3, 3)).weight]
         assert all(map(is_conv, convs)), 'TEST ERROR: is_conv function failed to be true for at least one torch.nn convolution type or instance.'
         assert not any(map(is_conv, not_convs)), 'TEST ERROR: is_conv function failed to be false for at least one non-convolution type or instance.'
 

@@ -12,8 +12,9 @@ import types
 import inspect
 import logging
 import functools
+from pathlib import Path
 from collections import OrderedDict
-from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
+from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List, Set
 
 import torch
 import torch.nn as nn
@@ -113,6 +114,10 @@ class DeepcvModule(nn.Module):
         self._hp, _missing = deepcv.meta.hyperparams.to_hyperparameters(hp, defaults=self.HP_DEFAULTS, raise_if_missing=True)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dim() == len(self._input_shape):
+            # Turn single input tensor into a batch of size 1
+            x = x.unsqueeze(dim=0)
+
         # Apply object detector neural net architecture on top of shared image embedding features and input image
         if len(self._forward_callbacks) > 0:
             referenced_output_features = {}

@@ -79,7 +79,7 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.
     """ Train object detector model
     .. See Fastai blog post about AdamW for more details about optimizer: https://www.fast.ai/2018/07/02/adam-weight-decay/
     """
-    backend_conf = deepcv.meta.ignite_training.BackendConfig(**hp['backend_conf'])
+    backend_conf = deepcv.meta.ignite_training.BackendConfig(**(hp['backend_conf'] if 'backend_conf' in hp else {}))
     metrics = {'accuracy': Accuracy(device=backend_conf.device if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()
     opt = optim.AdamW

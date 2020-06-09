@@ -3,7 +3,7 @@
 """ Training loop meta module - training_loop.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-from typing import Union, Dict, Any
+import shutil
 import logging
 import traceback
 import multiprocessing
@@ -87,16 +87,12 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).
     # TODO: add support for cross-validation
     """
-    TRAINING_HP_DEFAULTS = {'output_path': Path.cwd() / 'data/04_training/', 'optimizer_opts': ..., 'scheduler': ..., 'epochs': ...,
-                            'validate_every_epochs': 1, 'save_every_iters': 1000, 'log_model_grads_iters': -1,
-                            'log_every_iters': 100, 'seed': None, 'deterministic': False, 'prefetch_batches': True, 'resume_from': '', 'crash_iteration': -1}
+    TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'scheduler': ..., 'epochs': ..., 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
+                            'validate_every_epochs': 1, 'save_every_iters': 1000, 'log_grads_every_iters': -1, 'log_progress_every_iters': 100, 'seed': None, 'deterministic': False,
+                            'prefetch_batches': True, 'resume_from': '', 'crash_iteration': -1}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(dataloaders) == 3 or len(dataloaders) == 2, 'Error: dataloaders tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
     hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
-    if mlflow.active_run() is not None:
-        # Append more informative and run-specfic output directory name
-        mlflow_experiment_name = mlflow.get_experiment(mlflow.active_run().info.experiment_id).name
-        output_path = Path(hp['output_path']) / f'{mlflow_experiment_name}_run_id_{str(mlflow.active_run().info.run_id)}'
     trainset, *validset_testset = dataloaders
     device = backend_conf.device
 
@@ -109,10 +105,14 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
 
     if backend_conf.local_rank == 0 and backend_conf.rank == 0:
         # Create output directory if current node is master or if not distributed
-        now = datetime.now().strftime(r'%Y%m%d-%H%M%S')
-        output_path = output_path / f'{now}-{backend_conf}'
+        now = datetime.now().strftime(r'%Y_%m_%d-%HH_%Mmin')
+        if mlflow.active_run() is not None:
+            # Append more informative and run-specfic output directory name
+            mlflow_experiment_name = mlflow.get_experiment(mlflow.active_run().info.experiment_id).name
+            output_path = Path(hp['output_path']) / f'{mlflow_experiment_name}_run_{str(mlflow.active_run().info.run_id)}_{now}-{backend_conf}'
+        else:
+            output_path = Path(hp['output_path']) / f'{now}-{backend_conf}'
 
-    output_path.mkdir(parents=True, exist_ok=True)
     loss = loss.to(device)
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
     args_to_eval = hp['scheduler']['eval_args'] if 'eval_args' in hp['scheduler'] else {}
@@ -148,17 +148,17 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
                                           train_sampler=train_sampler,
                                           to_save=to_save,
                                           save_every_iters=hp['save_every_iters'],
-                                          output_path=output_path,
+                                          output_path=str(output_path),
                                           lr_scheduler=scheduler,
                                           with_gpu_stats=True,
                                           output_names=metric_names,
                                           with_pbars=True,
                                           with_pbar_on_iters=True,
-                                          log_every_iters=hp['log_every_iters'],
+                                          log_every_iters=hp['log_progress_every_iters'],
                                           device=backend_conf.device)
 
     if backend_conf.rank == 0:
-        tb_logger = TensorboardLogger(log_dir=output_path)
+        tb_logger = TensorboardLogger(log_dir=str(output_path))
         tb_logger.attach(trainer, log_handler=OutputHandler(tag='train', metric_names=metric_names), event_name=Events.ITERATION_COMPLETED)
         tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer, param_name='lr'), event_name=Events.ITERATION_STARTED)
 
@@ -189,7 +189,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
             mlflow.log_metric(f'valid_{n}', float(v), step=trainer.state.epoch)
 
     if backend_conf.rank == 0:
-        event = Events.ITERATION_COMPLETED(every=hp['log_every_iters'] if hp['log_every_iters'] else None)
+        event = Events.ITERATION_COMPLETED(every=hp['log_progress_every_iters'] if hp['log_progress_every_iters'] else None)
         ProgressBar(persist=False, desc='Train evaluation').attach(train_evaluator, event_name=event)
         ProgressBar(persist=False, desc='Test evaluation').attach(valid_evaluator)
 
@@ -200,13 +200,13 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         tb_logger.attach(valid_evaluator, log_handler=log_handler, event_name=Events.COMPLETED)
 
         # Store the best model by validation accuracy:
-        common.save_best_model_by_val_score(output_path, valid_evaluator, model=model, metric_name='accuracy', n_saved=3, trainer=trainer, tag='val')
+        common.save_best_model_by_val_score(str(output_path), valid_evaluator, model=model, metric_name='accuracy', n_saved=3, trainer=trainer, tag='val')
 
-        if hp['log_model_grads_iters'] is not None and hp['log_model_grads_iters'] > 0:
-            tb_logger.attach(trainer, log_handler=GradsHistHandler(model, tag=model.__class__.__name__), event_name=Events.ITERATION_COMPLETED(every=hp['log_model_grads_iters']))
+        if hp['log_grads_every_iters'] is not None and hp['log_grads_every_iters'] > 0:
+            tb_logger.attach(trainer, log_handler=GradsHistHandler(model, tag=model.__class__.__name__), event_name=Events.ITERATION_COMPLETED(every=hp['log_grads_every_iters']))
 
     if hp['crash_iteration'] is not None and hp['crash_iteration'] >= 0:
-        @ trainer.on(Events.ITERATION_STARTED(once=hp['crash_iteration']))
+        @trainer.on(Events.ITERATION_STARTED(once=hp['crash_iteration']))
         def _(engine):
             raise Exception('STOP at iteration: {}'.format(engine.state.iteration))
 
@@ -214,6 +214,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
 
     try:
         logging.info(f'> ignite runs training loop for "{model}" model...')
+        output_path.mkdir(parents=True, exist_ok=True)
         state = trainer.run(trainset, max_epochs=hp['epochs'])
         logging.info(f'Training of "{model}" model done sucessfully.')
         return state
@@ -223,6 +224,12 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     finally:
         if backend_conf.rank == 0:
             tb_logger.close()
+        if hp['log_output_dir_to_mlflow']:
+            logging.info('Logging training output directory as mlfow artifacts...')
+            mlflow.log_artifacts(str(output_path))
+            # TODO: log and replace artifacts to mlflow at every epochs?
+            # TODO: make sure all artifacts are loaded synchronously here
+            shutil.rmtree(output_path)
 
 
 def _setup_distributed_training(device, backend_conf: BackendConfig, model: nn.Module, batch_shape: torch.Size) -> nn.Module:

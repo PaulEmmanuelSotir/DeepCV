@@ -51,7 +51,7 @@ def _create_nn_layer(is_fully_connected: bool) -> Callable[['submodule_params', 
             submodule_params['in_features'] = np.prod(prev_shapes[-1][1:])
             layer_nn_fn = deepcv.meta.nn.fc_layer
         else:  # Convolution layer
-            submodule_params['in_features'] = prev_shapes[-1][channel_dim]
+            submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
             layer_nn_fn = deepcv.meta.nn.conv_layer
         return layer_nn_fn(submodule_params, act_fn, dropout_prob, batch_norm)
 
@@ -109,6 +109,8 @@ class DeepcvModule(torch.nn.Module):
         - it can take as arguments `submodule_params` (parameters dict from YAML submodule specs) and/or `prev_shapes` (previous model's sub-modules output shapes)  
         - it can also (instead or additionally) directly take any arguments, for example, `act_fn: Optional[torch.nn.Module]`, so that `act_fn` can both be specified localy in submodule params (like in `submodule_params`) or globaly in DeepcvModule's specs. (directly in `hp`). This mechanism allows easier architecture specifications by specifying parameters for all submodules at once, while still being able to override global value localy (in submodule specs parameters dict) if needed.  
     NOTE: In order to make usage of this mechanism, parameters/arguments names which can be specified globally should not be in `DeepcvModule.HP_DEFAULTS`, for example, a submodule creator can't take an argument named `architecture` because `architecture` is among `DeepcvModule.HP_DEFAULTS` entries so `hp['architecture']` won't be provided to any submodules creators nor nested DeepcvModule(s).
+    NOTE: Submodule creator functions (and/or specified submodules `torch.nn.Module` types `__init__` constructors) must take named arguments to be supported (`*args` and `**kwargs` not supported)
+    NOTE: If a submodule creators takes a parameter directly as an argument instead of taking it from `submodule_params` dict argument, then this parameter won't be present in `submodule_params` dict, even if its value have been specified localy in submodule parameters (i.e. even if its value doesn't comes from global `hp` entries).
 
     .. For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule.define_nn_architecture` and examples of DeepcvModule(s) YAML architecture specification in ./conf/base/parameters.yml  
     NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which, for example, allows you to define residual/dense links.  
@@ -238,9 +240,15 @@ class DeepcvModule(torch.nn.Module):
                     fn_or_type = submodule_type
 
                 # Create layer/block submodule from its module_creator or its torch.nn.Module.__init__ function (fn_or_type)
-                available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes}
-                available_params.update(params_with_globals)
-                module_or_callback = fn_or_type(**{n: p for n, p in available_params.items() if n in inspect.signature(fn_or_type).parameters})
+                submodule_signature_params = inspect.signature(fn_or_type).parameters
+                provided_params = {n: v for n, v in params_with_globals.items() if n in submodule_signature_params}
+                submdule_params = dict(**params)
+                for n in provided_params.keys():
+                    if n in submdule_params:
+                        # Avoid to provide the same parameter twice (either provided through `submdule_params` dict or directly as an argument named after this parameter `n`)
+                        del submdule_params[n]
+                provided_params.update({n: v for n, v in {'submodule_params': submdule_params, 'prev_shapes': self._features_shapes}.items() if n in submodule_signature_params})
+                module_or_callback = fn_or_type(**provided_params)
 
                 # Figure out fn_or_type's output (module creators can return a torch.nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
                 if isinstance(module_or_callback, torch.nn.Module):

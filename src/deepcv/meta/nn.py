@@ -226,11 +226,11 @@ ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', init_params=['channe
 ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align_corners'])(concat_coords_channels)
 
 
-def layer(layer_op: torch.nn.Module, act_fn: torch.nn.Module, dropout_prob: Optional[float] = None, batch_norm: Optional[dict] = None, preactivation: bool = False) -> Tuple[torch.nn.Module]:
+def layer(layer_op: torch.nn.Module, act_fn: Optional[torch.nn.Module], dropout_prob: Optional[float] = None, batch_norm: Optional[dict] = None, preactivation: bool = False) -> Tuple[torch.nn.Module]:
     """ Defines neural network layer operations
     Args:
         - layer_op: Layer operation to be used (e.g. torch.nn.Conv2D, torch.nn.Linear, ...).
-        - act_fn: Activation function
+        - act_fn: Activation function (if `None`, then defaults to `torch.nn.Identity()`)
         - dropout_prob: Dropout probability (if dropout_prob is None or 0., then no dropout ops is used)
         - batch_norm: (if batch_norm is None, then no batch norm is used)
         - preactivation: Boolean specifying whether to use preactivatation operation order: "(?dropout) - (?BN) - Act - Layer" or default operation order: "(?Dropout) - Layer - Act - (?BN)"
@@ -241,6 +241,8 @@ def layer(layer_op: torch.nn.Module, act_fn: torch.nn.Module, dropout_prob: Opti
         raise ValueError(f'Error: Bad layer operation module argument, no `weight` attribute found in layer_op="{layer_op}"')
     if batch_norm is not None and not hasattr(layer_op, 'out_channels') and not hasattr(layer_op, 'out_features'):
         raise ValueError(f'Error: Bad layer op module argument, no `out_channels` nor `out_features` attribute in `layer_op={layer_op}`')
+    if act_fn is None:
+        act_fn = torch.nn.Identity()
 
     def _dropout() -> Optional[torch.nn.Module]:
         if dropout_prob is not None and dropout_prob != 0.:
@@ -262,12 +264,12 @@ def layer(layer_op: torch.nn.Module, act_fn: torch.nn.Module, dropout_prob: Opti
     return tuple(filter(lambda x: x is not None, ops))
 
 
-def conv_layer(conv2d: dict, act_fn: type = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
-    return torch.nn.Sequential(*layer(torch.nn.Conv2d(**conv2d), act_fn(), dropout_prob, batch_norm))
+def conv_layer(conv2d: dict, act_fn: Optional[type] = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
+    return torch.nn.Sequential(*layer(torch.nn.Conv2d(**conv2d), None if act_fn is None else act_fn(), dropout_prob, batch_norm))
 
 
-def fc_layer(linear: dict, act_fn: type = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
-    return torch.nn.Sequential(*layer(torch.nn.Linear(**linear), act_fn(), dropout_prob, batch_norm))
+def fc_layer(linear: dict, act_fn: Optional[type] = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
+    return torch.nn.Sequential(*layer(torch.nn.Linear(**linear), None if act_fn is None else act_fn(), dropout_prob, batch_norm))
 
 
 def resnet_net_block(hp: SimpleNamespace) -> torch.nn.Module:

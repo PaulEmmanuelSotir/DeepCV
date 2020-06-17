@@ -41,25 +41,23 @@ models:
 object_detector_model:
   act_fn: !py!torch.nn.ReLU
   dropout_prob: 0.0
-  batch_norm:
-    { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
+  batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
   architecture:
     - _deepcvmodule: *basic_backbone
     #- _deepcvmodule: *lager_backbone
     - !py!deepcv.meta.nn.Flatten
-    - fully_connected: {}
+    - fully_connected:
+        { act_fn: !py!torch.nn.Sigmoid , dropout_prob: 0., batch_norm: null }
 
 keypoints_encoder_model:
   act_fn: !py!torch.nn.ReLU
-  batch_norm:
-    { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
+  batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
   architecture:
     - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
 
 keypoints_decoder_model:
   act_fn: !!python/name:torch.nn.ReLU
-  batch_norm:
-    { affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }
+  batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
   architecture:
     - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
 
@@ -71,7 +69,7 @@ basic_training_params: &basic_ignite_training
     eval_args: ["milestones_values"]
     kwargs:
       param_name: "lr"
-      milestones_values: "[[0, 0.0], [20 * iterations, hp['optimizer_opts']['lr']], [hp['epochs'] * iterations, 0.0]]"
+      milestones_values: "[[0, 0.0], [int(0.2 * hp['epochs'] * iterations), hp['optimizer_opts']['lr']], [hp['epochs'] * iterations, 0.0]]"
   # scheduler:
   #   type: !py!deepcv.meta.one_cycle.OneCyclePolicy
   #   kwargs:
@@ -83,21 +81,20 @@ basic_training_params: &basic_ignite_training
   save_every_iters: 1000
   log_grads_every_iters: 1000
   seed: 563454
-  deterministic: true
+  deterministic_cudnn: true # torch.backends.cudnn.deterministic
   prefetch_batches: true
 
 train_object_detector:
   <<: *basic_ignite_training
-  epochs: 80
+  epochs: 2
   batch_size: 32
   optimizer_opts:
-    {
-      lr: 1e-3,
-      betas: [0.9, 0.999],
-      eps: 1e-08,
-      weight_decay: 1e-2,
-      amsgrad: false,
-    }
+    lr: 1e-3
+    betas: [0.9, 0.999]
+    eps: 1e-08
+    weight_decay: 1e-2
+    amsgrad: false
+
   # SGD: { lr: 0.1, momentum: 1e-4, weight_decay: 0., dampening: 1e-4, nesterov: true }
 # object_detector_hp_search:
 #   cross_validation: false
@@ -107,7 +104,7 @@ train_object_detector:
 #     - optimizer.weight_decay: log_linear([1e-10, 5e-4])
 #     - choice:
 #       - model.dropout_prob: choice([0., linear([0.1, 0.6])])
-#       - model.batch_norm: choice({ affine: true, eps: !!float 1e-05, momentum: 0.07359778246238029 }, null)
+#       - model.batch_norm: choice({ affine: true, eps:  1e-05, momentum: 0.07359778246238029 }, null)
 
 #_______________________________________________________ AUGMENTATION _______________________________________________________#
 
@@ -143,31 +140,35 @@ augmentations_recipes:
 
 #_______________________________________________________ PREPROCESSING _______________________________________________________#
 
-split_dataset:
-  validset_ratio: 0.2 # %
-  testset_ratio: 0.1 # % (Won't be taken into account if testset already exists)
+basic_preprocessing_procedure: &BASIC_PREPROCESSING_PROCEDURE
+  cache: false
+  seed: 434546
+  split_dataset:
+    validset_ratio: 0.2 # %
+    testset_ratio: 0.1 # % (Won't be taken into account if testset already exists)
+  transforms:
+    - !py!torchvision.transforms.ToTensor
+  #augmentation_reciepe: *basic_augmentation
 
 mnist_preprocessing:
-  cache: false
+  <<: *BASIC_PREPROCESSING_PROCEDURE
   transforms:
     - !py!torchvision.transforms.ToTensor
     - !py!torchvision.transforms.Normalize "":
         { mean: [0.15, 0.15, 0.15], std: [0.15, 0.15, 0.15] }
-  augmentation_reciepe: *basic_augmentation
 
-cifar10_preprocessing: &cifar10_preprocessing
+cifar10_preprocessing: &CIFAR10_PREPROCESSING
+  <<: *BASIC_PREPROCESSING_PROCEDURE
   transforms:
     - !py!torchvision.transforms.ToTensor
     - !py!torchvision.transforms.Normalize "":
         { mean: [0.491, 0.482, 0.447], std: [0.247, 0.243, 0.261] }
 
 cifar100_preprocessing:
-  transforms:
-    - !py!torchvision.transforms.ToTensor
-    - !py!torchvision.transforms.Normalize "":
-        { mean: [0.491, 0.482, 0.447], std: [0.247, 0.243, 0.261] }
+  <<: *CIFAR10_PREPROCESSING
 
 imagenet_prerocessing:
+  <<: *BASIC_PREPROCESSING_PROCEDURE
   transforms:
     - !py!torchvision.transforms.ToTensor
     - !py!torchvision.transforms.Normalize "":

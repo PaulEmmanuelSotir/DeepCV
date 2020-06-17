@@ -287,11 +287,17 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
 
 
 def generate_hp_space_template(hyperparams: Union[Dict[str, Any], Hyperparameters], save_filename: str, exclude_params: Optional[Sequence[str]] = None, include_params: Optional[Sequence[str]] = None) -> Optional[Path]:
-    pass
+    """ Generates an hyperparameter space template/draft from given hyperparameter set, making it easier to define your JSON (NNI spec.) hp space definition (generates a start point for your JSON hp space)
+    "dropout_keepprob": {"_type": "uniform", "_value": [0.1, 0.5]},
+    "conv_size": {"_type": "choice", "_value": [2, 3, 5, 7]},
+    "hidden_size": {"_type": "choice", "_value": [124, 512, 1024]},
+    "batch_size": {"_type": "choice", "_value": [16, 32, 64, 128, 256]},
+    "lr": {"_type": "uniform", "_value": [0.0001, 0.1]}
+}"""
 
 
 def parse_hp_space(hp_space_yml: Union[Path, str]) -> Optional[HyperparameterSpace]:
-    """ Creates a 'HyperparameterSpace' instance from given hyperparameter space YAML config filepath (Should follow NNI's hp space specs) """
+    """ Creates a 'HyperparameterSpace' instance from given hyperparameter space JSON config filepath (Should follow NNI's hp space specs) """
     pass
 
 

@@ -179,44 +179,6 @@ def _parse_transforms_specification(transform_identifiers: Sequence, trainset: D
     return torchvision.transforms.Compose(transforms)
 
 
-def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], datasets: Dict[str, Dataset]) -> Dict[str, PreprocessedDataset]:
-    """ Main preprocessing procedure. Also make data augmentation if any augmentation recipes have been specified in `params`.
-    Preprocess and augment data according to recipes specified in hyperparameters (`params`) from YAML config (see ./conf/base/parameters.yml)
-    # TODO: create dataloader to preprocess/augment data by batches?
-    Args:
-        - params:
-        - datasets: Dict of PyTorch datasets (must contain 'trainset' and 'testset' entries and eventually a 'validset' entry)
-    Returns a dict which contains preprocessed and/or augmented 'trainset', 'testset' and 'validset' datasets
-    """
-    fn_name = deepcv.utils.get_str_repr(preprocess, __file__)
-    logging.info(f'Starting pytorch dataset preprocessing procedure... ({fn_name})')
-    params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'transforms': ..., 'target_transforms': [], 'cache': False, 'augmentation_reciepe': None})
-
-    # Define image preprocessing transforms
-    preprocess_transforms = dict(img_transform=_parse_transforms_specification(params['transforms'], trainset=datasets['trainset']))
-
-    # Setup target preprocessing transforms
-    if params['target_transforms'] is not None and len(params['target_transforms']) > 0:
-        preprocess_transforms['target_transform'] = _parse_transforms_specification(params['target_transforms'], trainset=datasets['trainset'])
-
-    # Apply data augmentation
-    if params['augmentation_reciepe'] is not None:
-        logging.info(f'Applying dataset augmentation reciepe ')
-        # TODO: (WIP) use same transforms parsing procedure for augmentation: _parse_transforms_specification(params['augmentation_reciepe']['tranforms'], trainset=datasets['trainset'])
-        preprocess_transforms['augmentation_transform'] = deepcv.meta.data.augmentation.apply_augmentation_reciepe(datasets=datasets, params=params['augmentation_reciepe'])
-
-    # Replace datasets with `PreprocessedDataset` instances in order to apply perprocesssing transforms to datasets entries (transforms applied on dataset `__getitem__` calls)
-    datasets = {n: PreprocessedDataset(ds, **preprocess_transforms) for n, ds in datasets.items()}
-
-    # If needed, cache/save preprocessed/augmened dataset(s) to disk
-    if params['cache']:
-        logging.info('`deepcv.meta.data.preprocess.preprocess` function is saving resulting dataset to disk (`params["cache"] == True`)')
-        raise NotImplementedError  # TODO: Save preprocessed dataset to disk (data/04_features/)
-
-    logging.info(f'Pytorch Dataset preprocessing procedure ({deepcv.utils.get_str_repr(preprocess, __file__)}) done, returning preprocessed/augmented Dataset(s).')
-    return datasets
-
-
 def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: Dataset, testset: Optional[Dataset] = None) -> Dict[str, Dataset]:
     func_name = deepcv.utils.get_str_repr(split_dataset, __file__)
     params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'validset_ratio': None, 'testset_ratio': None, 'cache': False})
@@ -252,6 +214,51 @@ def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperpar
         logging.info(f'{func_name}: Saving resulting dataset to disk (`params["cache"] == True`)...')
         raise NotImplementedError  # TODO: save to (data/03_primary/)
     return {'trainset': trainset, 'validset': validset, 'testset': testset} if validset else {'trainset': trainset, 'testset': testset}
+
+
+def preprocess(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: Dataset, testset: Optional[Dataset]) -> Dict[str, PreprocessedDataset]:
+    """ Main preprocessing procedure: can perform datasets spliting (calls `deepcv.meta.data.preprocess.split_dataset`), data preprocessing with tranforms and data augmentation if any augmentation recipes have been specified in `params`.
+    If needed, a seed can also be specified in `params`, in order to perform a deterministic preprocessing.
+    Preprocess and augment data according to recipes specified in hyperparameters (`params`) from YAML config (see ./conf/base/parameters.yml)
+    Args:
+        - params: Parameters map (probably from YAML config) which specifies preprocessing and augmentation procedure, see defaults and required parameters in top lines of this function code (a parameter is required if its default value is `...`).
+        - dataset_or_trainset: PyTorch dataset (trainset or whole dataset)
+        - testset: Testset dataset if it exists (if not `None`, then `dataset_or_trainset` is assumed to be the `trainset`; If `None`, testset will be sampled from `dataset_or_trainset` according to ratios given in `params['split_dataset']`, see `deepcv.meta.data.preprocess.split_dataset` for more details)
+    Returns a dict which contains preprocessed and/or augmented 'trainset', 'testset' and 'validset' datasets
+    """
+    fn_name = deepcv.utils.get_str_repr(preprocess, __file__)
+    logging.info(f'Starting pytorch dataset preprocessing procedure... ({fn_name})')
+    params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'transforms': ..., 'target_transforms': [], 'cache': False,
+                                                                             'augmentation_reciepe': None, 'split_dataset': {}, 'seed': None})
+
+    if params['seed'] is not None:
+        deepcv.utils.set_seeds(params['seed'])
+
+    datasets = split_dataset(params['split_dataset'], dataset_or_trainset, testset)
+
+    # Define image preprocessing transforms
+    preprocess_transforms = dict(img_transform=_parse_transforms_specification(params['transforms'], trainset=datasets['trainset']))
+
+    # Setup target preprocessing transforms
+    if params['target_transforms'] is not None and len(params['target_transforms']) > 0:
+        preprocess_transforms['target_transform'] = _parse_transforms_specification(params['target_transforms'], trainset=datasets['trainset'])
+
+    # Apply data augmentation
+    if params['augmentation_reciepe'] is not None:
+        logging.info(f'Applying dataset augmentation reciepe ')
+        # TODO: (WIP) use same transforms parsing procedure for augmentation: _parse_transforms_specification(params['augmentation_reciepe']['tranforms'], trainset=datasets['trainset'])
+        preprocess_transforms['augmentation_transform'] = deepcv.meta.data.augmentation.apply_augmentation_reciepe(datasets=datasets, params=params['augmentation_reciepe'])
+
+    # Replace datasets with `PreprocessedDataset` instances in order to apply perprocesssing transforms to datasets entries (transforms applied on dataset `__getitem__` calls)
+    datasets = {n: PreprocessedDataset(ds, **preprocess_transforms) for n, ds in datasets.items()}
+
+    # If needed, cache/save preprocessed/augmened dataset(s) to disk
+    if params['cache']:
+        logging.info('`deepcv.meta.data.preprocess.preprocess` function is saving resulting dataset to disk (`params["cache"] == True`)')
+        raise NotImplementedError  # TODO: Save preprocessed dataset to disk (data/04_features/)
+
+    logging.info(f'Pytorch Dataset preprocessing procedure ({deepcv.utils.get_str_repr(preprocess, __file__)}) done, returning preprocessed/augmented Dataset(s).')
+    return datasets
 
 
 if __name__ == '__main__':

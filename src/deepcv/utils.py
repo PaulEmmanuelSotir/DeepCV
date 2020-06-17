@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Utils module - deepcv.utils.py - `DeepCV`__  
+""" Utils module - deepcv.utils.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 
@@ -17,6 +17,7 @@ import logging
 import builtins
 import threading
 import importlib
+import subprocess
 import collections.abc
 from pathlib import Path
 import importlib.machinery
@@ -24,13 +25,12 @@ from types import SimpleNamespace
 from functools import singledispatch, partial
 from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence, Callable, Type
 
+import torch
 import anyconfig
 import numpy as np
 from tqdm import tqdm
-
-import torch
+import tensorboard.program
 from kedro.io import DataCatalog
-
 
 __all__ = ['Number', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds', 'setup_cudnn', 'progess_bar', 'get_device',
            'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'recursive_getattr', 'get_by_identifier',
@@ -83,12 +83,48 @@ def progess_bar(iterable: Iterable, desc: str, disable: bool = False):
                 '| {n_fmt}/{total_fmt} [Elapsed={elapsed}, Remaining={remaining}, Speed={rate_fmt}{postfix}]')
 
 
-# def start_tensorboard(port=8889, forward=False):
-#     raise NotImplementedError  # TODO: implementation
+def start_tensorboard_server(logdir: Union[Path, str], port: Union[int, str], print_server_url: bool = True) -> Tuple[str, tensorboard.program.TensorBoard]:
+    tb = tensorboard.program.TensorBoard()
+    supress_outputs = ''
+    if sys.platform == 'linux' or sys.platform == 'linux2' or sys.platform == 'darwin':  # Linux or OS X
+        supress_outputs = r' > /dev/null 2>&1'
+    elif sys.platform == 'win32':  # Windows
+        supress_outputs = r' > NUL 2> NUL'
+
+    tb.configure(argv=[None, '--logdir', logdir, '--port', port, supress_outputs])
+    url = tb.launch()
+    if print_server_url:
+        logging.info(f'Started Tensorboard server (`logdir={logdir}`, `port={port}`), browse to "{url}" to vizualize training logs.')
+    return url, tb
 
 
-# def stop_tensorboard(port=8889):
-#     raise NotImplementedError  # TODO: implementation
+def stop_tensorboard_server(port: Union[int, str], cmd_must_contain: Optional[str] = 'tensorboard') -> bool:
+    """ Stops given tensorboard server program or tries to stop tensorboard server from given port number.
+    This function will try to stop any local processes listenning on given port; But, if `cmd_must_contain` is not `None` nor empty, 
+    only server processes for which `cmd_must_contain` string is contained in lowercased server's command will be terminated.
+    NOTE: For now, it relies on `lsof` and `kill` commands, so this function wont do anything on systems other than Unix/Linux systems (there is no proper API provided by tensorboard to terminate it gracefully).
+    Returns a boolean indicating whether at least one Tensorboard server have been sucessfully terminated.
+    """
+    success = False
+    if sys.platform == 'linux' or sys.platform == 'linux2' or sys.platform == 'darwin':
+        # Find any process listenning on given port by parsing lsof output
+        sub = subprocess.run(['lsof', '+M', '-P', '-w', '-n', '-Fpc', '-i', f'TCP:{port}'], stdout=subprocess.PIPE, universal_newlines=True, check=True)
+        pids = re.findall('p([0-9]+)\r?\n', sub.stdout, re.MULTILINE)
+        comands = re.findall('c([0-9]+)\r?\n', sub.stdout, re.MULTILINE)
+
+        # Stop all Tensorboard server(s) listenning on given port by killing its process(es)
+        for cmd, server_pid in zip(comands, pids):
+            if not cmd_must_contain or cmd_must_contain in cmd.lower():
+                sub = subprocess.run(['kill', '-9', f'{server_pid}'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=False)
+                if sub.returncode == 0:
+                    success = True
+                    logging.info(f'Sucessfully terminated tensorboard server listenning on port "{port}" with process pid "{server_pid}".')
+                else:
+                    logging.warn(f'Warning: `stop_tensorboard_server` failed to stop a Tensorboard server listenning on port "{port}": '
+                                 f'`kill -9 {server_pid}` returned non-zero status "{sub.returncode}", `stderr="{sub.stderr}"`.')
+    else:
+        logging.warn(f'Warning: `stop_tensorboard_server` function cant stop Tensorboard server on "{sys.platform}" OS platform (relies on `lsof` and `kill` Unix commands)')
+    return success
 
 
 def get_device(devid: Optional[int] = None) -> torch.device:

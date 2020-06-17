@@ -33,33 +33,27 @@ import deepcv.meta.data.preprocess
 import deepcv.meta.ignite_training
 from deepcv.meta.data.datasets import batch_prefetch_dataloader_patch
 
-__all__ = ['ObjectDetector', 'get_object_detector_pipelines', 'create_model', 'train']
+__all__ = ['get_object_detector_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class ObjectDetector(deepcv.meta.base_module.DeepcvModule):
-    HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
-
-    def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
-        super().__init__(input_shape, hp)
-        self.define_nn_architecture(self._hp['architecture'])
-        self.initialize_parameters(self._hp['act_fn'])
-
-
 def get_object_detector_pipelines() -> Dict[str, Pipeline]:
-    p1 = Pipeline([node(deepcv.utils.setup_cudnn, name='setup_cudnn_and_seed', inputs=dict(deterministic='params:train_object_detector.deterministic', seed='params:train_object_detector.seed'), outputs=None),
-                   node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset',
-                        inputs=dict(params='params:split_dataset', dataset_or_trainset='cifar10_train', testset='cifar10_test'), outputs='datasets'),
-                   node(deepcv.meta.data.preprocess.preprocess, name='preprocess', inputs=dict(
-                       datasets='datasets', params='params:cifar10_preprocessing'), outputs='preprocessed_datasets'),
-                   node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs='model'),
-                   node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:train_object_detector'], outputs='ignite_state')],
-                  tags=['train', 'detection'])  # NOTE: For MLflow experiments/runs tracking support, pipeline(s) (or at least one node of the pipeline(s)) which involves training should have a 'train' tag (project hooks defined in `deepcv.run` creates/ends mlflow run for each `train` pipelines)
-    return {'train_object_detector': p1}
+    """ Defines all Kedro nodes and pipelines of object detector model: datasets setup/preprocessing, object detector training and object detector hyperparameters search pipelines. """
+    preprocess_node = node(deepcv.meta.data.preprocess.preprocess, name='preprocess',
+                           inputs=dict(dataset_or_trainset='cifar10_train', testset='cifar10_test', params='params:cifar10_preprocessing'),
+                           outputs='preprocessed_datasets')
+    create_model_node = node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs='model')
+    train_node = node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:train_object_detector'], outputs='ignite_state')
+    # hp_search_node = node(deepcv.meta.hyperparams.hp_search, name='hpsearch_object_detector',
+    #                      inputs=['preprocessed_datasets', 'model', 'params:hpsearch_object_detector'], outputs='hpsearch_results')
+
+    return {'preprocess_cifar': Pipeline([preprocess_node], tags=['preprocess']),
+            'train_object_detector': Pipeline([preprocess_node, create_model_node, train_node], tags=['train', 'detection']),
+            }  # 'hpsearch_object_detector':  Pipeline([preprocess_node, create_model_node, hp_search_node], tags=['train', 'hp_search', 'detection'])}
 
 
 def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
-    # Determine input and output shapes
+    """ Creates object detection model from model specification of parameters.yml and determine input and output shapes according to dataset image shape and target classes count or shape """
     dummy_img, dummy_target = datasets['trainset'][0]
     input_shape = dummy_img.shape
     if not hasattr(model_params['architecture'][-1]['fully_connected'], 'out_features'):
@@ -70,13 +64,13 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.h
         elif isinstance(dummy_target, torch.Tensor):
             model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
-    # Create ObjectDetector model
-    model = ObjectDetector(input_shape, model_params)
+    # Create model according to its achritecture specification and return it
+    model = deepcv.meta.base_module.DeepcvModule(input_shape, model_params)
     return model
 
 
 def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]) -> ignite.engine.State:
-    """ Train object detector model
+    """ Train object detector model using `deepcv.meta.ignite_training`
     .. See Fastai blog post about AdamW for more details about optimizer: https://www.fast.ai/2018/07/02/adam-weight-decay/
     """
     backend_conf = deepcv.meta.ignite_training.BackendConfig(**(hp['backend_conf'] if 'backend_conf' in hp else {}))
@@ -84,20 +78,7 @@ def train(datasets: Dict[str, Dataset], model: nn.Module, hp: Union[deepcv.meta.
     loss = nn.CrossEntropyLoss()
     opt = optim.AdamW
 
-    # Determine num_workers for DataLoaders
-    if backend_conf.ngpus_current_node > 0 and backend_conf.distributed:
-        workers = max(1, (backend_conf.ncpu - 1) // backend_conf.ngpus_current_node)
-    else:
-        workers = max(1, multiprocessing.cpu_count() - 1)
-
-    # Create dataloaders from dataset
-    dataloaders = []
-    for n, ds in datasets.items():
-        shuffle = True if n == 'trainset' else False
-        batch_size = hp['batch_size'] if n == 'trainset' else hp['batch_size'] * 32
-        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers, pin_memory=not backend_conf.is_cpu))
-
-    return deepcv.meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
+    return deepcv.meta.ignite_training.train(hp, model, loss, datasets, opt, backend_conf, metrics)
 
 
 if __name__ == '__main__':

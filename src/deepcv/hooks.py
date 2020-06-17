@@ -80,7 +80,7 @@ class ProjectMainHooks:
             mlflow.log_param('pipeline.pipeline_datasets', pipeline.data_sets())
 
             """ The following code creates special mlflow tags about current repository infos, which is not done by mlflow when starting an MLFlow run from code instead of from `mlflow run` command
-            Code similar to (mlflow.projects._create_run)[https://www.mlflow.org/docs/latest/_modules/mlflow/projects.html] which doesn't seems to be called by `mlflow.start_run`
+            Code inspired from [`mlflow.projects._create_run`](https://www.mlflow.org/docs/latest/_modules/mlflow/projects.html) which doesn't seems to be called by `mlflow.start_run`
             """
             tags = {mlflow.utils.mlflow_tags.MLFLOW_SOURCE_NAME: self.project_ctx.project_name,
                     mlflow.utils.mlflow_tags.MLFLOW_SOURCE_TYPE: mlflow.entities.SourceType.to_string(mlflow.entities.SourceType.PROJECT),

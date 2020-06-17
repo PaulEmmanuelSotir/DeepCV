@@ -29,8 +29,8 @@ dependencies:
         - pillow=7.0.* # Image loading and preprocessing (PIL.Image)
         - click=7.1.* # CLI Tooling (see 'kedro_cli.py')
         - hilbertcurve=1.0.* # Used for an alternative approach to CoordConv where we append a single feature map of Hilbert Curve coordinates instead of euclidian coordinates on two features maps (see 'deepcv.meta.nn.concat_hilbert_coords_channel' function)
-        - tensorflow=2.* # Needed for tensorboard (Web UI Dashboard to visualize/track an experiment)
-        - tensorboardX=2.* # Tensorboard for pytorch
+        - tensorboard # Tensorboard package now installs official tensorboard (may have tensorflow as dependency), allows Web UI vizualization of a run (vizualize metrics, parameters, ... logged to tensorboard during or after training)
+        - tensorboardX # Tensorboard logging for pytorch
         - networkx=2.* # Graph library for creation, manipulation, study of the structure, dynamics, and function of complex networks/graphs.
         - gym-atari=0.17.* # Gym is a toolkit for developing and comparing reinforcement learning algorithms (by OpenAI )
         - pip:

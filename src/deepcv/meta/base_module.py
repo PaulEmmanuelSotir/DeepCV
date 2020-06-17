@@ -8,6 +8,7 @@ Defines DeepCV model base class
     - TODO: optimize support for residual/dense links
     - TODO: Try to unfreeze batch_norm parameters of shared image embedding block (with its other parameters freezed) and compare performances across various tasks
 """
+import copy
 import types
 import inspect
 import logging
@@ -17,7 +18,6 @@ from collections import OrderedDict
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List, Set
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
@@ -33,77 +33,89 @@ __author__ = 'Paul-Emmanuel Sotir'
 MODULE_CREATOR_CALLBACK_RETURN_T = Callable[[torch.Tensor, Dict[str, torch.Tensor]], torch.Tensor]
 
 
-def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: deepcv.meta.hyperparams.Hyperparameters) -> nn.Module:
+def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size]) -> torch.nn.Module:
     prev_dim = len(prev_shapes[-1][1:])
     if prev_dim >= 4:
-        return nn.AvgPool3d(**submodule_params)
+        return torch.nn.AvgPool3d(**submodule_params)
     elif prev_dim >= 2:
-        return nn.AvgPool2d(**submodule_params)
-    return nn.AvgPool1d(**submodule_params)
+        return torch.nn.AvgPool2d(**submodule_params)
+    return torch.nn.AvgPool1d(**submodule_params)
 
 
-def _create_conv2d(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: deepcv.meta.hyperparams.Hyperparameters, channel_dim: int = -3) -> nn.Module:
-    """ Creates a convolutional NN layer with dropout and batch norm support
+def _create_nn_layer(is_fully_connected: bool) -> Callable[['submodule_params', 'prev_shapes', int], torch.nn.Module]:
+    """ Creates a fully connected or convolutional NN layer with optional dropout and batch norm support
     NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
     """
-    submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
-    return deepcv.meta.nn.conv_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+    def _create_conv_or_fc_layer(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], is_fully_connected: bool, act_fn: Optional[torch.nn.Module] = None, dropout_prob: Optional[float] = None, batch_norm: Optional[Dict[str, Any]] = None, channel_dim: int = -3) -> torch.nn.Module:
+        if is_fully_connected:
+            submodule_params['in_features'] = np.prod(prev_shapes[-1][1:])
+            layer_nn_fn = deepcv.meta.nn.fc_layer
+        else:  # Convolution layer
+            submodule_params['in_features'] = prev_shapes[-1][channel_dim]
+            layer_nn_fn = deepcv.meta.nn.conv_layer
+        return layer_nn_fn(submodule_params, act_fn, dropout_prob, batch_norm)
 
-
-def _create_fully_connected(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], hp: deepcv.meta.hyperparams.Hyperparameters) -> nn.Module:
-    """ Creates a fully connected NN layer with dropout and batch norm support
-    NOTE: We assume here that features/inputs are given in batches and that input only comes from previous sub-module (e.g. no direct residual/dense link)
-    """
-    submodule_params['in_features'] = np.prod(prev_shapes[-1][1:])
-    return deepcv.meta.nn.fc_layer(submodule_params, hp['act_fn'], hp['dropout_prob'], hp['batch_norm'])
+    _create_conv_or_fc_layer.__doc__ = _create_nn_layer.__doc__
+    return functools.partial(_create_conv_or_fc_layer, is_fully_connected=is_fully_connected)
 
 
 def _residual_dense_link(is_residual: bool = True) -> Callable[['submodule_params', 'prev_named_submodules', 'prev_submodules', int], MODULE_CREATOR_CALLBACK_RETURN_T]:
     """ Creates a residual or dense link sub-module which concatenates or adds features from direct previous sub-module and another sub-module
-    Output features shapes of these two submodules must be the same, except for the channels/filters dimension if this is a dense link.
+    NOTE: Output features shapes of these two submodules must be the same, except for the channels/filters dimension if this is a dense link.
     `submodule_params` Argument must contain a `_from` entry giving the other sub-module reference (sub-module name) from which output is added to previous sub-module output.
+
     Returns a callback which is called during forwarding of sub-modules.
     If `submodule_params` contains a 'allow_scaling' entry, then if residual/dense features have different shape on dimension(s) following `channel_dim`, it will be scaled (upscaled or downscaled) using [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
     By default interpolation is 'linear'; If needed you can specify a `scaling_mode` parameter in `submodule_params` to change algorithm used for upsampling (valid values: 'nearest' | 'linear' | 'bilinear' | 'bicubic' | 'trilinear' | 'area').
     Note that scaling/interpolation of residual/dense tensors is only supported for 1D, 2D and 3D features, without taking into account channel and minibatch dimensions. Also note that `minibatch` dimension is required by [`torch.functional.interpolate`](https://pytorch.org/docs/stable/nn.functional.html#interpolate).
     """
-    def _create_link_submodule(submodule_params, channel_dim: int = -3) -> MODULE_CREATOR_CALLBACK_RETURN_T:
+    def _create_link_submodule(submodule_params: Dict[str, Any], is_residual: bool, allow_scaling: bool = False, scaling_mode: str = 'linear', channel_dim: int = -3) -> MODULE_CREATOR_CALLBACK_RETURN_T:
         def _forward_callback(x: torch.Tensor, referenced_submodules_out: Dict[str, torch.Tensor]):
             y = referenced_submodules_out[submodule_params['_from']]
 
             # If target output shape (which is the same as `x` features shape) is different from `y` features shapes, we perform a down or up scaling (interpolation) if allowed
             if x.shape[channel_dim:] != y.shape[channel_dim:]:
-                if 'allow_scaling' in submodule_params and submodule_params['allow_scaling']:
+                if allow_scaling:
                     # Resize y features tensor to be of the same shape as x along dimensions after channel dim (scaling performed with bilinear interpolation)
-                    y = F.interpolate(y, x.shape[channel_dim:], mode='linear' if 'scaling_mode' not in submodule_params else submodule_params['scaling_mode'])
+                    y = F.interpolate(y, x.shape[channel_dim:], mode=scaling_mode)
                 else:
-                    msg = f"Error: Couldn't forward throught {'residual' if is_residual else 'dense'} link: features from link doesn't have the same shape as previous module's output shape, can't concatenate or add them. (did you forgot to allow residual/dense features to be scaled using `allow_scaling: true` parameter?). residual_shape='{y.shape}' != prev_features_shape='{x.shape}' "
-                    raise RuntimeError(msg)
+                    raise RuntimeError(f"Error: Couldn't forward throught {'residual' if is_residual else 'dense'} link: features from link doesn't have "
+                                       f"the same shape as previous module's output shape, can't concatenate or add them. (did you forgot to allow residual/dense "
+                                       f"features to be scaled using `allow_scaling: true` parameter?). residual_shape='{y.shape}' != prev_features_shape='{x.shape}'")
 
             # Add or concatenate previous sub-module output features with residual or dense features
             return x + y if is_residual else torch.cat([x, y], dim=channel_dim)
         return _forward_callback
 
     _create_link_submodule.__doc__ = _residual_dense_link.__doc__
-    return _create_link_submodule
+    return functools.partial(_create_link_submodule, is_residual=is_residual)
 
 
-BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_conv2d, 'fully_connected': _create_fully_connected,
+BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv2d': _create_nn_layer(is_fully_connected=False), 'fully_connected': _create_nn_layer(is_fully_connected=True),
                             'residual_link': _residual_dense_link(is_residual=True), 'dense_link': _residual_dense_link(is_residual=False)}
 
 
-class DeepcvModule(nn.Module):
-    """ DeepCV PyTorch Module model base class
-    Handles NN architecture definition tooling for easier model definition (e.g. from a YAML configuration file), model intialization and required/defaults hyperparameters logic.
-    Child class must define `HP_DEFAULTS` class attribute, with at least the following keys: `{'architecture': ..., 'act_fn': ...}` and other needed hyperparameters deepending on which sub-module are specified in `architecture` definition
-    For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule.define_nn_architecture`.
-    NOTE: in order `_features_shapes`, `_submodules_capacities` and `self._architecture_spec` attributes to be defined and contain NN sumbmodules informations, you need to call `DeepcvModule.define_nn_architecture` or update it by yourslef according to your NN architecture.
-    NOTE: `self.__str__` outputs a human readable string describing NN's architecture with their respective feature_shape and capacity. In order to be accurate, you need to call `self.define_nn_architecture` or, alternatively, keep `_features_shapes` and `_submodules_capacities` attribute up-to-date and make sure that `self._architecture_spec` contains architecture definition (similar value than `self.define_nn_architecture`'s `architecture_spec` argument would have).
-    NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which, for example, allows you to define residual/dense links.
-    .. See examples of Deepcv model sub-modules architecture definition in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
+class DeepcvModule(torch.nn.Module):
+    """ DeepCV PyTorch Module model base class  
+    Handles NN architecture definition tooling for easier model definition (e.g. from a YAML configuration file), model intialization and required/defaults hyperparameters logic.  
+    Child class can define `HP_DEFAULTS` class attribute to take additional parameters. By default, a `DeepcvModule` expects the following keys in `hp`: `architecture` and `act_fn`. `batch_norm` and `dropout_prob` can also be needed depending on which submodules are used.  
+
+    (Hyper)Parameters specified in a submodule's specs (from `hp['achitecture']`) and global parameters (directly from `hp`) which are not in `DeepcvModule.HP_DEFAULTS` can be provided to their respective submodule creator (or a torch.nn.Module type, created from its __init__ constructor).  
+    For example, if there is a module creator called `conv2d` and a submodule in DeepcvModule's `hp['achitecture']` list have the following YAML spec:  
+    ``` yaml
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1, act_fn: !py!torch.nn.ReLU }
+    ```
+    Then, module creator function, which should return defined torch.nn.Module, can take its arguments in many possible ways:
+        - it can take as arguments `submodule_params` (parameters dict from YAML submodule specs) and/or `prev_shapes` (previous model's sub-modules output shapes)  
+        - it can also (instead or additionally) directly take any arguments, for example, `act_fn: Optional[torch.nn.Module]`, so that `act_fn` can both be specified localy in submodule params (like in `submodule_params`) or globaly in DeepcvModule's specs. (directly in `hp`). This mechanism allows easier architecture specifications by specifying parameters for all submodules at once, while still being able to override global value localy (in submodule specs parameters dict) if needed.  
+    NOTE: In order to make usage of this mechanism, parameters/arguments names which can be specified globally should not be in `DeepcvModule.HP_DEFAULTS`, for example, a submodule creator can't take an argument named `architecture` because `architecture` is among `DeepcvModule.HP_DEFAULTS` entries so `hp['architecture']` won't be provided to any submodules creators nor nested DeepcvModule(s).
+
+    .. For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule.define_nn_architecture` and examples of DeepcvModule(s) YAML architecture specification in ./conf/base/parameters.yml  
+    NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration, which, for example, allows you to define residual/dense links.  
+    .. See examples of Deepcv model sub-modules architecture definition in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`  
     """
 
-    HP_DEFAULTS = ...
+    HP_DEFAULTS = {'architecture': ...}
 
     def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
         super().__init__()
@@ -112,6 +124,10 @@ class DeepcvModule(nn.Module):
         # Process module hyperparameters
         assert self.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({type(self).__name__}) must define "HP_DEFAULTS" class attribute dict.'
         self._hp, _missing = deepcv.meta.hyperparams.to_hyperparameters(hp, defaults=self.HP_DEFAULTS, raise_if_missing=True)
+
+        # Create model architecture according to hyperparameters's `architecture` entry (see ./conf/base/parameters.yml for examples of architecture specs.) and initialize its parameters
+        self.define_nn_architecture(self._hp['architecture'])
+        self.initialize_parameters(self._hp['act_fn'])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() == len(self._input_shape):
@@ -160,6 +176,7 @@ class DeepcvModule(nn.Module):
 
     def define_nn_architecture(self, architecture_spec: Iterable, submodule_creators: Optional[Dict[str, Callable]] = None, extend_basic_submodule_creators_dict: bool = True):
         """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
+        .. For examples of DeepcvModules YAML architecture specification, see ./conf/base/parameters.yml 
         NOTE: defines `self._features_shapes`, `self._submodules_capacities`, `self._forward_callbacks`, `self._submodules` and `self._architecture_spec` attributes (usefull for debuging and `self.__str__` and `self.describe` functions)
         Args:
             - architecture_spec: Neural net architecture definition listing submodules to be created with their respective parameters (probably from hyperparameters of `conf/base/parameters.yml` configuration file)
@@ -196,16 +213,20 @@ class DeepcvModule(nn.Module):
             if submodule_name is not None and submodule_name in OrderedDict(submodules).keys() or submodule_name == r'' or not isinstance(submodule_name, str):
                 raise ValueError(f'Error: Invalid or duplicate sub-module name/label: "{submodule_name}"')
 
+            # Add global (hyper)parameters from `hp` to `params` (allows to define parameters like `act_fn`, `dropout_prob`, `batch_norm`, ... either globaly in `hp` or localy in `params` from submodule specs)
+            # NOTE: In case a parameter is both specified in `self._hp` globals and in `params` local submodule specs, `params` entries from submodule specs will allways override parameters from `hp`
+            # NOTE: Merged parameters given to submodule (`params_with_globals`) wont contain any parameters specified in `DeepcvModule.HP_DEFAULTS` (e.g. submodule parameters won't contain parent architecture specs, i.e., no `DeepcvModule._hp['architecture']` in `params_with_globals`))
+            params_with_globals = {n: copy.deepcopy(v) for n, v in self._hp.items() if n not in self.HP_DEFAULTS and n not in params}
+            params_with_globals.update(params)
+
+            # Create submodule (nested DeepcvModule or submodule from `submodule_creators` or `torch.nn.Module` submodule)
             if submodule_type == '_deepcvmodule':
                 # Allow nested DeepCV sub-module (see deepcv/conf/base/parameters.yml for examples)
-                submodule_hp_dict = dict(**self._hp)
-                del submodule_hp_dict['architecture']  # Make sure we dont reuse parent DeepCV module architecture spec (if 'architecture' entry is missing in params dict)
-                submodule_hp_dict.update(params)
-                deepcv_submodule = type(self)(input_shape=self._features_shapes[-1], hp=submodule_hp_dict)
+                deepcv_submodule = type(self)(input_shape=self._features_shapes[-1], hp=params_with_globals)
                 submodules.append((submodule_name, deepcv_submodule))
             else:
                 if isinstance(submodule_type, str):
-                    # Try to find sub-module creator or a nn.Module's `__init__` function which matches `submodule_type` identifier
+                    # Try to find sub-module creator or a torch.nn.Module's `__init__` function which matches `submodule_type` identifier
                     fn_or_type = submodule_creators.get(submodule_type)
                     if not fn_or_type:
                         # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
@@ -216,12 +237,13 @@ class DeepcvModule(nn.Module):
                 else:
                     fn_or_type = submodule_type
 
-                # Create layer/block submodule from its module_creator or its nn.Module.__init__ function (fn_or_type)
-                available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes, 'hp': self._hp}
+                # Create layer/block submodule from its module_creator or its torch.nn.Module.__init__ function (fn_or_type)
+                available_params = {'submodule_params': params, 'prev_shapes': self._features_shapes}
+                available_params.update(params_with_globals)
                 module_or_callback = fn_or_type(**{n: p for n, p in available_params.items() if n in inspect.signature(fn_or_type).parameters})
 
-                # Figure out fn_or_type's output (module creators can return a nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
-                if isinstance(module_or_callback, nn.Module):
+                # Figure out fn_or_type's output (module creators can return a torch.nn.Module or a callback which is called during forwarding of sub-modules (these callbacks are fed with a referenced sub-module output in addition to previous sub-module output)
+                if isinstance(module_or_callback, torch.nn.Module):
                     submodules.append((submodule_name, module_or_callback))
                 elif isinstance(module_or_callback, Callable) and len(inspect.Signature.from_callable(module_or_callback).parameters) == 2:
                     # Module_or_callback is assumed to be a callback which signature should match 'MODULE_CREATOR_CALLBACK_RETURN_T' (we only check if it's a Callable which takes two parameters)
@@ -229,7 +251,7 @@ class DeepcvModule(nn.Module):
                     submodules.append((submodule_name, None))
                 else:
                     raise RuntimeError(f'Error: Wrong sub-module creator function/class __init__ return type '
-                                       f'(must either be a nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.')
+                                       f'(must either be a torch.nn.Module or a `forward` callback of type: `{MODULE_CREATOR_CALLBACK_RETURN_T}`.')
 
             # Store any sub-module name/label references (used to store referenced submodule's output features during model's forward pass in order to reuse these features later in a forward callback (e.g. for residual links))
             if '_from' in params:
@@ -242,7 +264,7 @@ class DeepcvModule(nn.Module):
 
             # Get neural network submodules capacity and output features shapes
             self._submodules_capacities.append(deepcv.meta.nn.get_model_capacity(submodules[-1][1]))
-            self._net = nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
+            self._net = torch.nn.Sequential(OrderedDict([(n, m) for (n, m) in submodules if m is not None]))
             self._features_shapes.append(deepcv.meta.nn.get_out_features_shape(self._input_shape, self._net))
 
         self._submodules = OrderedDict(submodules)
@@ -252,38 +274,39 @@ class DeepcvModule(nn.Module):
         if len(missing) > 0:
             raise ValueError(f"Error: Invalid sub-module reference(s), can't find following sub-module name(s)/label(s): {missing}")
 
-    def initialize_parameters(self, act_fn: Optional[Type[nn.Module]] = None):
+    def initialize_parameters(self, act_fn: Optional[Type[torch.nn.Module]] = None):
         """ Initializes model's parameters with Xavier Initialization with a scale depending on given activation function (only needed if there are convolutional and/or fully connected layers). """
-        xavier_gain = nn.init.calculate_gain(deepcv.meta.nn.get_gain_name(act_fn)) if act_fn else None
+        xavier_gain = torch.nn.init.calculate_gain(deepcv.meta.nn.get_gain_name(act_fn)) if act_fn else None
 
         def _raise_if_no_act_fn(sub_module_name: str):
             if xavier_gain is None:
                 msg = f'Error: Must specify  in `DeepcvModule.initialize_parameters` function in order to initialize {sub_module_name} layer sub-module with xavier initialization.'
                 raise RuntimeError(msg)
 
-        def _xavier_init(module: nn.Module):
+        def _xavier_init(module: torch.nn.Module):
             if deepcv.meta.nn.is_conv(module):
                 _raise_if_no_act_fn('convolution')
-                nn.init.xavier_normal_(module.weight.data, gain=xavier_gain)
+                torch.nn.init.xavier_normal_(module.weight.data, gain=xavier_gain)
                 module.bias.data.fill_(0.)
             elif deepcv.meta.nn.is_fully_connected(module):
                 _raise_if_no_act_fn('fully connected')
-                nn.init.xavier_uniform_(module.weight.data, gain=xavier_gain)
+                torch.nn.init.xavier_uniform_(module.weight.data, gain=xavier_gain)
                 module.bias.data.fill_(0.)
-            elif type(module).__module__ == nn.BatchNorm2d.__module__:
-                nn.init.uniform_(module.weight.data)  # gamma == weight here
+            elif type(module).__module__ == torch.nn.BatchNorm2d.__module__:
+                torch.nn.init.uniform_(module.weight.data)  # gamma == weight here
                 module.bias.data.fill_(0.)  # beta == bias here
             elif list(module.parameters(recurse=False)) and list(module.children()):
                 raise Exception("ERROR: Some module(s) which have parameter(s) haven't bee explicitly initialized.")
         self.apply(_xavier_init)
 
-    @property
+    @ property
     def needed_python_sources(self, project_path: Union[str, Path]) -> Set[str]:
-        """ Returns Python source files needed for model inference/deployement/serving.  
-        This function can be usefull, for example, if you want to log model to mlflow and be able to deploy it easyly with any supported way: Local mlflow REST API enpoint, Docker image, Azure ML, Amazon Sagemaker, Apache Spark UDF, ...  
-        .. See [mlflow.pytorch API](https://www.mlflow.org/docs/latest/python_api/mlflow.pytorch.html) and [MLFLow Model built-in-deployment-tools](https://www.mlflow.org/docs/latest/models.html#built-in-deployment-tools)  
-        NOTE: Depending on your need, there are other ways to deploy a model or a pipeline from DeepCV: For example, Kedro and PyTorch also provides tooling for machine learning model(s)/pipeline(s) deployement, serving, portability and reproductibility.   
+        """ Returns Python source files needed for model inference/deployement/serving.
+        This function can be usefull, for example, if you want to log model to mlflow and be able to deploy it easyly with any supported way: Local mlflow REST API enpoint, Docker image, Azure ML, Amazon Sagemaker, Apache Spark UDF, ...
+        .. See [mlflow.pytorch API](https://www.mlflow.org/docs/latest/python_api/mlflow.pytorch.html) and [MLFLow Model built-in-deployment-tools](https://www.mlflow.org/docs/latest/models.html#built-in-deployment-tools)
+        NOTE: Depending on your need, there are other ways to deploy a model or a pipeline from DeepCV: For example, Kedro and PyTorch also provides tooling for machine learning model(s)/pipeline(s) deployement, serving, portability and reproductibility.
         NOTE: PARTIALY TESTED: Be warned this function tries to retreive all module's source file dependencies within this project directory recursively but may fail to find some sources in some corner cases; So you may have to add some source files by your own.
+        # TODO: better test this function
         """
         python_sources = set()
 
@@ -386,12 +409,12 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
     @ classmethod
     def _define_shared_image_embedding_block(cls, in_channels: int = 3):
         logging.info('Creating shared image embedding block of DeepcvModule models...')
-        conv_opts = {'act_fn': nn.ReLU, 'batch_norm': {'affine': True, 'eps': 1e-05, 'momentum': 0.0736}}
+        conv_opts = {'act_fn': torch.nn.ReLU, 'batch_norm': {'affine': True, 'eps': 1e-05, 'momentum': 0.0736}}
         layers = [('shared_block_conv_1', deepcv.meta.nn.conv_layer(conv2d={'in_channels': in_channels, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
                   ('shared_block_conv_2', deepcv.meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 16, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
                   ('shared_block_conv_3', deepcv.meta.nn.conv_layer(conv2d={'in_channels': 16, 'out_channels': 8, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts)),
                   ('shared_block_conv_4', deepcv.meta.nn.conv_layer(conv2d={'in_channels': 8, 'out_channels': 4, 'kernel_size': (3, 3), 'padding': 1}, **conv_opts))]
-        cls.shared_image_embedding_block = nn.Sequential(OrderedDict(*layers))
+        cls.shared_image_embedding_block = torch.nn.Sequential(OrderedDict(*layers))
 
 
 class DeepcvModuleDescriptor:

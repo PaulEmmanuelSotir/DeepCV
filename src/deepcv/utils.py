@@ -236,6 +236,7 @@ def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Optional[Type] 
     For example, this function may be usefull as `torch.utils.data.Dataset` child classes often encapsulates another dataset which could contain the attribute you look for (e.g. `Subset` Dataset encapsulates another Dataset).
     For such an usage, you would set `recurse_on_type` to `torch.utils.data.Dataset`, so that this function will look for `attr_name` attribute in `obj` (your dataset) and in all `obj`'s attributes which are Datasets, recursively.
     NOTE: Relies on `dir` to look for encapsulated attributes of `recurse_on_type` type and ignores '__\w+__' attributes 
+    NOTE: In case you already know all attributes name hierarchy, you can alternatively do `functools.reduce(getattr, [obj, *attr_names])` instead of `deepcv.utils.recursive_getattr`, which is much more preferable and cleaner.
     Args:
         - obj: Object in which recursive attribute lookup is done
         - attr_name: Attribute name to be looked for

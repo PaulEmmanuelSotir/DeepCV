@@ -8,8 +8,10 @@
     - TODO: For hyperparameter embedding: read about graph embedding techniques like: https://github.com/google-research/google-research/tree/master/graph_embedding/ddgk and https://github.com/google-research/google-research/tree/master/graph_embedding/watch_your_step
 """
 import uuid
+import json
 import types
 import logging
+import functools
 import collections
 import multiprocessing
 from pathlib import Path
@@ -286,14 +288,62 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
     logging.info(f'######## NNI Hyperparameter search trial NO#{nni.get_trial_id()} done! ########')
 
 
-def generate_hp_space_template(hyperparams: Union[Dict[str, Any], Hyperparameters], save_filename: str, exclude_params: Optional[Sequence[str]] = None, include_params: Optional[Sequence[str]] = None) -> Optional[Path]:
+def sample_nni_hp_space(model_hps: Union[Dict[str, Any], Hyperparameters], training_hps: Union[Dict[str, Any], Hyperparameters]) -> Tuple[Hyperparameters, Hyperparameters]:
+    """ Sample hyperparameters from NNI search space and merge those with given model definition and training procedure hyperparameters (which are probably from YAML config) """
+    params_from_nni = nni.get_next_parameter()
+    for name, value in params_from_nni.items():
+        is_model = name.startswith('model.')
+        if not is_model and not name.startswith('training.'):
+            raise ValueError('Error: NNI hyperparameter names should either start with `training.` or `model.` to specify whether parameter belongs to training procedure or model definition.')
+
+        # Recursive call to dict.__getitem__, which allows to access nested parameters by using a `.` between namespaces
+        *hierachy, parameter_name = name.split('.')[1:]
+        functools.reduce(dict.__getitem__, [model_hps if is_model else training_hps, *hierachy])[parameter_name] = value
+
+    return model_hps, training_hps
+
+
+def get_hp_position_in_search_space(hp, hp_search_space):
+    # TODO: return hp set position in given search space (aggregates position of each searchable parameters in their respective search range, nested choices/sampling multiplies its parent relative position)
+    raise NotImplementedError
+    return torch.zeros((1, 10))
+
+
+def generate_hp_space_template(hyperparams: Union[Dict[str, Any], Hyperparameters], save_filename: str = r'nni_hp_space_template.json', exclude_params: Optional[Sequence[str]] = None, include_params: Optional[Sequence[str]] = None) -> Tuple[Dict[str, Any], Path]:
     """ Generates an hyperparameter space template/draft from given hyperparameter set, making it easier to define your JSON (NNI spec.) hp space definition (generates a start point for your JSON hp space)
-    "dropout_keepprob": {"_type": "uniform", "_value": [0.1, 0.5]},
-    "conv_size": {"_type": "choice", "_value": [2, 3, 5, 7]},
-    "hidden_size": {"_type": "choice", "_value": [124, 512, 1024]},
-    "batch_size": {"_type": "choice", "_value": [16, 32, 64, 128, 256]},
-    "lr": {"_type": "uniform", "_value": [0.0001, 0.1]}
-}"""
+    # TODO: active learning of a lightweight model which infers (options, low, high, q, mu and/or sigma) from (parameter name, type, hierarchy/context)
+    # TODO: Samples from hp space should be merged to `hp` dict from YAML and vis versa, a given `hp` set should have a position in an hp search space
+    """
+    options, low, high, q, mu, sigma = list(), 0., 1., 1, 0., 1.  # q is the discrete step size
+    nni_search_space_specs = [{'_type': 'choice', '_value': options},
+                              # `randint` is equivalent to `quniform` with `q = 1` but may be interpreted as unordered by some NNI hp search tuners while `quniform` is always ordered
+                              {'_type': 'randint', '_value': [low, high]},
+                              {'_type': 'uniform', '_value': [low, high]},
+                              {'_type': 'quniform', '_value': [low, high, q]},
+                              {'_type': 'loguniform', '_value': [low, high]},
+                              {'_type': 'qloguniform', '_value': [low, high, q]},
+                              {'_type': 'normal', '_value': [mu, sigma]},
+                              {'_type': 'qnormal', '_value': [mu, sigma, q]},
+                              {'_type': 'lognormal', '_value': [mu, sigma]},
+                              {'_type': 'qlognormal', '_value': [mu, sigma, q]}]
+    search_space_types = {spec['_type'] for spec in nni_search_space_specs}
+
+    exclude_params = set() if exclude_params is None else set(exclude_params)
+    include_params = set() if include_params is None else set(include_params)
+    hp_search_space = {n: dict(_type=v, _value=[v]) for n, v in hyperparams.items() if n in include_params and n not in exclude_params}
+    hp_search_space_json = Path.cwd() / save_filename
+
+    # Save hyperparameters search space template as JSON file
+    with open(hp_search_space_json, 'w') as json_file:
+        json.dump(hp_search_space, json_file)
+
+    return hp_search_space, hp_search_space_json
+    # "dropout_keepprob": {"_type": "uniform", "_value": [0.1, 0.5]},
+    # "conv_size": {"_type": "choice", "_value": [2, 3, 5, 7]},
+    # "hidden_size": {"_type": "choice", "_value": [124, 512, 1024]},
+    # "batch_size": {"_type": "choice", "_value": [16, 32, 64, 128, 256]},
+    # "lr": {"_type": "uniform", "_value": [0.0001, 0.1]}
+    # }
 
 
 def parse_hp_space(hp_space_yml: Union[Path, str]) -> Optional[HyperparameterSpace]:

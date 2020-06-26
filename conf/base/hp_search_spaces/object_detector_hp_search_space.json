@@ -1,0 +1,61 @@
+{
+    "model:dropout_keepprob": {
+        "_type": "uniform",
+        "_value": [
+            0.0,
+            0.5
+        ]
+    },
+    "model:batch_norm": {
+        "_type": "choice",
+        "_value": [
+            null,
+            {
+                "affine": true,
+                "eps": 1e-05,
+                "momentum": 0.07359778246238029
+            }
+        ]
+    },
+    "model:conv_size": {
+        "_type": "choice",
+        "_value": [
+            2,
+            3,
+            5,
+            7
+        ]
+    },
+    "model:hidden_size": {
+        "_type": "choice",
+        "_value": [
+            124,
+            512,
+            1024
+        ]
+    },
+    "training:batch_size": {
+        "_type": "choice",
+        "_value": [
+            16,
+            32,
+            64,
+            128,
+            256
+        ]
+    },
+    "training:optimizer_opts.lr": {
+        "_type": "uniform",
+        "_value": [
+            1e-4,
+            1e-1
+        ]
+    },
+    "training:optimizer_opts.weight_decay": {
+        "_type": "uniform",
+        "_value": [
+            0.0001,
+            1e-2
+        ]
+    }
+}

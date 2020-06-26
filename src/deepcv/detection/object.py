@@ -44,12 +44,17 @@ def get_object_detector_pipelines() -> Dict[str, Pipeline]:
                            outputs='preprocessed_datasets')
     create_model_node = node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs='model')
     train_node = node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:train_object_detector'], outputs='ignite_state')
-    # hp_search_node = node(deepcv.meta.hyperparams.hp_search, name='hpsearch_object_detector',
-    #                      inputs=['preprocessed_datasets', 'model', 'params:hpsearch_object_detector'], outputs='hpsearch_results')
+
+    # Hyperparameters search pipeline nodes
+    nni_hp_search_sample_node = node(deepcv.meta.hyperparams.sample_nni_hp_space, name='sample_nni_hp_search_space',
+                                     inputs=dict(model_hps='params:object_detector_model', training_hps='params:train_object_detector'),
+                                     outputs=['model_hps', 'training_hps'])
+    create_model_node = node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'model_hps'], outputs='model')
+    train_node = node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'training_hps'], outputs='ignite_state')
 
     return {'preprocess_cifar': Pipeline([preprocess_node], tags=['preprocess']),
             'train_object_detector': Pipeline([preprocess_node, create_model_node, train_node], tags=['train', 'detection']),
-            }  # 'hpsearch_object_detector':  Pipeline([preprocess_node, create_model_node, hp_search_node], tags=['train', 'hp_search', 'detection'])}
+            'hp_search_object_detector': Pipeline([nni_hp_search_sample_node, preprocess_node, create_model_node, train_node], tags=['train', 'detection', 'hp_search'])}  # 'hpsearch_object_detector':  Pipeline([preprocess_node, create_model_node, hp_search_node], tags=['train', 'hp_search', 'detection'])}
 
 
 def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):

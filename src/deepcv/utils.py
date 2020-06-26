@@ -34,7 +34,7 @@ from kedro.io import DataCatalog
 
 __all__ = ['Number', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds', 'setup_cudnn', 'progess_bar', 'get_device',
            'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'recursive_getattr', 'get_by_identifier',
-           'get_str_repr', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
+           'get_str_repr', 'EventsHandler', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Number = Union[builtins.int, builtins.float, builtins.bool]
@@ -100,7 +100,7 @@ def start_tensorboard_server(logdir: Union[Path, str], port: Union[int, str], pr
 
 def stop_tensorboard_server(port: Union[int, str], cmd_must_contain: Optional[str] = 'tensorboard') -> bool:
     """ Stops given tensorboard server program or tries to stop tensorboard server from given port number.
-    This function will try to stop any local processes listenning on given port; But, if `cmd_must_contain` is not `None` nor empty, 
+    This function will try to stop any local processes listenning on given port; But, if `cmd_must_contain` is not `None` nor empty,
     only server processes for which `cmd_must_contain` string is contained in lowercased server's command will be terminated.
     NOTE: For now, it relies on `lsof` and `kill` commands, so this function wont do anything on systems other than Unix/Linux systems (there is no proper API provided by tensorboard to terminate it gracefully).
     Returns a boolean indicating whether at least one Tensorboard server have been sucessfully terminated.
@@ -235,7 +235,7 @@ def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Optional[Type] 
     """ Recursively look for an attribute (`attr_name`) in given `obj` object and in any underlying/encapsulated objects of type 'type'.
     For example, this function may be usefull as `torch.utils.data.Dataset` child classes often encapsulates another dataset which could contain the attribute you look for (e.g. `Subset` Dataset encapsulates another Dataset).
     For such an usage, you would set `recurse_on_type` to `torch.utils.data.Dataset`, so that this function will look for `attr_name` attribute in `obj` (your dataset) and in all `obj`'s attributes which are Datasets, recursively.
-    NOTE: Relies on `dir` to look for encapsulated attributes of `recurse_on_type` type and ignores '__\w+__' attributes 
+    NOTE: Relies on `dir` to look for encapsulated attributes of `recurse_on_type` type and ignores '__\w+__' attributes
     NOTE: In case you already know all attributes name hierarchy, you can alternatively do `functools.reduce(getattr, [obj, *attr_names])` instead of `deepcv.utils.recursive_getattr`, which is much more preferable and cleaner.
     Args:
         - obj: Object in which recursive attribute lookup is done
@@ -288,6 +288,52 @@ def get_str_repr(fn_or_type: Union[Type, Callable], src_file: Optional[Union[str
     src_file_without_suffix = '.'.join([str(Path(src_file).parents), ] + [Path(src_file).stem, ]) + '.' if src_file else ''
     signature = inspect.signature(fn_or_type) if isinstance(fn_or_type, Callable) else ''
     return f'`{src_file_without_suffix}{fn_or_type.__name__}{signature}`'
+
+
+class EventsHandler:
+    """ A basic callback handler allowing to raise/fire events by name which calls functions subscribed to fired event (synchronous calls to callbacks, no constraints on callbacks signature are enforced). """
+
+    def __init__(self, log_on_unkown_event: bool = True, must_register_events: bool = False, default_registered_events: Optional[Sequence[str]] = None):
+        self._log_on_unkown_event = log_on_unkown_event
+        # Indicates whether if subscribing to an event which haven't been registered before is allowed (i.e. if `False`, no need to call `register_event`, if `True`, `subscribe` will fail if `register_event` haven't been called before (nor given throught constructor `default_registered_events` argument) for given event name)
+        self._must_register_events = must_register_events
+        self._callbacks: Dict[str, List[Callable]] = dict()
+        if default_registered_events:
+            self.register_event(default_registered_events)
+
+    def register_event(self, event_names: Union[str, Sequence[str]]):
+        self._callbacks.update({n: list() for n in event_names if n not in self._callbacks})
+
+    def subscribe(self, callbacks: Union[None, Callable, Sequence[Callable]] = None, event_names=Union[str, Sequence[str]]):
+        """ Subscribes given callback(s) to an event or to multiple events at once. `subscribe` may be used as a function decorator. """
+        for event in event_names:
+            if self._must_register_events and event not in self._callbacks:
+                msg = f'Error: Cant subscribe to unknown event,`{event}` when `EventsHandler._must_register_events == False` (you should either call `register_event("{event}")` before, or give "{event}" event name to `EventsHandler.__init__` `default_registered_events` argument, or set/let `default_registered_events` to `False` so that `subscribe` allows subscription to new events.'
+                if self._log_on_unkown_event:
+                    logging.error(msg)
+                raise ValueError(msg)
+
+            callbacks = [callbacks, ] if isinstance(callbacks, Callable) else (callbacks if callbacks is not None else [])
+            self._callbacks[event] = [(*self._callbacks[event]) if event in self._callbacks else (*[]), *callbacks]
+
+    def fire_event(self, event_names=Union[str, Sequence[str]], *callback_args, **callback_kwargs):
+        for event in event_names:
+            if event in self._callbacks:
+                for callback in self._callbacks[event]:
+                    callback(*callback_args, **callback_kwargs)
+            elif self._log_on_unkown_event:
+                logging.warn(f'Warning: "{EventsHandler.__name__}" events handler instance cannot fire unknown event `{event}`'
+                             '(event have been mispelled or forgot to call `subscribe` for this event)')
+
+    def clear(self):
+        self._callbacks = dict()
+
+    def remove_event(self, event_names: Union[str, Sequence[str]]) -> bool:
+        for name in event_names:
+            if name in self._callbacks:
+                del self._callbacks[name]
+            elif self._log_on_unkown_event:
+                logging.warn(f'Warning: "{EventsHandler.__name__}" events handler instance cannot remove unknown event `{event}`')
 
 
 def source_dir(source_file: str = __file__) -> Path:

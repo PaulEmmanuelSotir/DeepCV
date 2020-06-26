@@ -2,7 +2,6 @@
 __Project authored by Paul-Emmanuel SOTIR__ <paulemmanuel.sotir@oultook.com>  
 _This project is under Open Source MIT License, see [./LICENSE](./LICENSE) or more details._  
 
-
 __It's not the best choice, it's DeepCV choice!__
 
 Given that __DeepCV is still at an early stage of developement__, someone interested in this project right now would better see DeepCV as a project template, à la Kedro project template, rather than a fully stable vision/deep learning framework.

@@ -39,7 +39,7 @@ models:
         - conv2d: { kernel_size: [3, 3], out_channels: 64, padding: 1 }
 
 object_detector_model:
-  act_fn: !py!torch.nn.ReLU
+  act_fn: !py!torch.nn.LeakyReLU
   dropout_prob: 0.0
   batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
   architecture:

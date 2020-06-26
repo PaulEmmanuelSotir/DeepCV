@@ -32,7 +32,8 @@ import deepcv.meta.data.datasets
 import deepcv.meta.data.training_metadata
 
 
-__all__ = ['Hyperparameters', 'HyperparameterSpace', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor', 'to_hyperparameters', 'merge_hyperparameters', 'hp_search']
+__all__ = ['Hyperparameters', 'HyperparameterSpace', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor', 'to_hyperparameters',
+           'merge_hyperparameters', 'hp_search', 'sample_nni_hp_space', 'get_hp_position_in_search_space', 'generate_hp_space_template']
 __author__ = 'Paul-Emmanuel Sotir'
 
 Hyperparameters = deepcv.meta.data.training_metadata.Hyperparameters
@@ -288,13 +289,15 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
     logging.info(f'######## NNI Hyperparameter search trial NO#{nni.get_trial_id()} done! ########')
 
 
-def sample_nni_hp_space(model_hps: Union[Dict[str, Any], Hyperparameters], training_hps: Union[Dict[str, Any], Hyperparameters]) -> Tuple[Hyperparameters, Hyperparameters]:
+def sample_nni_hp_space(model_hps: Union[Dict[str, Any], Hyperparameters], training_hps: Union[Dict[str, Any], Hyperparameters]) -> Tuple[Union[Dict[str, Any], Hyperparameters], Union[Dict[str, Any], Hyperparameters]]:
     """ Sample hyperparameters from NNI search space and merge those with given model definition and training procedure hyperparameters (which are probably from YAML config) """
     params_from_nni = nni.get_next_parameter()
+
+    # Fill values sampled from NNI seach space in their respective hyperparameters set (model_hps or training_hps)
     for name, value in params_from_nni.items():
-        is_model = name.startswith('model.')
-        if not is_model and not name.startswith('training.'):
-            raise ValueError('Error: NNI hyperparameter names should either start with `training.` or `model.` to specify whether parameter belongs to training procedure or model definition.')
+        is_model = name.startswith('model:')
+        if not is_model and not name.startswith('training:'):
+            raise ValueError('Error: NNI hyperparameter names should either start with `training:` or `model:` to specify whether parameter belongs to training procedure or model definition.')
 
         # Recursive call to dict.__getitem__, which allows to access nested parameters by using a `.` between namespaces
         *hierachy, parameter_name = name.split('.')[1:]
@@ -344,11 +347,6 @@ def generate_hp_space_template(hyperparams: Union[Dict[str, Any], Hyperparameter
     # "batch_size": {"_type": "choice", "_value": [16, 32, 64, 128, 256]},
     # "lr": {"_type": "uniform", "_value": [0.0001, 0.1]}
     # }
-
-
-def parse_hp_space(hp_space_yml: Union[Path, str]) -> Optional[HyperparameterSpace]:
-    """ Creates a 'HyperparameterSpace' instance from given hyperparameter space JSON config filepath (Should follow NNI's hp space specs) """
-    pass
 
 
 if __name__ == '__main__':

@@ -1,0 +1,41 @@
+{
+    "prune_method": {
+        "_type": "choice",
+        "_value": [
+            {
+                "_name": "agp",
+                "conv0_sparsity": {
+                    "_type": "uniform",
+                    "_value": [
+                        0.1,
+                        0.9
+                    ]
+                },
+                "conv1_sparsity": {
+                    "_type": "uniform",
+                    "_value": [
+                        0.1,
+                        0.9
+                    ]
+                },
+            },
+            {
+                "_name": "level",
+                "conv0_sparsity": {
+                    "_type": "uniform",
+                    "_value": [
+                        0.1,
+                        0.9
+                    ]
+                },
+                "conv1_sparsity": {
+                    "_type": "uniform",
+                    "_value": [
+                        0.01,
+                        0.9
+                    ]
+                }
+            }
+        ]
+    }
+}

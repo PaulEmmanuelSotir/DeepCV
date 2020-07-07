@@ -1,12 +1,12 @@
 {
-    "model:dropout_keepprob": {
+    "object_detector_model.dropout_keepprob": {
         "_type": "uniform",
         "_value": [
             0.0,
             0.5
         ]
     },
-    "model:batch_norm": {
+    "object_detector_model.batch_norm": {
         "_type": "choice",
         "_value": [
             null,
@@ -17,7 +17,7 @@
             }
         ]
     },
-    "model:conv_size": {
+    "object_detector_model.conv_size": {
         "_type": "choice",
         "_value": [
             2,
@@ -26,7 +26,7 @@
             7
         ]
     },
-    "model:hidden_size": {
+    "object_detector_model.hidden_size": {
         "_type": "choice",
         "_value": [
             124,
@@ -34,7 +34,7 @@
             1024
         ]
     },
-    "training:batch_size": {
+    "train_object_detector.batch_size": {
         "_type": "choice",
         "_value": [
             16,
@@ -44,14 +44,14 @@
             256
         ]
     },
-    "training:optimizer_opts.lr": {
+    "train_object_detector.optimizer_opts.lr": {
         "_type": "uniform",
         "_value": [
             1e-4,
             1e-1
         ]
     },
-    "training:optimizer_opts.weight_decay": {
+    "train_object_detector.optimizer_opts.weight_decay": {
         "_type": "uniform",
         "_value": [
             0.0001,

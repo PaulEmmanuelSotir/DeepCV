@@ -42,12 +42,12 @@ def get_object_detector_pipelines() -> Dict[str, Pipeline]:
     preprocess_node = node(deepcv.meta.data.preprocess.preprocess, name='preprocess',
                            inputs=dict(dataset_or_trainset='cifar10_train', testset='cifar10_test', params='params:cifar10_preprocessing'),
                            outputs='preprocessed_datasets')
-    create_model_node = node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs='model')
+    create_model_node = node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'params:object_detector_model'], outputs='model', tags=['model'])
     train_node = node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'params:train_object_detector'], outputs='ignite_state')
 
     # Hyperparameters search pipeline nodes
     nni_hp_search_sample_node = node(deepcv.meta.hyperparams.sample_nni_hp_space, name='sample_nni_hp_search_space',
-                                     inputs=dict(model_hps='params:object_detector_model', training_hps='params:train_object_detector'),
+                                     inputs=dict(yml_parameters='parameters'),
                                      outputs=['model_hps', 'training_hps'])
     create_model_node = node(create_model, name='create_object_detection_model', inputs=['preprocessed_datasets', 'model_hps'], outputs='model')
     train_node = node(train, name='train_object_detector', inputs=['preprocessed_datasets', 'model', 'training_hps'], outputs='ignite_state')
@@ -69,7 +69,7 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[deepcv.meta.h
         elif isinstance(dummy_target, torch.Tensor):
             model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
-    # Create model according to its achritecture specification and return it
+    # Create model according to its architecture specification and return it
     model = deepcv.meta.base_module.DeepcvModule(input_shape, model_params)
     return model
 

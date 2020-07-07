@@ -3,10 +3,11 @@
 """Construction of the master pipeline.
 """
 import operator
-from typing import Dict
+from pathlib import Path
 from functools import reduce
+from typing import Dict, Union, Any
 
-from kedro.pipeline import Pipeline
+from kedro.pipeline import Pipeline, node
 import kedro.pipeline.decorators as dec
 
 import deepcv.detection.object

@@ -16,8 +16,11 @@ from kedro.framework.hooks import hook_impl
 from kedro.framework.context import KedroContext
 
 import git
+import nni
 import mlflow
 import configparser
+
+import deepcv.meta.hyperparams
 
 __all__ = ['ProjectMainHooks']
 
@@ -66,11 +69,21 @@ class ProjectMainHooks:
         node_tags = functools.reduce(set.union, [n.tags for n in pipeline.nodes])
         if 'train' in run_params['tags'] or 'train' in node_tags:
             if mlflow.active_run() is None:
-                # Create MLFlow run in an experiment named after pipeline involved in training and log various pipeline/datasets informations to mlflow
+                # Create MLFlow run in an experiment named after pipeline involved in training and log various pipeline/datasets informations to mlflow. If we are running an NNI hp/nas search, mlflow experiment and run will be named after NNI experiment and trial ids for better consitency.
                 # TODO: find another way to name experiment as pipeline name is only available when running `kedro run --pipeline=<pipeline_name>` (e.g. special tag to node after which experiment is named)
-                pipeline_name = run_params['pipeline_name'] if run_params['pipeline_name'] else 'default'
-                mlflow.set_experiment(f'{self.project_ctx.project_name}_{pipeline_name}')
-                mlflow.start_run(run_name=f'{pipeline_name}_run_{run_params["run_id"]}')
+                if deepcv.meta.hyperparams.is_nni_run_standalone():  # 'STANDALONE' is NNI default experiment ID if python process haven't been started by NNI
+                    nni_experiment = nni.get_experiment_id()
+                    mlflow.set_experiment(nni_experiment)
+                    mlflow.start_run(run_name=nni.get_trial_id())
+                    mlflow.set_tag('nni_search', True)  # Flag indicating whether we are using NNI HP and/or NAS API (Hyperparameter and/or Neural Architecture search using NNI)
+                    mlflow.set_tag('nni_experiment_id', nni_experiment)
+                    mlflow.set_tag('nni_trial_id', nni.get_trial_id())
+                    mlflow.set_tag('nni_sequence_id', nni.get_sequence_id())
+                else:
+                    pipeline_name = run_params['pipeline_name'] if run_params['pipeline_name'] else 'default'
+                    mlflow.set_experiment(f'{self.project_ctx.project_name}_{pipeline_name}')
+                    mlflow.start_run(run_name=f'{pipeline_name}_run_{run_params["run_id"]}')
+                    mlflow.set_tag('nni_search', False)
 
             # Log basic informations about Kedro training pipeline to mlflow
             mlflow.set_tags({f'kedro_node_tag_{i}': tag for i, tag in enumerate(node_tags)})

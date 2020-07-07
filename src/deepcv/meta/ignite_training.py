@@ -9,7 +9,7 @@ import traceback
 import multiprocessing
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, Optional, Iterable, Tuple, Union, Type
+from typing import Any, Dict, Optional, Iterable, Tuple, Union, Type, Callable
 
 import torch
 import torch.nn as nn
@@ -28,6 +28,7 @@ import ignite.contrib.handlers
 
 import mlflow
 import kedro
+import nni
 
 import deepcv.utils
 import deepcv.meta.nn
@@ -73,7 +74,7 @@ class BackendConfig:
 TRAINING_EVENTS = {'TRAINING_INIT', 'AFTER_TRAINING_INIT', ...}
 
 
-def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None) -> ignite.engine.State:
+def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None, nni_compression_pruner: Optional[nni.compression.torch.Compressor] = None) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
@@ -84,10 +85,12 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         - backend_conf: Backend information defining distributed configuration (available GPUs, whether if CPU or GPU are used, distributed node count, ...), see ``deepcv.meta.ignite_training.BackendConfig`` class for more details.
         - metrics: Additional metrics dictionnary (loss is already included in metrics to be evaluated by default)
         - callbacks_handler: Callbacks Events handler. If not `None`, events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS` will be fired at various steps of training process, allowing to extend `deepcv.meta.ignite_training.train` functionnalities ("two-way" callbacks ).
+        - nni_compression_pruner: Optional argument for NNI compression support. If needed, provide NNI Compressor object used to prune or quantize model during training so that compressor will be notified at each epochs and steps. See NNI Compression docs. for more details: https://nni.readthedocs.io/en/latest/Compressor/QuickStart.html#apis-for-updating-fine-tuning-status.
     Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).
 
-    NOTE: `callbacks_handler` argument makes possible to register "two-way callbacks" for events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS`; Systematic "two-way callbacks" usage in training loop is a pattern well described in [FastAI blog post about DeepLearning API implementation choices for better flexibility and code stability using multiple API layers/levels and two-way callbacks](https://www.fast.ai/2020/02/13/fastai-A-Layered-API-for-Deep-Learning/#callback). "Two-way callback" usage at every steps of training procedure allows easier modification of training loop behavior without having to modify its code, which allows to implement new features while preserving code stability.  
+    NOTE: `callbacks_handler` argument makes possible to register "two-way callbacks" for events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS`; Systematic "two-way callbacks" usage in training loop is a pattern well described in [FastAI blog post about DeepLearning API implementation choices for better flexibility and code stability using multiple API layers/levels and two-way callbacks](https://www.fast.ai/2020/02/13/fastai-A-Layered-API-for-Deep-Learning/#callback). "Two-way callback" usage at every steps of training procedure allows easier modification of training loop behavior without having to modify its code, which allows to implement new features while preserving code stability.
     # TODO: add support for cross-validation
+    # TODO: call pruner.update_epoch(epoch) and pruner.step() during training loop for NNI compression/pruning support
     """
     TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'scheduler': ..., 'epochs': ..., 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
                             'validate_every_epochs': 1, 'save_every_iters': 1000, 'log_grads_every_iters': -1, 'log_progress_every_iters': 100, 'seed': None,
@@ -174,25 +177,35 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     valid_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
 
-    @ trainer.on(Events.EPOCH_STARTED)
+    @trainer.on(Events.EPOCH_STARTED)
     def _setup_dataloader_prefetching(engine: Engine):
-        @ engine.on(Events.GET_BATCH_STARTED(once=1))
+        @engine.on(Events.GET_BATCH_STARTED(once=1))
         def _after_stupid_ignite_dataloader_replacement(engine: Engine):
             # Setup data prefetch by patching dataloader(need at first iteration of ignite engine due to internal ignite dataloader handling which stupidly dangerously replaces dataloader(see `ignite.engine._update_dataloader` dumb function))
             if hp['prefetch_batches'] and engine.state.dataloader.pin_memory:
                 deepcv.meta.data.datasets.batch_prefetch_dataloader_patch(engine._dataloader_iter, device=backend_conf.device)
 
-    @ trainer.on(Events.EPOCH_STARTED(every=hp['validate_every_epochs']))
-    @ trainer.on(Events.COMPLETED)
+    @trainer.on(Events.EPOCH_STARTED(every=hp['validate_every_epochs']))
+    @trainer.on(Events.COMPLETED)
     def _run_validation(engine: Engine):
         if torch.cuda.is_available() and not backend_conf.is_cpu:
             torch.cuda.synchronize()
+
+        # Trainset evaluation
         train_state = train_evaluator.run(trainset)
-        for n, v in train_state.metrics.items():
-            mlflow.log_metric(f'train_{n}', v, step=trainer.state.epoch)
+        train_metrics = {f'train_{n}': float(v) for n, v in train_state.metrics.items()}
+        for n, v in train_metrics.items():
+            mlflow.log_metric(n, v, step=engine.state.epoch)
+
+        # Validset evaluation
         valid_state = valid_evaluator.run(validset_testset[0])
-        for n, v in valid_state.metrics.items():
-            mlflow.log_metric(f'valid_{n}', float(v), step=trainer.state.epoch)
+        valid_metrics = {f'valid_{n}': float(v) for n, v in valid_state.metrics.items()}
+        for n, v in valid_metrics.items():
+            mlflow.log_metric(n, v, step=engine.state.epoch)
+
+        if is_performing_nni_hp_search:
+            # TODO: make sure `valid_state.metrics` is ordered so that reported default metric to NNI is always the same
+            nni.report_intermediate_result({'default': valid_state.metrics.values()[0], **train_metrics, **valid_metrics})
 
     if backend_conf.rank == 0:
         event = Events.ITERATION_COMPLETED(every=hp['log_progress_every_iters'] if hp['log_progress_every_iters'] else None)
@@ -212,9 +225,20 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
             tb_logger.attach(trainer, log_handler=GradsHistHandler(model, tag=model.__class__.__name__), event_name=Events.ITERATION_COMPLETED(every=hp['log_grads_every_iters']))
 
     if hp['crash_iteration'] is not None and hp['crash_iteration'] >= 0:
-        @ trainer.on(Events.ITERATION_STARTED(once=hp['crash_iteration']))
+        @trainer.on(Events.ITERATION_STARTED(once=hp['crash_iteration']))
         def _(engine):
             raise Exception('STOP at iteration: {}'.format(engine.state.iteration))
+
+    if nni_compression_pruner is not None:
+        # Notify NNI compressor (pruning or quantization) for each epoch and eventually each steps/batch-iteration if need by provided Pruner/Quantizer (see NNI Compression Documentation for more details: https://nni.readthedocs.io/en/latest/Compressor/QuickStart.html#apis-for-updating-fine-tuning-status)
+        @trainer.on(Events.EPOCH_STARTED)
+        def _nni_compression_update_epoch(engine):
+            nni_compression_pruner.update_epoch(engine.state.epoch)
+
+        if getattr(nni_compression_pruner, 'step', None) is Callable:
+            @trainer.on(Events.ITERATION_ENDED)
+            def _nni_compression_batch_step(engine):
+                nni_compression_pruner.step()
 
     _resume_training(hp.get('resume_from'), to_save)
 

@@ -15,14 +15,16 @@ import functools
 import collections
 import multiprocessing
 from pathlib import Path
-from typing import Sequence, Iterable, Callable, Dict, Tuple, Any, Union, Optional, List
+from typing import Sequence, Iterable, Callable, Dict, Tuple, Any, Union, Optional, List, Type
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 import nni
+import mlflow
 import networkx
+import anyconfig
 import numpy as np
 from scipy.optimize import least_squares
 
@@ -288,6 +290,156 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
 
     logging.info(f'######## NNI Hyperparameter search trial NO#{nni.get_trial_id()} done! ########')
 
+# TODO: Make usage of nnictl tensorboard during HP searches? (may better handles tensorboard logs along with cleanner tb server starting and stoping)
+
+
+nni_single_shot_nas_algorithms = {'ENAS': nni.nas.pytorch.enas.EnasTrainer, 'DARTS': nni.nas.pytorch.darts.DartsTrainer, 'P-DARTS': nni.nas.pytorch.pdarts.PdartsTrainer,
+                                  'SPOS': nni.nas.pytorch.spos.SposTrainer, 'CDARTS': nni.nas.pytorch.cdarts.CdartsTrainer, 'ProxylessNAS': nni.nas.pytorch.proxylessnas.ProxylessNasTrainer, 'TestNAS': nni.nas.pytorch.textnas.TextNasTrainer}
+nni_classic_nas_algorithms = {'PPOTuner', 'RandomTuner'}
+
+
+def is_nni_run_standalone():
+    """ Simple helper function which returns whether NNI is in standalone trial run mode """
+    return nni.get_experiment_id() == r'STANDALONE' and nni.get_trial_id() == r'STANDALONE' and nni.get_sequence_id() == 0
+
+
+def nni_classic_neural_architecture_search_trial(model: torch.nn.Module, training_procedure: Callable[[Dict[str, Dataset], torch.nn.Module, Union[Dict[str, Any], Hyperparameters]], Any], *other_training_args, **other_training_kwargs):
+    """ Applies choices among NNI NAS mutable layers and inputs to model architecture and train it using provided training procedure.
+    NNI Classic NAS algorithm (either PPO Tuner or Random Tuner) samples a fixed architeture from mutable NN architecture search space.
+    NOTE: NNI NAS also supports various single shot neural architecture search algorithms for faster architecture optimization (performed in a single trial instead of one trial per evaluated/possible architecture).
+    If this is the first call to NNI Classic NAS API, NNI's `get_and_apply_next_architecture` will first generate JSON search space based on given `model` (NNI dry run mode, for more details, see https://nni.readthedocs.io/en/latest/NAS/NasReference.html#nni.nas.pytorch.classic_nas.get_and_apply_next_architecture)
+    Args:
+        - model: Model NAS search space to be sampled from and trained. Provided model should be a regular PyTorch module which contains at least one NNI mutable layer(s) and/or mutable input(s).
+        - training_procedure: Training procedure of your own used to run a trial. This function should take model to train as its first argument (sampled NN architecture from `model`).
+        - *other_training_args: Any positional arguments which should be provided to `training_procedure`, except for the model to train which is already provided by NNI Architecture sampling.
+        - **other_training_kwargs: Any other keyword arguments to be provided to `training_procedure`.
+    Returns the training results returned by given `training_procedure`. Note that `training_procedure` should at least return a dict-like object with a `best_valid_loss` entry which will be reported to NNI NAS API (float scalar indicating sampled architecture performances).
+    """
+    nni.nas.pytorch.classic_nas.get_and_apply_next_architecture(model)
+    results = training_procedure(model, *other_training_args, **other_training_kwargs)
+    nni.report_final_result(results['best_valid_loss'])
+    return results
+
+
+def nni_single_shot_neural_architecture_search(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, nas_mutator: nni.nas.pytorch.mutator.Mutator = None) -> Path:
+    """ Train model with provided NAS trainer in order to find out the best NN architecture by training a superset NN instead of performing multiple trainings/trials for each/many possible architectures.
+    Args:
+        - hp:
+        - model:
+        - loss:
+        - datasets:
+        - opt:
+        - backend_conf:
+        - metrics:
+        - nas_mutator:
+    Returns a pathlib.Path to a JSON file storing the best NN model architecture found by NNI Single-Shot NAS (JSON file storing mutable layer(s)/input(s) choices made in model search space in order to define best fixed architeture found; This file is also logged to mlflow if there is an active run)
+    # TODO: convert ignite metrics for NNI NAS trainer usage if needed
+    # TODO: reuse code from ignite training for output path and log final architecture as mlflow artifact
+    # TODO: Allow resuming an NNI single shot NAS experiment throught 'hp['resume_from']' parameter (if possible using NNI API?)
+    # TODO: look for possible hp scheduling and/or control/searches over training HPs like learning rate during single shot NAS (make sure this isn't already handled by underlying NAS algorithms)?
+    # TODO: add support for two-way callbacks using deepcv.utils.EventsHandler in a similar way than ignite_training.train (once ignite_training fully support it)
+    """
+
+    if mlflow.active_run() is not None:
+        mlflow_experiment_name = mlflow.get_experiment(mlflow.active_run().info.experiment_id).name
+        mlflow_run = mlflow.active_run().info.run_id
+        mlfow_user = mlflow.active_run().info.user_id
+        run_info_msg = f'(mlflow_experiment: "{mlflow_experiment_name}", mlflow_run: "{mlflow_run}", mlflow_user: "{mlflow_user}")'
+    else:
+        run_info_msg = '(No active MLFlow run nor experiment)'
+    logging.info(f'Starting Single-Shot Neural Architecture Search (NNI NAS API) training over NN architecture search space {run_info_msg}.')
+
+    TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'scheduler': ..., 'epochs': ..., 'output_path': Path.cwd(
+    ) / 'data/04_training/', 'log_output_dir_to_mlflow': True, 'log_progress_every_iters': 100, 'seed': None, 'resume_from': '', 'deterministic_cudnn': False}
+    hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
+    deepcv.utils.setup_cudnn(deterministic=hp['deterministic_cudnn'], seed=backend_conf.rank + hp['seed'])  # In distributed setup, we need to have different seed for each workers
+    device = backend_conf.device
+    model = model.to(device, non_blocking=True)
+    num_workers = max(1, (backend_conf.ncpu - 1) // (backend_conf.ngpus_current_node if backend_conf.ngpus_current_node > 0 and backend_conf.distributed else 1))
+    loss = loss.to(device)
+    optimizer = opt(model.parameters(), **hp['optimizer_opts'])
+    trainset, *validset_testset = *datasets
+    output_architecture_filepath = Path(hp['output_path']) / f'single_shot_nas_{}.json'
+
+    model_mutator = ...
+    nas_trainer_callbacks = []
+
+    trainer = nni.nas.pytorch.trainer.Trainer(model=model, mutator=model_mutator, loss=loss, metrics=metrics, optimizer=optimizer, num_epochs=hp['epochs'],
+                                              trainset=trainset, validset=validset_testset[0], batch_size=hp['batch_size'], num_workers=num_workers,
+                                              device=device, log_frequency=hp['log_progress_every_iters'], callbacks=nas_trainer_callbacks)
+
+    # Train model with provided NAS trainer in order to find out the best NN architecture by training a superset NN instead of performing multiple trainings/trials for each/many possible architectures
+    trainer.train()
+    logging.info(f'Single-shot NAS training done. Validating model architecture... {run_info_msg}')
+    trainer.validate()
+    logging.info(f'Saving obtained NN architecture from NNI Single-Shot NAS algorithm as a JSON file and logging it to mlfow if possible... {run_info_msg}')
+    trainer.export(file=output_architecture_filepath)
+    if mlflow.active_run() is not None:
+        mlflow.log_artifact(str(output_architecture_filepath))
+    logging.info(f'Single-Shot NAS trainning procedure completed. {run_info_msg}')
+
+
+def run_nni_hp_search(pipeline_name, model, backend_conf, hp):
+    # TODO: Fill NNI config
+    gen_nni_config(...)
+    # TODO: Handle NNI NAS Model (Generate HP Space from NNI mutable Layers/inputs in model(s))
+    # TODO: merge NNI HP Search space from user with generated NAS Search space
+    # TODO: Start NNI process with given pipeline as trial code with nnictl
+    cmd = f'nnictl ss-gen-space'
+
+
+def gen_nni_config(common_nni_config_file: Union[str, Path], kedro_pipeline: str, optimize_mode: str = 'minimize', hp_tunner: str = 'TPE', early_stopping: Optional[str] = 'Medianstop'):
+    """ Generates NNI configuration file in order to run an NNI Hyperparameters Search on given pipeline (new/full NNI config file will be save in the same directory as `common_nni_config_file` and will be named after its respective pipeline name).
+    Fills missing NNI configuration fields from defaults/commons NNI YAML config (won't change any existing values from given NNI YAML configuration but appends missing parameters with some defaults).
+    It means given NNI YAML config file should only contain parameters which are common to any NNI HP/NAS API usage in DeepCV and this function will populate other parameters according to a specific training pipeline.
+    NOTE: `gen_nni_config` wont overwrite any existing NNI configuration named after the same pipeline (i.e., if '{kedro_pipeline}_nni_config.yml' already exists, this function wont do anything).
+    .. See [NNI HP API documentation for more details on NNI YAML configuration file](https://nni.readthedocs.io/en/latest/hyperparameter_tune.html)
+    """
+    common_nni_config_file = Path(common_nni_config_file)
+    new_config_path = common_nni_config_file.parent / f'{kedro_pipeline}_nni_config.yml'
+
+    if not common_nni_config_file.exists():
+        msg = f'Error: Couldn\'t find provided NNI config defaults/template/commons at: "{common_nni_config_file}"'
+        logging.error(msg)
+        raise FileNotFoundError(msg)
+    if new_config_path.exists():
+        logging.warn(f'Warning: `deepcv.meta.hyperparams.gen_nni_config` called but YAML NNI config file already exists for this pipeline ("{kedro_pipeline}"), '
+                     f'"{new_config_path.name}" YAML config wont be modified, you may want to delete it before if you need to update it.\n'
+                     f'Also note that you can customize "{common_nni_config_file}" config if you need to change NNI common behavior for any NNI HP/NAS API usage in DeepCV (Hyperparameter searches and Neural Architecture Searches based on NNI); All NNI configuration are generated from this template/common/default YAML config. See also "deepcv.meta.hyperparams.gen_nni_config" function for more details about NNI config handling in DeepCV.')
+        return
+
+    nni_config = anyconfig.load(common_nni_config_file, ac_parser='yaml')
+
+    def _set_parameter_if_not_defined(nni_config, parameter_name: str, default_value: Any):
+        nni_config[parameter_name] = getattr(nni_config, parameter_name, default_value)
+
+    _set_parameter_if_not_defined(nni_config, 'authorName', __author__)
+    _set_parameter_if_not_defined(nni_config, 'experimentName', nni.get_experiment_id())
+    _set_parameter_if_not_defined(nni_config, 'searchSpacePath', common_nni_config_file / r'hp_search_spaces/{pipeline_name}_search_space.json')
+    _set_parameter_if_not_defined(nni_config, 'trialConcurrency', 1)
+    _set_parameter_if_not_defined(nni_config, 'maxTrialNum', -1)
+    _set_parameter_if_not_defined(nni_config, 'trainingServicePlatform', 'local')
+
+    trial_conf = nni_config['trial'] if 'trial' in nni_config else dict()
+    _set_parameter_if_not_defined(trial_conf, 'command', f'kedro run --pipeline={kedro_pipeline}')
+    _set_parameter_if_not_defined(trial_conf, 'codeDir', common_nni_config_file / r'../../src/deepcv')
+    _set_parameter_if_not_defined(trial_conf, 'gpuNum', 0)
+    nni_config['trial'] = trial_conf
+
+    tuner_conf = nni_config['tuner'] if 'tuner' in nni_config else dict()
+    _set_parameter_if_not_defined(tuner_conf, 'builtinTunerName', hp_tunner)
+    _set_parameter_if_not_defined(tuner_conf, 'classArgs', {'optimize_mode': optimize_mode})
+    nni_config['tuner'] = tuner_conf
+
+    if early_stopping is not None:
+        assesor_conf = nni_config['assessor'] if 'assessor' in nni_config else dict()
+        _set_parameter_if_not_defined(assesor_conf, 'builtinAssessorName', early_stopping)
+        _set_parameter_if_not_defined(assesor_conf, 'classArgs', {'optimize_mode': optimize_mode, 'start_step': 8})
+        nni_config['assessor'] = assesor_conf
+
+    # Save final NNI configuration as a new YAML file named after its respective training pipeline
+    anyconfig.dump(nni_config, new_config_path, ac_parser='yaml')
+
 
 def sample_nni_hp_space(model_hps: Union[Dict[str, Any], Hyperparameters], training_hps: Union[Dict[str, Any], Hyperparameters]) -> Tuple[Union[Dict[str, Any], Hyperparameters], Union[Dict[str, Any], Hyperparameters]]:
     """ Sample hyperparameters from NNI search space and merge those with given model definition and training procedure hyperparameters (which are probably from YAML config) """
@@ -300,7 +452,7 @@ def sample_nni_hp_space(model_hps: Union[Dict[str, Any], Hyperparameters], train
             raise ValueError('Error: NNI hyperparameter names should either start with `training:` or `model:` to specify whether parameter belongs to training procedure or model definition.')
 
         # Recursive call to dict.__getitem__, which allows to access nested parameters by using a `.` between namespaces
-        *hierachy, parameter_name = name.split('.')[1:]
+        * hierachy, parameter_name = name.split('.')[1:]
         functools.reduce(dict.__getitem__, [model_hps if is_model else training_hps, *hierachy])[parameter_name] = value
 
     return model_hps, training_hps

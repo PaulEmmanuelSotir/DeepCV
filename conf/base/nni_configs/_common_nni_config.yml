@@ -13,11 +13,11 @@ tuner:
   builtinTunerName: TPE # choices: "TPE", "Random", "Anneal", "Evolution"
   classArgs:
     optimize_mode: minimize # choices: "maximize", "minimize"
-assessor:
+assessor: # Early stopping policy (NNI supports MedianStop and Curvefitting (which only supports maximizing) builtin assessors/early-stopping)
   builtinAssessorName: Medianstop
   classArgs:
     optimize_mode: minimize
-    start_step: 5
+    start_step: 10
 trial:
   command: kedro run --pipeline=... # Determined by DeepCV when performing an HP search over a given pipeline
   codeDir: ../../src/deepcv # Filled automatically by DeepCV to deepcv module source directory

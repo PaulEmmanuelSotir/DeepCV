@@ -180,12 +180,12 @@ def multi_head_forward(x: torch.Tensor, heads: Iterable[torch.nn.Module], concat
     return torch.cat([head(x).unsqueeze(concat_dim) if new_dim else head(x) for head in heads], dim=concat_dim)
 
 
-def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 0) -> torch.Tensor:
+def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 1) -> torch.Tensor:
     """ Concatenates to feature maps a new channel which contains position information using Hilbert curve distance metric.
     This operation is close to CoordConv's except that we only append one channel of hilbert distance instead of N channels of euclidian coordinates (e.g. 2 channel for features from a 2D convolution).
     Args:
         - features: N-D Feature maps torch.Tensor with channel dimmension located at ``channel_dim``th dim and feature map dims located after channel's one. (Hilbert curve distance can be computed for any number, N, of feature map dimensions)
-        - channel_dim: Channel dimension index, 0 by default.
+        - channel_dim: Channel dimension index, 1 by default.
     # TODO: cache hilbert curve to avoid to reprocess it too often
     """
     assert features.dim() > 1, 'Invalid argument: `features` tensor should be at least of 2 dimensions.'

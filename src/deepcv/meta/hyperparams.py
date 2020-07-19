@@ -293,9 +293,9 @@ def hp_search(hp_space: Dict[str, Any], model: nn.Module, training_procedure: Ca
 # TODO: Make usage of nnictl tensorboard during HP searches? (may better handles tensorboard logs along with cleanner tb server starting and stoping)
 
 
-nni_single_shot_nas_algorithms = {'ENAS': nni.nas.pytorch.enas.EnasTrainer, 'DARTS': nni.nas.pytorch.darts.DartsTrainer, 'P-DARTS': nni.nas.pytorch.pdarts.PdartsTrainer,
-                                  'SPOS': nni.nas.pytorch.spos.SposTrainer, 'CDARTS': nni.nas.pytorch.cdarts.CdartsTrainer, 'ProxylessNAS': nni.nas.pytorch.proxylessnas.ProxylessNasTrainer, 'TestNAS': nni.nas.pytorch.textnas.TextNasTrainer}
-nni_classic_nas_algorithms = {'PPOTuner', 'RandomTuner'}
+NNI_SINGLE_SHOT_NAS_ALGORITHMS = {'ENAS': nni.nas.pytorch.enas.EnasTrainer, 'DARTS': nni.nas.pytorch.darts.DartsTrainer, 'P-DARTS': nni.nas.pytorch.pdarts.PdartsTrainer, 'SPOS': nni.nas.pytorch.spos.SposTrainer,
+                                  'CDARTS': nni.nas.pytorch.cdarts.CdartsTrainer, 'ProxylessNAS': nni.nas.pytorch.proxylessnas.ProxylessNasTrainer, 'TestNAS': nni.nas.pytorch.textnas.TextNasTrainer}
+NNI_CLASSIC_NAS_ALGORITHMS = {'PPOTuner', 'RandomTuner'}
 
 
 def is_nni_run_standalone():
@@ -339,18 +339,20 @@ def nni_single_shot_neural_architecture_search(hp: Union[deepcv.meta.hyperparams
     # TODO: look for possible hp scheduling and/or control/searches over training HPs like learning rate during single shot NAS (make sure this isn't already handled by underlying NAS algorithms)?
     # TODO: add support for two-way callbacks using deepcv.utils.EventsHandler in a similar way than ignite_training.train (once ignite_training fully support it)
     """
+    if is_nni_run_standalone():
+        raise RuntimeError('Error: NNI cannot be run in standalone mode in "deepcv.meta.hyperparams.nni_single_shot_neural_architecture_search"')
+    nni_experiment_id, nni_trial_id = nni.get_experiment_id(), nni.get_trial_id()
 
     if mlflow.active_run() is not None:
         mlflow_experiment_name = mlflow.get_experiment(mlflow.active_run().info.experiment_id).name
-        mlflow_run = mlflow.active_run().info.run_id
-        mlfow_user = mlflow.active_run().info.user_id
-        run_info_msg = f'(mlflow_experiment: "{mlflow_experiment_name}", mlflow_run: "{mlflow_run}", mlflow_user: "{mlflow_user}")'
+        run_info_msg = f'(MLFlow_experiment: "{mlflow_experiment_name}", MLFlow_run_id: "{mlflow.active_run().info.run_id}", MLFlow_user: "{mlflow.active_run().info.user_id}", '
     else:
-        run_info_msg = '(No active MLFlow run nor experiment)'
+        run_info_msg = f'(No active MLFlow Run, '
+    run_info_msg += f'NNI_Experiment_ID: "{nni_experiment_id}", NNI_Trial: "{nni_trial_id}")'
     logging.info(f'Starting Single-Shot Neural Architecture Search (NNI NAS API) training over NN architecture search space {run_info_msg}.')
 
-    TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'scheduler': ..., 'epochs': ..., 'output_path': Path.cwd(
-    ) / 'data/04_training/', 'log_output_dir_to_mlflow': True, 'log_progress_every_iters': 100, 'seed': None, 'resume_from': '', 'deterministic_cudnn': False}
+    TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'epochs': ..., 'nni_single_shot_nas_algorithm': ..., 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
+                            'log_progress_every_iters': 100, 'seed': None, 'resume_from': '', 'deterministic_cudnn': False}
     hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
     deepcv.utils.setup_cudnn(deterministic=hp['deterministic_cudnn'], seed=backend_conf.rank + hp['seed'])  # In distributed setup, we need to have different seed for each workers
     device = backend_conf.device
@@ -358,15 +360,16 @@ def nni_single_shot_neural_architecture_search(hp: Union[deepcv.meta.hyperparams
     num_workers = max(1, (backend_conf.ncpu - 1) // (backend_conf.ngpus_current_node if backend_conf.ngpus_current_node > 0 and backend_conf.distributed else 1))
     loss = loss.to(device)
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
-    trainset, *validset_testset = *datasets
-    output_architecture_filepath = Path(hp['output_path']) / f'single_shot_nas_{}.json'
+    trainset, *validset_testset = datasets
+    output_architecture_filepath = Path(hp['output_path']) / f'single_shot_nas-exp_id_{nni_experiment_id}-trial_id_{nni_trial_id}.json'
 
-    model_mutator = ...
+    model_mutator = ...  # TODO: Allow non default mutators from YAML along with optional/additional keyword arguments to NAS trainer
     nas_trainer_callbacks = []
 
-    trainer = nni.nas.pytorch.trainer.Trainer(model=model, mutator=model_mutator, loss=loss, metrics=metrics, optimizer=optimizer, num_epochs=hp['epochs'],
-                                              trainset=trainset, validset=validset_testset[0], batch_size=hp['batch_size'], num_workers=num_workers,
-                                              device=device, log_frequency=hp['log_progress_every_iters'], callbacks=nas_trainer_callbacks)
+    train_type = NNI_SINGLE_SHOT_NAS_ALGORITHMS[hp['nni_single_shot_nas_algorithm']]
+    trainer = train_type(model=model, mutator=model_mutator, loss=loss, metrics=metrics, optimizer=optimizer, num_epochs=hp['epochs'],
+                         trainset=trainset, validset=validset_testset[0], batch_size=hp['batch_size'], num_workers=num_workers,
+                         device=device, log_frequency=hp['log_progress_every_iters'], callbacks=nas_trainer_callbacks)
 
     # Train model with provided NAS trainer in order to find out the best NN architecture by training a superset NN instead of performing multiple trainings/trials for each/many possible architectures
     trainer.train()

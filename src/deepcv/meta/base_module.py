@@ -36,6 +36,8 @@ __author__ = 'Paul-Emmanuel Sotir'
 MODULE_CREATOR_CALLBACK_RETURN_T = Callable[[torch.Tensor, Dict[str, torch.Tensor]], torch.Tensor]
 REDUCTION_FUNCTION_T = Callable[[List[torch.Tensor, 'dim'], Union[torch.Tensor, List[torch.Tensor]]]]
 TENSOR_REDUCTION_FUNCTIONS = {'mean': torch.mean, 'sum': torch.sum, 'concat': torch.cat, 'none': lambda l, dim: l}
+FROM_NNI_MUTABLE_INPUT_YAML_FIELD = '_from_nni_mutable_input'
+FROM_YAML_FIELD = '_from'
 
 
 def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size]) -> torch.nn.Module:
@@ -185,7 +187,7 @@ class DeepcvModule(torch.nn.Module):
                     # Forward pass through sub-module
                     x = subm(x)
 
-                # If submodule is referenced by another module by a '_from' entry in its parameters, then we store its output features for later use (e.g. for a residual link)
+                # If submodule is referenced by another module by a FROM_YAML_FIELD entry in its parameters, then we store its output features for later use (e.g. for a residual link)
                 if name in sum(self._submodule_references.values(), tuple()):
                     referenced_output_features[name] = x
                 return x
@@ -218,8 +220,8 @@ class DeepcvModule(torch.nn.Module):
         self._submodules_capacities = list()
         self._forward_callbacks = dict()
         self._submodules = dict()
-        self._submodule_references = dict()  # Dict which associates referenced sub-modules name/label with a set of their respective referrer sub-modules name/label
-        self._reduction_functions = dict()  # Stores reduction functions for submodules creators which references tensors using '_from' (or '_from_nni_mutable_input') (only applicable to submodules based on forward callbacks, not 'torch.nn.Module')
+        self._submodule_references = dict()  # Dict which associates referenced sub-modules name/label with a set of their respective referrer sub-modules name/label (referenced tensor(s) using FROM_YAML_FIELD or referenced tensors candidate(s)) using FROM_NNI_MUTABLE_INPUT_YAML_FIELD)
+        self._reduction_functions = dict()  # Stores reduction functions for submodules creators which references tensors using FROM_YAML_FIELD (or FROM_NNI_MUTABLE_INPUT_YAML_FIELD) (only applicable to submodules based on forward callbacks, not 'torch.nn.Module')
         self._mutable_inputs = dict()  # Stores any NNI NAS Mutable InputChoice associated with its respective submodule name (only applicable to submodules based on forward callbacks with `_from_nni_mutable_input` parameter specified, not 'torch.nn.Module')
 
         if submodule_creators is None:
@@ -294,16 +296,21 @@ class DeepcvModule(torch.nn.Module):
                     self._forward_callbacks[submodule_name] = module_or_callback
                     submodules.append((submodule_name, None))
 
-                    # '_from_nni_mutable_input' occurences in `params` are handled like '_from' entries: nni_mutables.InputChoice(references) + optional parameters 'n_chosen' (None by default, should be an integer between 1 and number of candidates) and 'reduction'
-                    if '_from_nni_mutable_input' in params:
+                    # FROM_NNI_MUTABLE_INPUT_YAML_FIELD occurences in `params` are handled like FROM_YAML_FIELD entries: nni_mutables.InputChoice(references) + optional parameters 'n_chosen' (None by default, should be an integer between 1 and number of candidates) and 'reduction'
+                    if FROM_NNI_MUTABLE_INPUT_YAML_FIELD in params:
                         n_chosen = params['n_chosen'] if '_n_chosen' in params else None
-                        n_candidates = len(params['_from_nni_mutable_input'])
+                        n_candidates = len(params[FROM_NNI_MUTABLE_INPUT_YAML_FIELD])
                         self._mutable_inputs[submodule_name] = nni_mutables.InputChoice(n_candidates=n_candidates, n_chosen=n_chosen, key=submodule_name, reduction='none')
 
+                        if FROM_YAML_FIELD in params:
+                            raise ValueError(f'Error: Cant both specify "{FROM_YAML_FIELD}" and "{FROM_NNI_MUTABLE_INPUT_YAML_FIELD}" in the same submodule '
+                                             '(You should either choose to use NNI NAS Mutable InputChoice candidate reference(s) or regular tensor reference(s)).')
+
                     # Store any sub-module name/label references (used to store referenced submodule's output features during model's forward pass in order to reuse these features later in a forward callback (e.g. for residual links))
-                    if '_from' in params:
+                    if FROM_YAML_FIELD in params or FROM_NNI_MUTABLE_INPUT_YAML_FIELD in params:
                         # Allow multiple referenced sub-module(s) (`_from` entry can either be a list/tuple of referenced sub-modules name/label or a single sub-module name/label)
-                        self._submodule_references[submodule_name] = tuple((params['_from'],)) if issubclass(type(params['_from']), str) else tuple(params['_from'])
+                        tensor_references = params[FROM_YAML_FIELD] if FROM_YAML_FIELD in params else params[FROM_NNI_MUTABLE_INPUT_YAML_FIELD]
+                        self._submodule_references[submodule_name] = tuple((tensor_references,)) if issubclass(type(tensor_references), str) else tuple(tensor_references)
 
                         if '_reduction' in params:
                             if params['_reduction'] not in TENSOR_REDUCTION_FUNCTIONS:

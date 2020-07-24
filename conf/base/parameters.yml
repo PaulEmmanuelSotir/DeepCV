@@ -11,56 +11,63 @@ models:
         - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
         - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
         - conv2d: { kernel_size: [5, 5], out_channels: 4, padding: 2 }
-        - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2] }]
+        - avg_pooling: ["pooling1", { kernel_size: [2, 2], stride: [2, 2] }]
         - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
         - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
         - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
-        - dense_link: { _from: pooling1, allow_scaling: true }
+        - dense_link: { _from: "pooling1", allow_scaling: true }
+  - siamese_branch_1: &siamese_branch_1
+      - conv2d: ["conv1", { kernel_size: [3, 3], out_channels: 16, padding: 1 }]
+      - conv2d: ["conv2", { kernel_size: [3, 3], out_channels: 16, padding: 1 }]
+      - conv2d: ["conv3", { kernel_size: [3, 3], out_channels: 16, padding: 1 }]
   - lager_backbone: &lager_backbone
       act_fn: !py!torch.nn.ReLU
       architecture:
-        - avg_pooling: [pooling1, { kernel_size: [2, 2], stride: [2, 2] }]
+        - avg_pooling: ["pooling1", { kernel_size: [2, 2], stride: [2, 2] }]
         - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
         - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
         - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
-        - dense_link: [dense1, { _from: pooling1, allow_scaling: true }]
-        - ['mutable_layer', _nni_mutable_layer]: # Makes usage of NNI NAS API's 'MutableLayer' in order to specify multiple submodules alternatives (model architecture can then be sampled in space defined by mutable layers and inputs)
-          - ['mutable_layer_candidate_1', conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }]
-          - ['mutable_layer_candidate_1', conv2d: { kernel_size: [5, 5], out_channels: 16, padding: 2 }]
-          - conv2d: { kernel_size: [7, 7], out_channels: 8, padding: 3 }
+        - dense_link: ["dense1", { _from: "pooling1", allow_scaling: true }]
+        - _nni_mutable_layer:
+          # Makes usage of NNI NAS API's 'MutableLayer' in order to specify multiple submodules alternatives (model architecture can then be sampled in space defined by mutable layers and inputs)
+          _name: "mutable_layer_1"
+          _candidates:
+            - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+            - conv2d: { kernel_size: [5, 5], out_channels: 16, padding: 2 }
+            - conv2d: { kernel_size: [7, 7], out_channels: 8, padding: 3 }
         - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-        - avg_pooling: [pooling2, { kernel_size: [2, 2], stride: [2, 2] }]
-        - conv2d: [conv1, { kernel_size: [3, 3], out_channels: 16, padding: 1 }]
+        - avg_pooling: ["pooling2", { kernel_size: [2, 2], stride: [2, 2] }]
+        - conv2d: ["conv1", { kernel_size: [3, 3], out_channels: 16, padding: 1 }]
         - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-        - residual_link: { _from_nni_mutable_input: [pooling2, conv1], _reduction: 'mean'}
+        - residual_link: { _from_nni_mutable_input: ["pooling2", "conv1"], _reduction: "mean" }
         - avg_pooling: { kernel_size: [2, 2], stride: [2, 2] }
         - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
         - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
+        - _new_branch_from_tensor: { _from: "pooling2" } # Similar to dense links but will only use referenced submodule(s) output, allowing new siamese/parrallel NN branches to be defined (wont reuse previous submodule output features)
         - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
         - conv2d: { kernel_size: [3, 3], out_channels: 32, padding: 1 }
-        - dense_link: { _from: [pooling2, conv1], allow_scaling: true }
+        - dense_link: { _from: ["pooling2", "conv1"], allow_scaling: true }
         - conv2d: { kernel_size: [3, 3], out_channels: 64, padding: 1 }
-
-    - object_detector:
-        act_fn: !py!torch.nn.LeakyReLU
-        dropout_prob: 0.0
-        batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
-        architecture:
-          - _deepcvmodule: *basic_backbone
-          #- _deepcvmodule: *lager_backbone
-          - !py!deepcv.meta.nn.Flatten
-          - fully_connected:
-              { act_fn: !py!torch.nn.Sigmoid , dropout_prob: 0., batch_norm: null }
-    - keypoints_encoder:
-        act_fn: !py!torch.nn.ReLU
-        batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
-        architecture:
-          - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
-    - keypoints_decoder:
-        act_fn: !py!torch.nn.ReLU
-        batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
-        architecture:
-          - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+        - dense_link: { _reduction: "mean", _from: ["pooling2", "siamese_2_conv1"] }
+  - object_detector:
+      act_fn: !py!torch.nn.LeakyReLU
+      dropout_prob: 0.0
+      batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
+      architecture:
+        - _nested_deepcvmodule: *basic_backbone
+        #- _nested_deepcvmodule: *lager_backbone
+        - !py!deepcv.meta.nn.Flatten
+        - fully_connected: { act_fn: !py!torch.nn.Sigmoid , dropout_prob: 0., batch_norm: null }
+  - keypoints_encoder:
+      act_fn: !py!torch.nn.ReLU
+      batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
+      architecture:
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
+  - keypoints_decoder:
+      act_fn: !py!torch.nn.ReLU
+      batch_norm: { affine: true, eps: 1e-05, momentum: 0.07359778246238029 }
+      architecture:
+        - conv2d: { kernel_size: [3, 3], out_channels: 16, padding: 1 }
 
 #_______________________________________________________ TRAINING _______________________________________________________#
 
@@ -85,8 +92,7 @@ basic_training_params: &basic_ignite_training
   deterministic_cudnn: true # torch.backends.cudnn.deterministic
   prefetch_batches: true
   # TODO: Probably should put NNI NAS/HP-specific parameters in another dict (aimed at another pipeline?)
-  nni_single_shot_nas_algorithm: 'ENAS' # Shloud either be 'ENAS' or 'DART' (or eventually 'P-DARTS', 'SPOS', 'CDARTS', 'ProxylessNAS', or 'TextNAS' if relevant and supported by NNI for your model/task) one-shot NAS algorithm (See https://nni.readthedocs.io/en/latest/NAS/Overview.html#supported-one-shot-nas-algorithms for more details on NNI NAS algorithms). If undefined or `null`, NNI NAS Mutable layers and inputs used in trained model will be fixed to their first choice (i.e. fixed architecture; no NAS space)
-
+  nni_single_shot_nas_algorithm: "ENAS" # Shloud either be 'ENAS' or 'DART' (or eventually 'P-DARTS', 'SPOS', 'CDARTS', 'ProxylessNAS', or 'TextNAS' if relevant and supported by NNI for your model/task) one-shot NAS algorithm (See https://nni.readthedocs.io/en/latest/NAS/Overview.html#supported-one-shot-nas-algorithms for more details on NNI NAS algorithms). If undefined or `null`, NNI NAS Mutable layers and inputs used in trained model will be fixed to their first choice (i.e. fixed architecture; no NAS space)
 
 train_object_detector:
   <<: *basic_ignite_training
@@ -158,15 +164,13 @@ mnist_preprocessing:
   <<: *BASIC_PREPROCESSING_PROCEDURE
   transforms:
     - !py!torchvision.transforms.ToTensor
-    - !py!torchvision.transforms.Normalize "":
-        { mean: [0.15, 0.15, 0.15], std: [0.15, 0.15, 0.15] }
+    - !py!torchvision.transforms.Normalize "": { mean: [0.15, 0.15, 0.15], std: [0.15, 0.15, 0.15] }
 
 cifar10_preprocessing: &CIFAR10_PREPROCESSING
   <<: *BASIC_PREPROCESSING_PROCEDURE
   transforms:
     - !py!torchvision.transforms.ToTensor
-    - !py!torchvision.transforms.Normalize "":
-        { mean: [0.491, 0.482, 0.447], std: [0.247, 0.243, 0.261] }
+    - !py!torchvision.transforms.Normalize "": { mean: [0.491, 0.482, 0.447], std: [0.247, 0.243, 0.261] }
 
 cifar100_preprocessing:
   <<: *CIFAR10_PREPROCESSING
@@ -175,6 +179,5 @@ imagenet_prerocessing:
   <<: *BASIC_PREPROCESSING_PROCEDURE
   transforms:
     - !py!torchvision.transforms.ToTensor
-    - !py!torchvision.transforms.Normalize "":
-        { mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225] }
+    - !py!torchvision.transforms.Normalize "": { mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225] }
 #_____________________________________________________________________________________________________________________________#

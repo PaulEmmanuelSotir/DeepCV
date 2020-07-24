@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional, Iterable, Tuple, Union, Type, Callable
 
 import torch
-import torch.nn as nn
+import torch.nn
 import torch.distributed as dist
 from torch.utils.data import DataLoader, Dataset
 
@@ -74,11 +74,11 @@ class BackendConfig:
 TRAINING_EVENTS = {'TRAINING_INIT', 'AFTER_TRAINING_INIT', ...}
 
 
-def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: nn.Module, loss: nn.modules.loss._Loss, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None, nni_compression_pruner: Optional[nni.compression.torch.Compressor] = None) -> ignite.engine.State:
+def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: torch.nn.Module, loss: Union[torch.nn.modules.loss._Loss, Callable[['pred', 'target'], torch.Tensor]], datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None, nni_compression_pruner: Optional[nni.compression.torch.Compressor] = None) -> ignite.engine.State:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
-        - model: Pytorch ``nn.Module`` to train
+        - model: Pytorch ``torch.nn.Module`` to train
         - loss: Loss module to be used
         - datasets: Tuple of pytorch Dataset giving access to trainset, validset and an eventual testset
         - opt: Optimizer type to be used for gradient descent
@@ -123,7 +123,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         else:
             output_path = Path(hp['output_path']) / f'{now}-{backend_conf}'
 
-    loss = loss.to(device)
+    loss = loss.to(device) if isinstance(loss, torch.nn.Module) else loss
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
     args_to_eval = hp['scheduler']['eval_args'] if 'eval_args' in hp['scheduler'] else {}
     scheduler = hp['scheduler']['type'](optimizer=optimizer, **{n: eval(v, {'hp': hp, 'iterations': len(trainset)})
@@ -262,7 +262,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
             # shutil.rmtree(output_path)
 
 
-def _setup_distributed_training(device, backend_conf: BackendConfig, model: nn.Module, batch_shape: torch.Size) -> nn.Module:
+def _setup_distributed_training(device, backend_conf: BackendConfig, model: torch.nn.Module, batch_shape: torch.Size) -> torch.nn.Module:
     if backend_conf.distributed:
         # Setup distributed training with `torch.distributed`
         dist.init_process_group(backend_conf.dist_backend, init_method=backend_conf.dist_url)
@@ -290,7 +290,7 @@ if __name__ == '__main__':
 
 # TODO: remove this deprecated code and use ignite training loop instead
 
-# def eval_loop(model: nn.Module, loss: torch.nn.modules.loss._Loss, eval_dataloader: DataLoader):
+# def eval_loop(model: torch.nn.Module, loss: torch.nn.modules.loss._Loss, eval_dataloader: DataLoader):
 #     yield train_eval_loop(model, loss, eval_dataloader)
 
 
@@ -338,7 +338,7 @@ if __name__ == '__main__':
     return best_train_loss, best_valid_loss, best_run_epoch
 
 
-def evaluate(epoch: int, model: nn.Module, validset: DataLoader, bce_loss_scale: float, best_valid_loss: float, pbar: bool = True) -> float:
+def evaluate(epoch: int, model: torch.nn.Module, validset: DataLoader, bce_loss_scale: float, best_valid_loss: float, pbar: bool = True) -> float:
     model.eval()
     with torch.no_grad():
         bb_metric, pos_metric = torch.nn.MSELoss(), torch.nn.BCEWithLogitsLoss()
@@ -359,7 +359,7 @@ def evaluate(epoch: int, model: nn.Module, validset: DataLoader, bce_loss_scale:
 
 # loss
 # metrics = {'mse': , }
-# ToSave = TypedDict('Savable', {'model': nn.Module, 'optimizer': Optional[Optimizer], 'scheduler': Optional[_LRScheduler], 'epoch': int})
+# ToSave = TypedDict('Savable', {'model': torch.nn.Module, 'optimizer': Optional[Optimizer], 'scheduler': Optional[_LRScheduler], 'epoch': int})
 
 # class Metrics(Generic[T]):
 
@@ -379,7 +379,7 @@ def evaluate(epoch: int, model: nn.Module, validset: DataLoader, bce_loss_scale:
 #         print(f'VALID_LOSS={metrics.valid_loss}')
 
 
-# def train_eval_loop(epochs : int, model: nn.Module, loss: torch.nn.modules.loss._Loss, validset: DataLoader, trainset: Optional[DataLoader] = None, optimizer: Optional[Optimizer] = None,
+# def train_eval_loop(epochs : int, model: torch.nn.Module, loss: torch.nn.modules.loss._Loss, validset: DataLoader, trainset: Optional[DataLoader] = None, optimizer: Optional[Optimizer] = None,
 #                     scheduler: Optional[_LRScheduler] = None, custom_metrics: Optional[Metrics] = None, summary: SummaryWriter = None, device: torch.device = get_device(), disable_progress_bar: bool = False):
 
 #     train = optimizer is not None and scheduler is not None and trainset is not None

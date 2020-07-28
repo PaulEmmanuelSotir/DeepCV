@@ -6,9 +6,9 @@
 import uuid
 import logging
 import inspect
+import functools
 import threading
 import collections
-import functools as fn
 from pathlib import Path
 from typing import Optional, Type, Union, Iterable, Dict, Any, Tuple, Callable
 
@@ -33,9 +33,15 @@ TORCHVISION_DATASETS = {identifier: value for identifier, value in torchvision.d
 
 
 class PytorchDataset(kedro.io.AbstractDataSet):
-    """ Kedro dataset which warps a PyTorch dataset ('torch.utils.data.Dataset'). PyTorch Dataset is only instanciated when `PytorchDataset._load` function is called. """
+    """ Kedro dataset which warps a PyTorch dataset (`torch.utils.data.Dataset`). PyTorch Dataset is only instanciated when `PytorchDataset._load` function is called. """
 
     def __init__(self, torch_dataset: Union[str, Type[Dataset]], **dataset_kwargs):
+        """ Instanciates a `PytorchDataset` Kedro dataset which stores underlying PyTorch dataset (`torch.utils.data.Dataset`) type and arguments needed to instanciate it.
+        NOTE: Underlying PyTorch dataset won't be instanciated until `PytorchDataset.load` method is called to avoid unescessary memory usage but given keyword arguments are checked in `PytorchDataset.__init__` to make sure they are valid and can be bound to underlying PyTorch dataset's `__init__` constructor (using `inspect.signature` tooling)
+        Args:
+            - torch_dataset: PyTorch dataset type. Can either be a Type inheriting from `torch.utils.data.Dataset` or a string identifier which will be parsed by `deepcv.utils.get_by_identifier` in order to retreive specified PyTorch dataset type (It is adviced to use absolute module names when specifying dataset type in a string identifier)
+            - dataset_kwargs: Keyword arguments needed to instantiate Pytorch dataset (passed to `__init__` of given PyTorch dataset type).
+        """
         super(PytorchDataset, self).__init__()
         self.dataset_kwargs = dataset_kwargs
 
@@ -58,6 +64,7 @@ class PytorchDataset(kedro.io.AbstractDataSet):
         _bound_args = inspect.signature(self.pytorch_dataset.__init__).bind(**self.dataset_kwargs, self=self.pytorch_dataset)
 
     def _load(self) -> Dataset:
+        """ Instanciate uderlying PyTorch dataset (`torch.utils.data.Dataset`) and return it """
         return self.pytorch_dataset(**self.dataset_kwargs)
 
     def _save(self): pass
@@ -71,44 +78,42 @@ class PytorchDataset(kedro.io.AbstractDataSet):
         raise NotImplementedError
 
 
-def batch_prefetch_dataloader_patch(dataloader__iter__: Callable[[DataLoader], Any], device: Union[None, str, torch.device] = torch.cuda.current_device()) -> DataLoader:
-    """ Monkey-patch given DataLoader's `__iter__` function to prefetche next data batch to device memory during compute.
-    NOTE: In order to data batches being prefetched to GPU memory, set `pin_memory` to True and provide a `device` which is not 'cpu' nor `None`.
-    NOTE: You won't need to move tensors batches from given dataloader to GPU device memory anymore; i.e., wont need to call `x.to(device)`
+def dataloader_prefetch_batches(dataloader: DataLoader, device: Union[None, str, torch.device] = torch.cuda.current_device()) -> DataLoader:
+    """ Monkey-patch `__iter__` method of given `torch.utils.data.DataLoader` in order to prefetch next data batch to device memory during computing/training on previous batch.
+    NOTE: In order to data batches being prefetched (to GPU memory), set `pin_memory` to `True` when instanciating DataLoader and provide a `device` which is not 'cpu' nor `None` (e.g. 'gpu').
+    NOTE: You won't need to move tensors batches from given dataloader to GPU device memory anymore; i.e., wont need to call `x.to(device)` before computing/training ops.
     Args:
-        - dataloader__iter__: Dataloader's `__iter__` function which will prefetch batches (`dataloader.__iter__().__next__` will be monkey patched)
+        - dataloader: DataLoader which will be patched in order to prefetch batches (`dataloader.__iter__().__next__` will be monkey-patched)
         - device: Torch device to which data batches are prefetched. If `None` or 'cpu', then batch prefetching is disabled and no changes are made to `dataloader`
-    Returns given dataloader's `__iter__` patched function so that data batches are prefetched
+    Returns given `dataloader` which will be patched in order to prefetch batches if `device` isn't `None` nor 'cpu' and if `dataloader.pin_memory` is `True` (otherwise returns given DataLoader without any modifications)
     """
-    # if not dataloader.pin_memory:
-    #     logging.warn(f'Warning: Dataloader wont prefetch data batches: set `pin_memory=True` in your DataLoader when instanciating `{type(dataloader).__name__}`')
-    #     return dataloader
-    if device is None or device == 'cpu' or (isinstance(device, torch.device) and device.type == 'cpu'):
-        logging.warn(f'Warning: Dataloader wont prefetch data batches: given `device` is `"cpu"` or `None`.')
-        return dataloader__iter__
+    if not dataloader.pin_memory:
+        logging.warn(f'Warning: DataLoader wont prefetch data batches: set `pin_memory=True` in your DataLoader when instanciating `{type(dataloader).__name__}`')
+    elif device is None or device == 'cpu' or (isinstance(device, torch.device) and device.type == 'cpu'):
+        logging.warn(f'Warning: DataLoader wont prefetch data batches as given `device` argument is `{device}` when prefetching is aimed at GPU(s).')
+    else:
+        def __iter__patch(self: DataLoader, *args, **kwargs):
+            iterator = self.__iter__(*args, **kwargs)
+            iterator._prefetched_batch = iterator.__next__().to(device=self._prefetch_device, non_blocking=True)
 
-    def __iter__patch(self):
-        iterator = dataloader__iter__(self)
-        iterator._prefetched_batch = iterator.__next__().to(device=__iter__patch.prefetch_device, non_blocking=True)
-
-        def _warp__next__(next_fn):
-            def __next__patch(iterator_self: Iterable) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+            def __next__patch(iterator_self: Iterable, dl: DataLoader) -> Any:
                 if isinstance(iterator_self._prefetched_batch, StopIteration):
                     raise iterator_self._prefetched_batch
                 else:
                     batch = iterator_self._prefetched_batch
                     try:
-                        iterator_self._prefetched_batch = next_fn(iterator_self).to(device=__iter__patch.prefetch_device, non_blocking=True)
+                        iterator_self._prefetched_batch = iterator_self.__next__().to(device=dl._prefetch_device, non_blocking=True)
                     except StopIteration as e:
                         # Catch `StopIteration` to raise it later (during following call to `__next__`)
-                        iterator._prefetched_batch = e
+                        iterator_self._prefetched_batch = e
                     return batch
-            return __next__patch
 
-        iterator.__next__ = _warp__next__(iterator.__next__)
-        return iterator
-    __iter__patch.prefetch_device = device
-    return __iter__patch
+            iterator.__next__ = functools.partial(__next__patch, dl=self)
+            return iterator
+
+        dataloader._prefetch_device = device
+        dataloader.__iter__ = __iter__patch
+    return dataloader
 
 
 def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int], **dataloader_kwargs) -> DataLoader:

@@ -4,37 +4,38 @@ channels:
         - scitools
         - conda-forge
         - pytorch
+        - Esri # Channel used for pillow-simd conda package
 dependencies:
-        - python=3.7
+        - python=3.8.*
         - pip
         - setuptools
         - autopep8
-        - pylint=2.4.* # Python linter
-        - pytest=5.4.* # Python unit testing framework.
-        - coverage=5.0.* # Tool for measuring code testing coverage of Python
-        - joblib=0.14.* # Used for transparent disk-caching of functions and lazy re-evaluation with `joblib.Memory`
-        - matplotlib=3.2.* # Basic data plotting and visualization library
-        - pandas=1.0.* # Fast, powerful, flexible and easy to use open source data analysis and manipulation tool (built around `pandas.Dataframe` data container, like PyTorch is built around 'torch.Tensor' or numpy reling on 'numpy.ndarray')
-        - scikit-learn>=0.22 # Machine learning toolkit (very common depedency for non-deep-learning machine learning project)
-        - scikit-image=0.16.* # Extends scikit-learn with a collection of algorithms for image processing
-        - seaborn=0.10.* # Visualization/plotting library
-        - pytorch=1.4.* # PyTorch DeepLearning framework, developped by Facebook. PyTorch is one of the main dependencies of DeepCV.
-        - torchvision=0.5.* # Vision tooling and datasets for PyTorch
-        - albumentations=0.4.* # Image augmentation trasforms library (allows coherent/target-aware image transform)
-        - mlflow=1.8.* # OpenSource platform for managing machine learning lifecycle (Tracking experiments, packaging ML code, Manage and deploy ML models, MLFlow Web UI for experiment tracking)
-        - hyperopt=0.2.* # TODO: remove this dependency (use NNI instead)
-        - jupyter=1.0.* # Jupyter notebooks
-        - pynvml=8.0.* # Allows ignite to output GPU usage information in progress bars
-        - ignite=0.3.* # High-level library to help with training neural networks in PyTorch (see 'deepcv.meta.ignite_training')
-        - pillow=7.0.* # Image loading and preprocessing (PIL.Image)
+        - pylint # Python linter
+        - pytest=6.* # Python unit testing framework.
+        - coverage=5.2.* # Tool for measuring code testing coverage of Python
+        - joblib=0.16.* # Used for transparent disk-caching of functions and lazy re-evaluation with `joblib.Memory`
         - click=7.1.* # CLI Tooling (see 'kedro_cli.py')
+        - jupyter=1.0.* # Jupyter notebooks
+        - pillow-simd==7.* # Pillow fork with improved performances thanks to SIMD usage. Make sure this is installed before any other packages which may rely on regular Pillow. (used like Pillow by, for example, torchvision)
+        - matplotlib=3.3.* # Basic data plotting and visualization library
+        - pandas=1.0.* # Fast, powerful, flexible and easy to use open source data analysis and manipulation tool (built around `pandas.Dataframe` data container, like PyTorch is built around 'torch.Tensor' or numpy reling on 'numpy.ndarray')
+        - numpy=1.19.* # Numpy
+        - seaborn=0.10.* # Visualization/plotting library
+        - scikit-learn>=0.23 # Machine learning toolkit (very common depedency for non-deep-learning machine learning project)
+        - scikit-image=0.17.* # Extends scikit-learn with a collection of algorithms for image processing
+        - pytorch=1.5.* # PyTorch DeepLearning framework, developped by Facebook. PyTorch is one of the main dependencies of DeepCV.
+        - torchvision=0.6.* # Vision tooling and datasets for PyTorch
+        - albumentations=0.4.* # Image augmentation trasforms library (allows coherent/target-aware image transform)
+        - mlflow=1.10.* # OpenSource platform for managing machine learning lifecycle (Tracking experiments, packaging ML code, Manage and deploy ML models, MLFlow Web UI for experiment tracking)
+        - ignite=0.4.* # High-level library to help with training neural networks in PyTorch (see 'deepcv.meta.ignite_training')
+        - kedro==0.16.3 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
         - hilbertcurve=1.0.* # Used for an alternative approach to CoordConv where we append a single feature map of Hilbert Curve coordinates instead of euclidian coordinates on two features maps (see 'deepcv.meta.nn.concat_hilbert_coords_channel' function)
         - tensorboard # Tensorboard package now installs official tensorboard (may have tensorflow as dependency), allows Web UI vizualization of a run (vizualize metrics, parameters, ... logged to tensorboard during or after training)
         - tensorboardX # Tensorboard logging for pytorch
         - networkx=2.* # Graph library for creation, manipulation, study of the structure, dynamics, and function of complex networks/graphs.
         - gym-atari=0.17.* # Gym is a toolkit for developing and comparing reinforcement learning algorithms (by OpenAI )
+        - pynvml=8.0.* # Allows ignite to output GPU usage information in progress bars
         - pip:
-                  - kedro[pandas.CSVDataSet]==0.16.1 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
-                  - kedro-viz==3.3.0 # Allows Kedro data pipelines visualization
+                  - kedro-viz==3.4.0 # Allows Kedro data pipelines visualization
                   - ruamel.yaml # YAML configuration parsing library used as backend of anyconfig instead of PyYAML (which is used by Kedro to load configuration files)
                   - nni # Microsoft Neural Network Inteligence: Open source AutoML toolkit to automate machine learning lifecycle, including feature engineering, neural architecture search, model compression and hyper-parameter tuning (mainly used for the later)

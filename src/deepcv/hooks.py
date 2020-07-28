@@ -33,49 +33,54 @@ class ProjectMainHooks:
     def __init__(self, project_ctx: KedroContext):
         self.project_ctx = project_ctx
 
-    @ hook_impl
+    @hook_impl
     def before_pipeline_run(self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog):
         self._start_mlflow_run(run_params, pipeline)
 
-    @ hook_impl
+    @hook_impl
     def after_pipeline_run(self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog):
         if 'train' in run_params['tags'] or any(['train' in n.tags for n in pipeline.nodes]):
             if mlflow.active_run() is not None:
                 mlflow.end_run()
 
-    @ hook_impl
+    @hook_impl
     def on_pipeline_error(self, error: Exception, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog):
         if 'train' in run_params['tags'] or any(['train' in n.tags for n in pipeline.nodes]):
             if mlflow.active_run() is not None:
                 mlflow.end_run()
 
-    @ hook_impl
+    @hook_impl
     def before_node_run(self, node: Node, catalog: DataCatalog, inputs: Dict[str, Any], is_async: bool, run_id: str):
         pass
 
-    @ hook_impl
+    @hook_impl
     def after_node_run(self, node: Node, catalog: DataCatalog, inputs: Dict[str, Any], outputs: Dict[str, Any], is_async: bool, run_id: str):
         pass
 
-    @ hook_impl
+    @hook_impl
     def on_node_error(self, error: Exception, node: Node, catalog: DataCatalog, inputs: Dict[str, Any], is_async: bool, run_id: str):
         pass
 
-    @ hook_impl
+    @hook_impl
     def after_catalog_created(self, catalog: DataCatalog, conf_catalog: Dict[str, Any], conf_creds: Dict[str, Any], feed_dict: Dict[str, Any], save_version: str, load_versions: Dict[str, str], run_id: str):
         pass
 
     def _start_mlflow_run(self, run_params: Dict[str, Any], pipeline: Pipeline):
+        """ Log basic informations to MLFlow about pipeline if this pipeline is tagged with 'train' (creates a new MLFLow experiment and/or run named after training pipeline if it doesn't exists yet)
+        NOTE: If NNI is in dry run mode (mode used to generate NNI Classic NAS search space JSON file from a model which contains NNI NAS Mutables `LayerChoice` and/or `InputChoice`) we avoid creating any new MLFlow experiment/run nor logging anything else to mlflow during this dry run
+        """
         node_tags = functools.reduce(set.union, [n.tags for n in pipeline.nodes])
-        if 'train' in run_params['tags'] or 'train' in node_tags:
+        if not deepcv.meta.hyperparams.is_nni_gen_search_space_mode() and ('train' in run_params['tags'] or 'train' in node_tags):
             if mlflow.active_run() is None:
                 # Create MLFlow run in an experiment named after pipeline involved in training and log various pipeline/datasets informations to mlflow. If we are running an NNI hp/nas search, mlflow experiment and run will be named after NNI experiment and trial ids for better consitency.
                 # TODO: find another way to name experiment as pipeline name is only available when running `kedro run --pipeline=<pipeline_name>` (e.g. special tag to node after which experiment is named)
-                if deepcv.meta.hyperparams.is_nni_run_standalone():  # 'STANDALONE' is NNI default experiment ID if python process haven't been started by NNI
+
+                if not deepcv.meta.hyperparams.is_nni_run_standalone():  # 'STANDALONE' is NNI default experiment ID if python process haven't been started by NNI
                     nni_experiment = nni.get_experiment_id()
                     mlflow.set_experiment(nni_experiment)
                     mlflow.start_run(run_name=nni.get_trial_id())
-                    mlflow.set_tag('nni_search', True)  # Flag indicating whether we are using NNI HP and/or NAS API (Hyperparameter and/or Neural Architecture search using NNI)
+                    # Flag indicating whether we are using NNI HP or Classic NAS API (Hyperparameter and/or Classic Neural Architecture search using NNI)
+                    mlflow.set_tag('nni_standalone_mode', False)
                     mlflow.set_tag('nni_experiment_id', nni_experiment)
                     mlflow.set_tag('nni_trial_id', nni.get_trial_id())
                     mlflow.set_tag('nni_sequence_id', nni.get_sequence_id())
@@ -83,7 +88,7 @@ class ProjectMainHooks:
                     pipeline_name = run_params['pipeline_name'] if run_params['pipeline_name'] else 'default'
                     mlflow.set_experiment(f'{self.project_ctx.project_name}_{pipeline_name}')
                     mlflow.start_run(run_name=f'{pipeline_name}_run_{run_params["run_id"]}')
-                    mlflow.set_tag('nni_search', False)
+                    mlflow.set_tag('nni_standalone_mode', True)
 
             # Log basic informations about Kedro training pipeline to mlflow
             mlflow.set_tags({f'kedro_node_tag_{i}': tag for i, tag in enumerate(node_tags)})

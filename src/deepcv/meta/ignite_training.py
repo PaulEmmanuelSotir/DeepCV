@@ -71,7 +71,8 @@ class BackendConfig:
 
 
 # TODO: Fire various events with two-way callbacks using `deepcv.utils.EventsHandler` at every steps of training procedure, including underlying ignite events
-TRAINING_EVENTS = {'TRAINING_INIT', 'AFTER_TRAINING_INIT', ...}
+TRAINING_EVENTS = {'TRAINING_INIT', 'AFTER_TRAINING_INIT', 'ON_EPOCH_STARTED', 'ON_EPOCH_COMPLETED',
+                   'ON_ITERATION_STARTED', 'ON_ITERATION_COMPLETED', 'ON_EVAL_STARTED', 'ON_EVAL_COMPLETED', 'ON_TRAINING_COMPLETED'}
 
 
 def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: torch.nn.Module, loss: Union[torch.nn.modules.loss._Loss, Callable[['pred', 'target'], torch.Tensor]], datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None, nni_compression_pruner: Optional[nni.compression.torch.Compressor] = None) -> ignite.engine.State:
@@ -109,6 +110,11 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         batch_size = hp['batch_size'] if n == 'trainset' else hp['batch_size'] * 32  # NOTE: Evaluation batches are choosen to be 32 times larger than train batches
         dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=not backend_conf.is_cpu))
     trainset, *validset_testset = dataloaders
+
+    # Setup data prefetch by patching dataloader
+    for dl in (trainset, *validset_testset):
+        if hp['prefetch_batches'] and dl.pin_memory:
+            dl.__iter__ = deepcv.meta.data.datasets.batch_prefetch_dataloader_patch(iter(dl), device=backend_conf.device)
 
     model = model.to(device, non_blocking=True)
     model = _setup_distributed_training(device, backend_conf, model, (trainset.batch_size, *trainset.dataset[0][0].shape))
@@ -177,14 +183,6 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     valid_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
 
-    @trainer.on(Events.EPOCH_STARTED)
-    def _setup_dataloader_prefetching(engine: Engine):
-        @engine.on(Events.GET_BATCH_STARTED(once=1))
-        def _after_stupid_ignite_dataloader_replacement(engine: Engine):
-            # Setup data prefetch by patching dataloader(need at first iteration of ignite engine due to internal ignite dataloader handling which stupidly dangerously replaces dataloader(see `ignite.engine._update_dataloader` dumb function))
-            if hp['prefetch_batches'] and engine.state.dataloader.pin_memory:
-                deepcv.meta.data.datasets.batch_prefetch_dataloader_patch(engine._dataloader_iter, device=backend_conf.device)
-
     @trainer.on(Events.EPOCH_STARTED(every=hp['validate_every_epochs']))
     @trainer.on(Events.COMPLETED)
     def _run_validation(engine: Engine):
@@ -203,7 +201,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         for n, v in valid_metrics.items():
             mlflow.log_metric(n, v, step=engine.state.epoch)
 
-        if is_performing_nni_hp_search:
+        if not deepcv.meta.hyperparams.is_nni_run_standalone():
             # TODO: make sure `valid_state.metrics` is ordered so that reported default metric to NNI is always the same
             nni.report_intermediate_result({'default': valid_state.metrics.values()[0], **train_metrics, **valid_metrics})
 
@@ -236,7 +234,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
             nni_compression_pruner.update_epoch(engine.state.epoch)
 
         if getattr(nni_compression_pruner, 'step', None) is Callable:
-            @trainer.on(Events.ITERATION_ENDED)
+            @trainer.on(Events.ITERATION_COMPLETED)
             def _nni_compression_batch_step(engine):
                 nni_compression_pruner.step()
 
@@ -247,6 +245,11 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         output_path.mkdir(parents=True, exist_ok=True)
         state = trainer.run(trainset, max_epochs=hp['epochs'])
         logging.info(f'Training of "{model}" model done sucessfully.')
+
+        if not deepcv.meta.hyperparams.is_nni_run_standalone():
+            # Report final training results to NNI (NNI HP or NNI Classic NAS APIs)
+            # TODO: make sure `valid_state.metrics` is ordered so that reported default metric to NNI is always the same
+            nni.report_final_result({'default': valid_state.metrics.values()[0], **train_metrics, **valid_metrics})
         return state
     except Exception as e:
         logging.error(f'Ignite training loop of "{type(model).__name__}" model failed, exception "{e}" raised\n### Traceback ###\n{traceback.format_exc()}')

@@ -265,6 +265,7 @@ def layer(layer_op: torch.nn.Module, act_fn: Optional[torch.nn.Module], dropout_
 
 
 def conv_layer(conv2d: dict, act_fn: Optional[type] = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
+    # TODO: Modify this function to support 1D and 3D, ND convolutions
     return torch.nn.Sequential(*layer(torch.nn.Conv2d(**conv2d), None if act_fn is None else act_fn(), dropout_prob, batch_norm))
 
 

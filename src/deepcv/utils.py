@@ -115,8 +115,8 @@ def stop_tensorboard_server(port: Union[int, str], cmd_must_contain: Optional[st
         # Stop all Tensorboard server(s) listenning on given port by killing its process(es)
         for cmd, server_pid in zip(comands, pids):
             if not cmd_must_contain or cmd_must_contain in cmd.lower():
-                sub = subprocess.run(['kill', '-9', f'{server_pid}'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=False)
-                if sub.returncode == 0:
+                sub = subprocess.run(['kill', '-9', f'{server_pid}'], capture_output=True, universal_newlines=True, check=False)
+                if sub.returncode == os.EX_OK:
                     success = True
                     logging.info(f'Sucessfully terminated tensorboard server listenning on port "{port}" with process pid "{server_pid}".')
                 else:

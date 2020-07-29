@@ -1,41 +1,41 @@
 name: deepcv
 channels:
         - defaults
-        - scitools
         - conda-forge
         - pytorch
-        - Esri # Channel used for pillow-simd conda package
+        - fastai
+        - thomasbrandon # [Linux-64 only]: Channel used for pillow-accel (metapackage with scripting aimed at easier automated pillow-simd installation as a replacement of pillow, see https://github.com/https://forums.fast.ai/t/performance-improvement-through-faster-software-components/32628/29, https://github.com/uploadcare/pillow-simd/issues/44 and https://github.com/uploadcare/pillow-simd
 dependencies:
-        - python=3.8.*
+        - python=3.7.*
         - pip
         - setuptools
         - autopep8
         - pylint # Python linter
-        - pytest=6.* # Python unit testing framework.
-        - coverage=5.2.* # Tool for measuring code testing coverage of Python
-        - joblib=0.16.* # Used for transparent disk-caching of functions and lazy re-evaluation with `joblib.Memory`
-        - click=7.1.* # CLI Tooling (see 'kedro_cli.py')
-        - jupyter=1.0.* # Jupyter notebooks
-        - pillow-simd==7.* # Pillow fork with improved performances thanks to SIMD usage. Make sure this is installed before any other packages which may rely on regular Pillow. (used like Pillow by, for example, torchvision)
-        - matplotlib=3.3.* # Basic data plotting and visualization library
-        - pandas=1.0.* # Fast, powerful, flexible and easy to use open source data analysis and manipulation tool (built around `pandas.Dataframe` data container, like PyTorch is built around 'torch.Tensor' or numpy reling on 'numpy.ndarray')
-        - numpy=1.19.* # Numpy
-        - seaborn=0.10.* # Visualization/plotting library
-        - scikit-learn>=0.23 # Machine learning toolkit (very common depedency for non-deep-learning machine learning project)
-        - scikit-image=0.17.* # Extends scikit-learn with a collection of algorithms for image processing
-        - pytorch=1.5.* # PyTorch DeepLearning framework, developped by Facebook. PyTorch is one of the main dependencies of DeepCV.
-        - torchvision=0.6.* # Vision tooling and datasets for PyTorch
-        - albumentations=0.4.* # Image augmentation trasforms library (allows coherent/target-aware image transform)
-        - mlflow=1.10.* # OpenSource platform for managing machine learning lifecycle (Tracking experiments, packaging ML code, Manage and deploy ML models, MLFlow Web UI for experiment tracking)
-        - ignite=0.4.* # High-level library to help with training neural networks in PyTorch (see 'deepcv.meta.ignite_training')
-        - kedro==0.16.3 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
-        - hilbertcurve=1.0.* # Used for an alternative approach to CoordConv where we append a single feature map of Hilbert Curve coordinates instead of euclidian coordinates on two features maps (see 'deepcv.meta.nn.concat_hilbert_coords_channel' function)
-        - tensorboard # Tensorboard package now installs official tensorboard (may have tensorflow as dependency), allows Web UI vizualization of a run (vizualize metrics, parameters, ... logged to tensorboard during or after training)
+        - pytest # Python unit testing framework.
+        - coverage # Tool for measuring code testing coverage of Python
+        - joblib # Used for transparent disk-caching of functions and lazy re-evaluation with `joblib.Memory`
+        - click # CLI Tooling (see 'kedro_cli.py')
+        - jupyter # Jupyter notebooks
+        - matplotlib # Basic data plotting and visualization library
+        - pandas # Fast, powerful, flexible and easy to use open source data analysis and manipulation tool (built around `pandas.Dataframe` data container, like PyTorch is built around 'torch.Tensor' or numpy reling on 'numpy.ndarray')
+        - numpy # Numpy
+        - seaborn # Visualization/plotting library
+        - scikit-learn # Machine learning toolkit (very common depedency for non-deep-learning machine learning project)
+        - scikit-image # Extends scikit-learn with a collection of algorithms for image processing
+        - pytorch>=1.6.* # PyTorch DeepLearning framework, developped by Facebook. PyTorch is one of the main dependencies of DeepCV.
+        - torchvision>=0.7.* # Vision tooling and datasets for PyTorch
+        - albumentations>=0.4.* # Image augmentation trasforms library (allows coherent/target-aware image transform)
+        - ignite>=0.4.* # High-level library to help with training neural networks in PyTorch (see 'deepcv.meta.ignite_training')
+        - mlflow>=1.10.* # OpenSource platform for managing machine learning lifecycle (Tracking experiments, packaging ML code, Manage and deploy ML models, MLFlow Web UI for experiment tracking)
+        - kedro>=0.16.3 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
+        - pynvml # Allows ignite to output GPU usage information in progress bars
+        - networkx # Graph library for creation, manipulation, study of the structure, dynamics, and function of complex networks/graphs.
+        - hilbertcurve # Used for an alternative approach to CoordConv where we append a single feature map of Hilbert Curve coordinates instead of euclidian coordinates on two features maps (see 'deepcv.meta.nn.concat_hilbert_coords_channel' function)
         - tensorboardX # Tensorboard logging for pytorch
-        - networkx=2.* # Graph library for creation, manipulation, study of the structure, dynamics, and function of complex networks/graphs.
-        - gym-atari=0.17.* # Gym is a toolkit for developing and comparing reinforcement learning algorithms (by OpenAI )
-        - pynvml=8.0.* # Allows ignite to output GPU usage information in progress bars
+        - tensorboard # Tensorboard package now installs official tensorboard (may have tensorflow as dependency), allows Web UI vizualization of a run (vizualize metrics, parameters, ... logged to tensorboard during or after training)
+        #- gym-atari>=0.17.* # Gym is a toolkit for developing and comparing reinforcement learning algorithms (by OpenAI )
+        - pillow-accel-avx2 # Pillow-accel with AVX2 (pillow-simd replacement for pillow with better performances) [Linux-64 with AVX2 support only]: See comment on `thomasbrandon` channel for more details
         - pip:
-                  - kedro-viz==3.4.0 # Allows Kedro data pipelines visualization
-                  - ruamel.yaml # YAML configuration parsing library used as backend of anyconfig instead of PyYAML (which is used by Kedro to load configuration files)
                   - nni # Microsoft Neural Network Inteligence: Open source AutoML toolkit to automate machine learning lifecycle, including feature engineering, neural architecture search, model compression and hyper-parameter tuning (mainly used for the later)
+                  - kedro-viz # Allows Kedro data pipelines visualization
+                  - ruamel.yaml # YAML configuration parsing library used as backend of anyconfig instead of PyYAML (which is used by Kedro to load configuration files)

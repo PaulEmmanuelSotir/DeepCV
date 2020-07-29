@@ -27,10 +27,9 @@ from hilbertcurve.hilbertcurve import HilbertCurve
 import deepcv.utils
 import deepcv.meta.base_module
 
-__all__ = ['HybridConnectivityGatedNet', 'Flatten', 'MultiHeadConcat', 'ConcatCoords', 'ConcatHilbertCoords', 'func_to_module', 'layer', 'conv_layer', 'fc_layer',
-           'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'meta_layer', 'concat_hilbert_coords_channel', 'concat_coords_channels', 'flatten', 'get_gain_name',
-           'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'type_or_instance_is', 'is_fully_connected',
-           'is_conv', 'contains_conv', 'contains_only_convs', 'parameter_summary']
+__all__ = ['HybridConnectivityGatedNet', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_channel', 'concat_coords_channels',
+           'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords', 'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer',
+           'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -348,7 +347,7 @@ def is_data_parallelization_usefull_heuristic(model: torch.nn.Module, batch_shap
     Args:
         - model: Model to be trained (computes its parameters capacity)
         - batch_shape: Dataset's batches shape
-    # TODO: perform a random/grid search to find out factors
+    TODO: perform a random/grid search to find out optimal factors (or using any other black box optimization techniques)
     """
     ngpus = torch.cuda.device_count()
     capacity_factor, batch_factor, ngpus_factor = 1. / (1024 * 1024), 1. / (1024 * 512), 1. / 8.
@@ -415,33 +414,20 @@ def get_out_features_shape(input_shape: torch.Size, module: torch.nn.Module, inp
         return module(dummy_batch_x).shape
 
 
-def type_or_instance_is(module_or_t: Any, type_to_check: Type) -> bool:
-    if not isinstance(module_or_t, Type):
-        return isinstance(module_or_t, type_to_check)
-    return issubclass(module_or_t, type_to_check)
-
-
-def is_fully_connected(module_or_t: Union[torch.nn.Module, Type]) -> bool:
-    return type_or_instance_is(module_or_t, torch.nn.Linear)
+def is_fully_connected(module_or_t: Union[torch.nn.Module, Type[torch.nn.Module]]) -> bool:
+    return issubclass(module_or_t if isinstance(module_or_t, Type) else type(module_or_t), torch.nn.Linear)
 
 
 def is_conv(module_or_t: Union[torch.nn.Module, Type]) -> bool:
-    from torch.nn.modules.conv import _ConvNd
-    return type_or_instance_is(module_or_t, _ConvNd)
-
-# TODO: implement nn reflection tools (e.g. is_conv, contains_conv, parameter_summary, ...)
+    """ Returns `True` if given `torch.nn.Module` instance or type is a convolution operation (i.e. inherits from `torch.nn.modules.conv._ConvNd`); Returns `False` otherwise. """
+    return issubclass(module_or_t if isinstance(module_or_t, Type) else type(module_or_t), torch.nn.modules.conv._ConvNd)
 
 
-def contains_conv(op_t: Union[torch.nn.Module, Type]) -> bool:
-    raise NotImplementedError
+def contains_conv(module: torch.nn.Module) -> bool:
+    """ Returns `True` if given `torch.nn.Module` contains at least one convolution module/op (based on `deepcv.meta.nn.is_conv` for convolution definition) """
+    return any(map(module.modules, lambda m: is_conv(m)))
 
-
-def contains_only_convs(op_t: Union[torch.nn.Module, Type]) -> bool:
-    raise NotImplementedError
-
-
-def parameter_summary(op_t: Union[torch.nn.Module, Type], pprint: bool = False) -> dict:
-    raise NotImplementedError
+#____________________________________________________ UNIT TESTS ______________________________________________________#
 
 
 class TestNNMetaModule:

@@ -40,15 +40,23 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 class BackendConfig:
-    def __init__(self, device=None, dist_backend: Optional[dist.Backend] = None, dist_url: Optional[str] = None, local_rank: int = 0):
-        self.device = deepcv.utils.get_device(devid=local_rank) if device is None else device
+
+    def __init__(self, device_or_id: Union[None, str, int, torch.Device] = None, dist_backend: Optional[dist.Backend] = None, dist_url: Optional[str] = None):
+        if device_or_id is None:
+            self.device = deepcv.utils.get_device()
+        elif isinstance(device_or_id, (str, torch.Device)):
+            self.device = torch.device(device_or_id) if isinstance(device_or_id, str) else device_or_id
+        else:
+            self.device = deepcv.utils.get_device(devid=device_or_id)  # `device_or_id` is assumed to be an `int` (device ID)
         self.is_cpu = self.device.type == 'cpu'
+        self.is_cuda = self.device.type == 'cuda'  # Possible devices as of PyTorch 1.6.0: cpu, cuda, mkldnn, opengl, opencl, ideep, hip, msnpu, xla
         self.ncpu = multiprocessing.cpu_count()
         self.dist_backend = dist_backend
+        self.distributed = dist_backend is not None
         self.dist_url = dist_url
-        self.local_rank = local_rank
+        self.local_rank = getattr(self.device, 'index', None)
         self.ngpus_current_node = torch.cuda.device_count()
-        self.rank, self.nnodes = 0, 1
+        self.rank, self.nnodes = 0, 1  # `rank` is dist rank here (not GPU device ID/index `local_rank`)
 
         if self.distributed:
             self.rank = dist.get_rank()
@@ -86,7 +94,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         - backend_conf: Backend information defining distributed configuration (available GPUs, whether if CPU or GPU are used, distributed node count, ...), see ``deepcv.meta.ignite_training.BackendConfig`` class for more details.
         - metrics: Additional metrics dictionnary (loss is already included in metrics to be evaluated by default)
         - callbacks_handler: Callbacks Events handler. If not `None`, events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS` will be fired at various steps of training process, allowing to extend `deepcv.meta.ignite_training.train` functionnalities ("two-way" callbacks ).
-        - nni_compression_pruner: Optional argument for NNI compression support. If needed, provide NNI Compressor object used to prune or quantize model during training so that compressor will be notified at each epochs and steps. See NNI Compression docs. for more details: https://nni.readthedocs.io/en/latest/Compressor/QuickStart.html#apis-for-updating-fine-tuning-status.
+        # apis-for-updating-fine-tuning-status.
+        - nni_compression_pruner: Optional argument for NNI compression support. If needed, provide NNI Compressor object used to prune or quantize model during training so that compressor will be notified at each epochs and steps. See NNI Compression docs. for more details: https://nni.readthedocs.io/en/latest/Compressor/QuickStart.html
     Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).
 
     NOTE: `callbacks_handler` argument makes possible to register "two-way callbacks" for events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS`; Systematic "two-way callbacks" usage in training loop is a pattern well described in [FastAI blog post about DeepLearning API implementation choices for better flexibility and code stability using multiple API layers/levels and two-way callbacks](https://www.fast.ai/2020/02/13/fastai-A-Layered-API-for-Deep-Learning/#callback). "Two-way callback" usage at every steps of training procedure allows easier modification of training loop behavior without having to modify its code, which allows to implement new features while preserving code stability.
@@ -108,7 +117,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     for n, ds in datasets.items():
         shuffle = True if n == 'trainset' else False
         batch_size = hp['batch_size'] if n == 'trainset' else hp['batch_size'] * 32  # NOTE: Evaluation batches are choosen to be 32 times larger than train batches
-        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=not backend_conf.is_cpu))
+        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=not backend_conf.is_cuda))
     trainset, *validset_testset = dataloaders
 
     # Setup data prefetch by patching dataloader
@@ -119,7 +128,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     model = model.to(device, non_blocking=True)
     model = _setup_distributed_training(device, backend_conf, model, (trainset.batch_size, *trainset.dataset[0][0].shape))
 
-    if backend_conf.local_rank == 0 and backend_conf.rank == 0:
+    if not backend_conf.distributed or backend_conf.rank == 0:
         # Create output directory if current node is master or if not distributed
         now = datetime.now().strftime(r'%Y_%m_%d-%HH_%Mmin')
         if mlflow.active_run() is not None:
@@ -265,16 +274,22 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
             # shutil.rmtree(output_path)
 
 
-def _setup_distributed_training(device, backend_conf: BackendConfig, model: torch.nn.Module, batch_shape: torch.Size) -> torch.nn.Module:
+def _setup_distributed_training(device, backend_conf: BackendConfig, model: torch.nn.Module, batch_shape: torch.Size, use_sync_batch_norm: bool = False) -> torch.nn.Module:
     if backend_conf.distributed:
         # Setup distributed training with `torch.distributed`
         dist.init_process_group(backend_conf.dist_backend, init_method=backend_conf.dist_url)
-        assert device.type == 'cuda', 'Error: Distributed training must be run on GPU(s).'
-        torch.cuda.set_device(backend_conf.local_rank)
+        assert backend_conf.is_cuda, 'Error: Distributed training must be run on GPU(s).'
+        torch.cuda.set_device(backend_conf.device)
+        # TODO: make sure we dont want to add more device IDs here (see distributed examples in Ignite or PyTorch)
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[backend_conf.local_rank, ], output_device=backend_conf.local_rank)
+
+        if use_sync_batch_norm and any(map(model.modules(), lambda m: isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d, torch.nn.BatchNorm3d)))):
+            # Convert batch normalization sub-modules to `SyncBatchNorm` before warping model with DDP (DistributedDataParallel), allowing to synchronizes statistics across nodes/GPUs in distributed setups, which can be usefull when batch size is too small on a single node/GPU
+            model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     elif not backend_conf.is_cpu and deepcv.meta.nn.is_data_parallelization_usefull_heuristic(model, batch_shape):
         # If not distributed, we can still use data parrallelization if there are multiple GPUs available and data is large enought to be worth it
         model = deepcv.meta.nn.data_parallelize(model)
+
     return model
 
 

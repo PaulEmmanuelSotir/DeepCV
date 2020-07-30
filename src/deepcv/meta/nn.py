@@ -224,6 +224,24 @@ MultiHeadConcat = func_to_module('MultiHeadConcat', init_params=['heads', 'conca
 ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', init_params=['channel_dim'])(concat_hilbert_coords_channel)
 ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align_corners'])(concat_coords_channels)
 
+# TODO: Implement HRNet fusion module
+
+
+def nd_support(_nd_types: Dict[int, Union[Callable, Type]], dims: int, *args, **kwargs, _name: Optional[str] = None) -> Any:
+    """ Helper function allowing easier support for N-D operations/modules, see example usage bellow for better understanding (e.g. `deepcv.meta.nn.nd_batchnorm`). """
+    if dims not in nd_types:
+        available_ops = ', '.join([f'{dim}D: {op.__name__ if isinstance(op, Type) else str(op)}' for dim, op in nd_types.items()])
+        raise ValueError(f'Error: {"This operator/module" if _name is  None else _name} doesnt support operations on {dims}D features maps, available ops are: `nd_types="{available_ops}"`'
+                         f'(No {dims}D type/callable entry in `nd_types` of `deepcv.meta.nn.nd_support{f"(_name={_name}, ...)" if _name is not None else ""}`).')
+    return nd_types[dims](*args, **kwargs)
+
+
+conv_nd = functools.partial(nd_support, nd_types={1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}, _name='ConvNd')
+conv_transpose_nd = functools.partial(nd_support, nd_types={1: torch.nn.ConvTranspose1d, 2: torch.nn.ConvTranspose2d, 3: torch.nn.ConvTranspose3d}, _name='ConvTransposeNd')
+# Not applied at test/eval time.
+batchnorm_nd = functools.partial(nd_support, _nd_types={1: torch.nn.BatchNorm3d, 2: torch.nn.BatchNorm3d, 3: torch.nn.BatchNorm3d}, _name='BatchNormNd')
+# Instance/Constrast Normalization. Applied at test/eval time.
+instance_norm_nd = functools.partial(nd_support, nd_types={1: torch.nn.InstanceNorm1d, 2: torch.nn.InstanceNorm2d, 3: torch.nn.InstanceNorm2d}, _name='InstanceNormNd')
 
 def layer(layer_op: torch.nn.Module, act_fn: Optional[torch.nn.Module], dropout_prob: Optional[float] = None, batch_norm: Optional[dict] = None, preactivation: bool = False) -> Tuple[torch.nn.Module]:
     """ Defines neural network layer operations

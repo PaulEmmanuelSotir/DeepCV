@@ -68,7 +68,7 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[hyperparams.H
 
 def train(datasets: Dict[str, Dataset], encoder: nn.Module, decoder: nn.Module, hp: Union[hyperparams.Hyperparameters, Dict[str, Any]]) -> ignite.engine.State:
     # TODO: decide whether we take Datasets or Dataloaders arguments here (depends on how preprocessing is implemented)
-    backend_conf = deepcv.meta.ignite_training.BackendConfig(**hp['backend_conf'])
+    backend_conf = deepcv.meta.ignite_training.BackendConfig(**(hp['backend_conf'] if 'backend_conf' in hp else {}))
     metrics = {'accuracy': Accuracy(device=backend_conf.device if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()
     opt = optim.SGD

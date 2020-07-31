@@ -8,6 +8,7 @@ Defines DeepCV model base class
     - TODO: Try to unfreeze batch_norm parameters of shared image embedding block (with its other parameters freezed) and compare performances across various tasks
 """
 import copy
+import enum
 import types
 import inspect
 import logging
@@ -58,7 +59,7 @@ BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv1d': _creat
 #_______________________________________________ DEEPCVMODULE CLASSES _________________________________________________#
 
 
-class yaml_tokens:
+class yaml_tokens(enum.Enum):
     """ 'Namespace' class stroing special tokens which can be used in YAML architecture specification of `deepcv.meta.base_module.DeepcvModule` modules  
     Those are builtin YAML spec tokens used by `DeepcvModule` NN architecture definition implementation (builtin means here without being submodule creators)
     """
@@ -130,7 +131,7 @@ class DeepcvModule(torch.nn.Module):
     .. See complete examples of `DeepcvModule` model NN architecture specification in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
     """
 
-    HP_DEFAULTS = {'architecture': ...}
+    HP_DEFAULTS = {'architecture': ..., 'act_fn': ...}
 
     def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
         super().__init__()

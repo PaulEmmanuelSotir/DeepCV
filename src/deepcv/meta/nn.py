@@ -255,11 +255,11 @@ ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align
 
 def nd_support(_nd_types: Dict[int, Union[Callable, Type]], dims: int, *args, _name: Optional[str] = None, **kwargs) -> Any:
     """ Helper function allowing easier support for N-D operations/modules, see example usage bellow for better understanding (e.g. `deepcv.meta.nn.nd_batchnorm`). """
-    if dims not in nd_types:
-        available_ops = ', '.join([f'{dim}D: {op.__name__ if isinstance(op, Type) else str(op)}' for dim, op in nd_types.items()])
+    if dims not in _nd_types:
+        available_ops = ', '.join([f'{dim}D: {op.__name__ if isinstance(op, Type) else str(op)}' for dim, op in _nd_types.items()])
         raise ValueError(f'Error: {"This operator/module" if _name is  None else _name} doesnt support operations on {dims}D features maps, available ops are: `nd_types="{available_ops}"`'
                          f'(No {dims}D type/callable entry in `nd_types` of `deepcv.meta.nn.nd_support{f"(_name={_name}, ...)" if _name is not None else ""}`).')
-    return nd_types[dims](*args, **kwargs)
+    return _nd_types[dims](*args, **kwargs)
 
 
 conv_nd = functools.partial(nd_support, nd_types={1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}, _name='ConvNd')

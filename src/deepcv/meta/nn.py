@@ -29,8 +29,9 @@ import deepcv.utils
 import deepcv.meta.base_module
 
 __all__ = ['HybridConnectivityGatedNet', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_channel', 'concat_coords_channels',
-           'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords', 'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer',
-           'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
+           'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords', 'nd_support', 'conv_nd', 'conv_transpose_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer',
+           'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer', 'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss',
+           'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -180,52 +181,76 @@ def multi_head_forward(x: torch.Tensor, heads: Iterable[torch.nn.Module], concat
     return torch.cat([head(x).unsqueeze(concat_dim) if new_dim else head(x) for head in heads], dim=concat_dim)
 
 
-def concat_hilbert_coords_channel(features: torch.Tensor, channel_dim: int = 1) -> torch.Tensor:
+def concat_coords_maps(x: torch.Tensor, channel_dim: int = 1):
+    """ Concats N new features maps of euclidian coordinates (1D, 2D, ..., ND coordinates if `x` has N dimensions after `channel_dim`'s dimension) into given `x` tensor. Coordinates are concatenated at `channel_dim` dimention of `x` tenseor
+    Args:
+        - x: Input tensor which have at least 1 dimension after `channel_dim`'s dimension
+        - channel_dim: Channel dimension index in `x` tensor at which coordinates maps will be concatenated (0 by default). Supports negative dim index: `channel_dim` must be in `]x.dim(); -1[ U ]-1 ; x.dim()[` range.
+    Returns a tensor which is the concatenation of `x` tensor with coordinates feature map(s) at `channel_dim` dimension, allowing, for ex., to append pixel location information explicitly into data proceesed in your model(s).
+    .. See also `deepcv.meta.nn.concat_hilbert_coords_map` (or its respective module `deepcv.meta.nn.ConcatHilbertCoords`) which is simmilar to `concat_coords_maps` (or `ConcatCoords` module alternative) but will only concatenate one coordinates map of Hilbert Curve coordinates/distance, no matter how many dimensions `x` have (location information takes less memory space by using Hilbert space filling curve instead of euclidian coordinates).
+
+    Bellow is an axample of generated euclidian coordinates maps in case of 2D features:
+    ```
+    # If `x` is of shape (N, C, H, W) and `channel_dim` is 1, then euclidian coordinates maps which will be concatenated to `x` will be:
+        0, 0    1, 0    ...     W , 0
+
+        0, 1    1, 1    ...     W, 1
+
+        ...     ...     ...     ...
+
+        0, H    1, H    ...     H, W
+    ```
+
+    """
+    return _concat_coords_maps(x, channel_dim=channel_dim, euclidian=True)
+
+
+def concat_hilbert_coords_map(x: torch.Tensor, channel_dim: int = 1):
     """ Concatenates to feature maps a new channel which contains position information using Hilbert curve distance metric.
     This operation is close to CoordConv's except that we only append one channel of hilbert distance instead of N channels of euclidian coordinates (e.g. 2 channel for features from a 2D convolution).
     Args:
-        - features: N-D Feature maps torch.Tensor with channel dimmension located at ``channel_dim``th dim and feature map dims located after channel's one. (Hilbert curve distance can be computed for any number, N, of feature map dimensions)
+        - features: N-D Feature maps torch.Tensor with channel dimmension located at `channel_dim`th dim and feature map dims located after channel's one. (Hilbert curve distance can be computed for any number, N, of feature map dimensions)
         - channel_dim: Channel dimension index, 1 by default.
     # TODO: cache hilbert curve to avoid to reprocess it too often
     """
-    assert features.dim() > 1, 'Invalid argument: `features` tensor should be at least of 2 dimensions.'
-    assert channel_dim < features.dim() and channel_dim >= -features.dim(), 'Invalid argument: `channel_dim` must be in [-features.dim() ; -1[ U ]-1 ; features.dim()[ range'
+    return _concat_coords_maps(x, channel_dim=channel_dim, euclidian=False)
+
+
+def _concat_coords_maps_impl(x: torch.Tensor, channel_dim: int = 1, align_corners=None, euclidian: bool = True) -> torch.Tensor:
+    """ Implementation of `concat_coords_maps` and `concat_hilbert_coords_channel`
+    TODO: Add support for normalization of coordinates map(s) (normalization: Optional[...] = None argument)
+    """
+    if channel_dim not in range(1-x.dim(), -1) and channel_dim not in range(0, x.dim()-1):
+        raise ValueError(f'Error: Invalid argument: `channel_dim` must be in "]x.dim(); -1[ U ]-1 ; x.dim()[" range, got channel_dim={channel_dim}')
+    if x.shape[channel_dim+1:] not in (1, 3, 3):
+        raise ValueError(f'Error: {deepcv.utils.get_str_repr(concat_coords_channels, __file__)} only support 2D or 3D input features '
+                         f'(i.e. features dim of 4 or 5 with batch and channel dims), but got `x.dim()={x.dim()}`.')
 
     if channel_dim < 0:
         channel_dim += features.dim()
 
     feature_map_size = features.shape[channel_dim + 1:]
-    space_filling = HilbertCurve(n=len(feature_map_size), p=np.max(feature_map_size))
 
+    if euclidian:
+        # Concats N feature maps which contains euclidian coordinates (N being `len(feature_map_size)`, i.e. 1D, 2D or 3D coordinates)
+        coords = [torch.torch.arange(start=0, end=size - 1, step=1, dtype=x.dtype, device=x.device) for size in feature_map_size]
+        coords = [c.expand(feature_map_size).view([1] * (channel_dim + 1) + [*feature_map_size]) for c in coords]
+        return torch.cat([x, *coords], dim=channel_dim)
+    else:
+        # Concats a single feature map which contains Hilbert curve coordinates
+    space_filling = HilbertCurve(n=len(feature_map_size), p=np.max(feature_map_size))
     space_fill_coords_map = np.zeros(feature_map_size)
     for coords in np.ndindex(feature_map_size):
         space_fill_coords_map[coords] = space_filling.distance_from_coordinates(coords)
     space_fill_coords_map = torch.from_numpy(space_fill_coords_map).view([1] * (channel_dim + 1) + [*feature_map_size])
-    return torch.cat([space_fill_coords_map, features], dim=channel_dim)
-
-
-def concat_coords_channels(features: torch.Tensor, channel_dim: int = 1, align_corners=None) -> torch.Tensor:
-    """
-    Args:
-        - features:
-        - channel_dim: Channel dimension index in feature maps (without eventual batch dim), 0 by default. Supports negative dim index.
-    """
-    assert features.dim() == 4 or features.dim(
-    ) == 5, f'Error: {deepcv.utils.get_str_repr(concat_coords_channels, __file__)} only support 2D or 3D input features (i.e. features dim of 4 or 5 with batch and channel dims), but got `features.dim()={features.dim()}`.'
-    assert channel_dim < features.dim() and channel_dim >= -features.dim(), 'Invalid argument: `channel_dim` must be in [-features.dim() ; features.dim()[ range'
-
-    affine_matrices = torch.zeros((features.shape[0],) + ((2, 3) if features.dim() == 4 else (3, 4)))
-    grids = F.affine_grid(theta=affine_matrices, size=features.shape, align_corners=align_corners)
-    return torch.cat([features, grids], dim=channel_dim)
+        return torch.cat([x, space_fill_coords_map], dim=channel_dim)
 
 
 # Torch modules created from their resective forward function:
 Flatten = func_to_module('Flatten', ['from_dim'])(flatten)
 MultiHeadConcat = func_to_module('MultiHeadConcat', init_params=['heads', 'concat_dim', 'new_dim'])(multi_head_forward)
-ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', init_params=['channel_dim'])(concat_hilbert_coords_channel)
-ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align_corners'])(concat_coords_channels)
-
-# TODO: Implement HRNet fusion module
+ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', init_params=['channel_dim'])(concat_hilbert_coords_map)
+ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align_corners'])(concat_coords_maps)
 
 
 def nd_support(_nd_types: Dict[int, Union[Callable, Type]], dims: int, *args, _name: Optional[str] = None, **kwargs) -> Any:

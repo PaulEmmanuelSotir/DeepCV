@@ -8,6 +8,7 @@ Defines various neural network building blocks (layers, architectures parts, tra
     - TODO: Add EvoNorm_B0 and EvoNorm_S0 layer implentations (from deepmind neural architecture search results for normalized-activation conv layers)
 """
 import copy
+import enum
 import inspect
 import logging
 import functools
@@ -227,7 +228,7 @@ ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align
 # TODO: Implement HRNet fusion module
 
 
-def nd_support(_nd_types: Dict[int, Union[Callable, Type]], dims: int, *args, **kwargs, _name: Optional[str] = None) -> Any:
+def nd_support(_nd_types: Dict[int, Union[Callable, Type]], dims: int, *args, _name: Optional[str] = None, **kwargs) -> Any:
     """ Helper function allowing easier support for N-D operations/modules, see example usage bellow for better understanding (e.g. `deepcv.meta.nn.nd_batchnorm`). """
     if dims not in nd_types:
         available_ops = ', '.join([f'{dim}D: {op.__name__ if isinstance(op, Type) else str(op)}' for dim, op in nd_types.items()])
@@ -239,11 +240,87 @@ def nd_support(_nd_types: Dict[int, Union[Callable, Type]], dims: int, *args, **
 conv_nd = functools.partial(nd_support, nd_types={1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}, _name='ConvNd')
 conv_transpose_nd = functools.partial(nd_support, nd_types={1: torch.nn.ConvTranspose1d, 2: torch.nn.ConvTranspose2d, 3: torch.nn.ConvTranspose3d}, _name='ConvTransposeNd')
 # Not applied at test/eval time.
-batchnorm_nd = functools.partial(nd_support, _nd_types={1: torch.nn.BatchNorm3d, 2: torch.nn.BatchNorm3d, 3: torch.nn.BatchNorm3d}, _name='BatchNormNd')
+batch_norm_nd = functools.partial(nd_support, _nd_types={1: torch.nn.BatchNorm3d, 2: torch.nn.BatchNorm3d, 3: torch.nn.BatchNorm3d}, _name='BatchNormNd')
 # Instance/Constrast Normalization. Applied at test/eval time.
 instance_norm_nd = functools.partial(nd_support, nd_types={1: torch.nn.InstanceNorm1d, 2: torch.nn.InstanceNorm2d, 3: torch.nn.InstanceNorm2d}, _name='InstanceNormNd')
 
-def layer(layer_op: torch.nn.Module, act_fn: Optional[torch.nn.Module], dropout_prob: Optional[float] = None, batch_norm: Optional[dict] = None, preactivation: bool = False) -> Tuple[torch.nn.Module]:
+
+def layer_norm_with_mean_only_batch_norm(input_shape: torch.Size, eps=1e-05, elementwise_affine: bool = True, momentum: float = 0.1, track_running_stats: bool = True) -> torch.nn.Sequential:
+    """ LayerNorm used along with 'mean-only' BatchNorm, as described in [`LayerNorm` paper](https://arxiv.org/pdf/1602.07868.pdf) """
+    layer_norm_op = torch.nn.LayerNorm(num_features=input_shape[0], eps=eps, elementwise_affine=elementwise_affine)
+    # TODO: ensure this is mean-only BatchNorm!
+    mean_only_batch_norm = batch_norm_nd(normalized_shape=input_shape[1:], eps=eps, momentum=momentum, affine=True, track_running_stats=track_running_stats)
+    return torch.nn.Sequential([layer_norm_op, mean_only_batch_norm])
+
+
+class NormTechniques(enum.Enum):
+    BATCH_NORM = r'batch_norm'
+    LAYER_NORM = r'layer_norm'
+    INSTANCE_NORM = r'instance_norm'
+    GROUP_NORM = r'group_norm'
+    # Local Response Norm (Normalize across channels by taking into account `size` neightbouring channels; assumes channels is the 2nd dim). For more details, see https://pytorch.org/docs/master/generated/torch.nn.LocalResponseNorm.html?highlight=norm#torch.nn.LocalResponseNorm
+    LOCAL_RESPONSE_NORM = r'local_response_norm'
+    # `LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM` is a special case where LayerNorm is used along with 'mean-only' BatchNorm (as described in `LayerNorm` paper: https://arxiv.org/pdf/1602.07868.pdf)
+    LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM = r'layer_norm_with_mean_only_batch_norm'
+
+
+NORM_TECHNIQUES_MODULES = {NormTechniques.BATCH_NORM: batch_norm_nd, NormTechniques.LAYER_NORM: torch.nn.LayerNorm, NormTechniques.INSTANCE_NORM: instance_norm_nd,
+                           NormTechniques.GROUP_NORM: torch.nn.GroupNorm, NormTechniques.LOCAL_RESPONSE_NORM: torch.nn.LocalResponseNorm, NormTechniques.LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM: layer_norm_with_mean_only_batch_norm}
+NORM_TECHNIQUES_MODULES_T = Dict[NormTechniques, Union[Type[torch.nn.Module], Callable[[...], torch.nn.Module]]]
+
+
+def normalization_techniques(norm_type: Union[NormTechniques, Sequence[NormTechniques]], norm_kwargs: Union[Sequence[Dict[str, Any]], Dict[str, Any]], input_shape: Optional[torch.Size] = None, supported_norm_ops: NORM_TECHNIQUES_MODULES_T = NORM_TECHNIQUES_MODULES) -> List[torch.nn.Module]:
+    """ Creates `torch.nn.Module` operations for one or more normalization technique(s) as specified in `norm_type` (see `NORM_TECHNIQUES_MODULES` enum) and `norm_kwargs` (Keywoard arguments dict(s) given to their respective normalization Module)  
+    Args:
+        - norm_type: Normalization technique(s) to be used, specified as string(s) or `NormTechniques` enum value(s) (must have a corresponding entry in `supported_norm_ops`)
+        - norm_kwargs: Keyword arguments dict(s) to be given to respective normalization module constructor
+        - input_shape: Input tensor shape on which normalization(s) are performed, without eventual minibatch dim (i.e. `input_shape` must be the shape of input tensor starting from channel dim followed by normalized features shape, e.g. set `input_shape="(C, H, W)"` if normalized input tensor has `(N, C, H, W)` shape). If this argument is provided (not `None`), then InstanceNorm/BatchNorm's `num_features`, LayerNorm's `normalized_shape` and GroupNorm's `num_channels` args are automatically specified and wont be needed in `norm_kwargs`.
+        - supported_norm_ops: Supported normalization modules/ops dict; Defaults to `deepcv.meta.nn.NORM_TECHNIQUES_MODULES_T`.
+
+    Supported normalization techniques:  
+    - `torch.nn.BatchNorm*d(num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)` (through `deepcv.meta.nn.batch_norm_nd`)
+    - `torch.nn.LayerNorm(normalized_shape, eps=1e-05, elementwise_affine=True)`
+    - `torch.nn.InstanceNorm*d(num_features: int, eps: float = 1e-05, momentum: float = 0.1, affine: bool = False, track_running_stats: bool = False)` (through `deepcv.meta.nn.instance_norm_nd`)
+    - `torch.nn.GroupNorm(num_groups, num_channels, eps=1e-05, affine=True)`
+    - `torch.nn.LocalResponseNorm(size, alpha=0.0001, beta=0.75, k=1.0)`
+    - And `deepcv.meta.nn.layer_norm_with_mean_only_batch_norm`: A special case where LayerNorm is used along with 'mean-only' BatchNorm (as described in `LayerNorm` paper: https://arxiv.org/pdf/1602.07868.pdf)  
+
+    Returns `torch.nn.Module`(s) for normalization operation(s) as described by `norm_type`(s) and `norm_kwargs`
+
+    NOTE: If `input_shape` arg isn't `None`, InstanceNorm/BatchNorm's `num_features`, LayerNorm's `normalized_shape`, GroupNorm's `num_channels` and `layer_norm_with_mean_only_batch_norm`'s `input_shape` args are automatically specified from given features shape and wont be needed in `norm_kwargs` (only need to give other args in `norm_kwargs` for underlying norm `torch.nn.Module` constructor)
+    NOTE: You cant specify the same normalization technique multiple times and `norm_type` and `norm_kwargs` must have the same lenght if those are `Sequence`s (multiple normalization ops)  
+    NOTE: According to results from Switchable-Normalization (SN) 2018 paper (https://arxiv.org/pdf/1811.07727v1.pdf):  
+        Instance normalization are used more often in earlier layers, batch normalization is preferred in the middle and layer normalization is used in the last more often.  
+        Intuitively, smaller batch sizes lead to a preference towards layer normalization and instance normalization (or Group Norm which is in between).  
+        .. See also following blog post about DNN normalization techniques: https://medium.com/techspace-usict/normalization-techniques-in-deep-neural-networks-9121bf100d8 (Note above inspired from it)  
+    TODO: Eventually setup warnings in cases where norm strategies doesnt seems compatible together or redundant (e.g.: May not play well = shape of normalized features not sufficent, ..., redundant = instance norm + another more general normalization, or group norm and layer norm and cases depending on parameters like group norm with only 1 group <=> Layer norm, Goup norm with C groups <=> Instance Norm, ...)
+    """
+    if not (isinstance(norm_type, (NormTechniques, str)) and isinstance(norm_kwargs, Dict)) and not (isinstance(norm_type, Sequence) and isinstance(norm_kwargs, Sequence) and len(norm_type) == len(norm_kwargs)):
+        raise TypeError('Error: `norm_type` and `norm_kwargs` must either both be a sequence of the same size or both only one normalization technique and one keyword argument dict; '
+                        f'Got `norm_type(s)="{norm_type}"` and `norm_kwargs="{norm_kwargs}"`')
+    if isinstance(norm_type, (NormTechniques, str)):
+        norm_type, norm_kwargs = [norm_type, ], [norm_kwargs, ]
+    if len(set(norm_type)) != len(norm_type):
+        raise ValueError(f'Error: Cant use the same normalization technique mutiple times at once (duplicates forbiden in `norm_type` argument; Got `norm_type(s)="{norm_type}"`')
+
+    norm_ops = list()
+    for norm_t, kwargs in zip(norm_type, norm_kwargs):
+        # If `input_shape` is not `None, provide InstanceNorm/BatchNorm's `num_features`, LayerNorm's `normalized_shape` and GroupNorm's `num_channels` kwargs (or `input_shape` for `deepcv.meta.nn.layer_norm_with_mean_only_batch_norm`)
+        if input_shape is not None:
+            if norm_t in (NormTechniques.INSTANCE_NORM, NormTechniques.BATCH_NORM):
+                kwargs['num_features'] = input_shape[0]
+            if norm_t == NormTechniques.LAYER_NORM:
+                kwargs['normalized_shape'] = input_shape[1:]
+            elif norm_t == NormTechniques.GROUP_NORM:
+                kwargs['num_channels'] = input_shape[0]
+            elif norm_t == NormTechniques.LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM:
+                kwargs['input_shape'] = input_shape
+
+        if norm_t not in supported_norm_ops:
+            raise ValueError(F'Error: "{norm_t}" is an unkown or forbiden normalization technique: It isn\'t specified in `supported_norm_ops="{supported_norm_ops}"`')
+        norm_ops.append(supported_norm_ops[norm_t](**kwargs))
+    return norm_ops
+
     """ Defines neural network layer operations
     Args:
         - layer_op: Layer operation to be used (e.g. torch.nn.Conv2D, torch.nn.Linear, ...).

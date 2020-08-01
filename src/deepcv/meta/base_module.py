@@ -639,19 +639,26 @@ def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torc
 
 def _create_nn_layer(layer_op_t: Type[torch.nn.Module]) -> Callable[['submodule_params', 'prev_shapes', 'act_fn', 'dropout_prob', 'batch_norm', 'channel_dim', 'preactivation'], torch.nn.Module]:
     """ Creates a fully connected or convolutional NN layer with optional dropout and batch/layer/instance/group norm support (and preactivation, activation function, ... choices)
-    NOTE: We assume here that features/inputs are given in batches
-    NOTE: Batch norm, layer norm, instance norm and group norm usage is mutually exclusive (i.e. only one of their respective arguments is allowed to be not `None` or an empty Dict)
+    NOTE: We assume here that features/inputs are given in (mini)batches (`channel_dim` defaults to 1)
     """
-    def _create_conv_or_fc_layer(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], is_fully_connected: bool, act_fn: Optional[torch.nn.Module] = None, dropout_prob: Optional[float] = None, batch_norm: Optional[Dict[str, Any]] = None, channel_dim: int = 1) -> torch.nn.Module:
-        if is_fully_connected:
+    def _create_conv_or_fc_layer(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], layer_op_t: Type[torch.nn.Module], act_fn: Optional[torch.nn.Module] = None, dropout_prob: Optional[float] = None, channel_dim: int = 1, preactivation: bool = False,
+                                 batch_norm: Optional[Dict[str, Any]] = None, layer_norm: Optional[Dict[str, Any]] = None, instance_norm: Optional[Dict[str, Any]] = None, group_norm: Optional[Dict[str, Any]] = None, layer_norm_with_mean_only_batch_norm: Optional[Dict[str, Any]] = None) -> torch.nn.Module:
+        # Handle specified normalization techniques if any (BatchNorm, LayerNorm, InstanceNorm, GroupNorm and/or layer_norm_with_mean_only_batch_norm)
+        from deepcv.meta.nn import NormTechniques
+        norm_techniques = {NormTechniques.BATCH_NORM: batch_norm, NormTechniques.LAYER_NORM: layer_norm, NormTechniques.INSTANCE_NORM: instance_norm,
+                           NormTechniques.GROUP_NORM: group_norm, NormTechniques.LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM: layer_norm_with_mean_only_batch_norm}
+        norms = {t: args for t, args in norm_techniques.items() if args is not None and len(args) > 0}
+        norm_ops = None
+        if len(norms) > 0:
+            norm_ops = deepcv.meta.nn.normalization_techniques(norm_type=norms.keys(), norm_kwargs=norms.values(), input_shape=prev_shapes[-1][channel_dim:])
 
         if deepcv.meta.nn.is_conv(layer_op_t):
             submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
         elif isinstance(layer_op_t, torch.nn.Linear):  # Only supports convolutions and linear layers in this submodule creator
-            submodule_params['in_features'] = np.prod(prev_shapes[-1][1:])
+            submodule_params['in_features'] = np.prod(prev_shapes[-1][channel_dim:])
         else:
             raise TypeError(f'Error: Wrong `layer_op_t` type, cant create a NN layer of type {layer_op_t} with `deepcv.meta.base_module._create_nn_layer` submodule creator.')
-        return deepcv.meta.nn.layer(layer_op=layer_op_t(**submodule_params), act_fn=act_fn, dropout_prob=dropout_prob, batch_norm=batch_norm, preactivation=preactivation)
+        return deepcv.meta.nn.layer(layer_op=layer_op_t(**submodule_params), act_fn=act_fn, dropout_prob=dropout_prob, norm_ops=norm_ops, preactivation=preactivation)
 
     _create_conv_or_fc_layer.__doc__ = _create_nn_layer.__doc__
     return partial(_create_conv_or_fc_layer, layer_op_t=layer_op_t)

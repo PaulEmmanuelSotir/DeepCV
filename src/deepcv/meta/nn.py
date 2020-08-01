@@ -28,10 +28,10 @@ from hilbertcurve.hilbertcurve import HilbertCurve
 import deepcv.utils
 import deepcv.meta.base_module
 
-__all__ = ['HybridConnectivityGatedNet', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_channel', 'concat_coords_channels',
-           'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords', 'nd_support', 'conv_nd', 'conv_transpose_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer',
-           'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer', 'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss',
-           'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
+__all__ = ['HybridConnectivityGatedNet', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
+           'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords', 'nd_support', 'conv_nd', 'conv_transpose_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer_norm_with_mean_only_batch_norm', 'NormTechniques',
+           'NORM_TECHNIQUES_MODULES', 'NORM_TECHNIQUES_MODULES_T', 'normalization_techniques', 'weight_norm', 'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer',
+           'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -202,7 +202,7 @@ def concat_coords_maps(x: torch.Tensor, channel_dim: int = 1):
     ```
 
     """
-    return _concat_coords_maps(x, channel_dim=channel_dim, euclidian=True)
+    return _concat_coords_maps_impl(x, channel_dim=channel_dim, euclidian=True)
 
 
 def concat_hilbert_coords_map(x: torch.Tensor, channel_dim: int = 1):
@@ -213,23 +213,24 @@ def concat_hilbert_coords_map(x: torch.Tensor, channel_dim: int = 1):
         - channel_dim: Channel dimension index, 1 by default.
     # TODO: cache hilbert curve to avoid to reprocess it too often
     """
-    return _concat_coords_maps(x, channel_dim=channel_dim, euclidian=False)
+    return _concat_coords_maps_impl(x, channel_dim=channel_dim, euclidian=False)
 
 
 def _concat_coords_maps_impl(x: torch.Tensor, channel_dim: int = 1, align_corners=None, euclidian: bool = True) -> torch.Tensor:
     """ Implementation of `concat_coords_maps` and `concat_hilbert_coords_channel`
     TODO: Add support for normalization of coordinates map(s) (normalization: Optional[...] = None argument)
+    TODO: Implement unit testing for this function 
     """
     if channel_dim not in range(1-x.dim(), -1) and channel_dim not in range(0, x.dim()-1):
         raise ValueError(f'Error: Invalid argument: `channel_dim` must be in "]x.dim(); -1[ U ]-1 ; x.dim()[" range, got channel_dim={channel_dim}')
     if x.shape[channel_dim+1:] not in (1, 3, 3):
-        raise ValueError(f'Error: {deepcv.utils.get_str_repr(concat_coords_channels, __file__)} only support 2D or 3D input features '
-                         f'(i.e. features dim of 4 or 5 with batch and channel dims), but got `x.dim()={x.dim()}`.')
+        raise ValueError(f'Error: {deepcv.utils.get_str_repr(_concat_coords_maps_impl, __file__)} only support 2D or 3D input features '
+                         f'(e.g. `x` features dim of 4 or 5 with minibatch and channel dims), but got `x.dim()={x.dim()}`.')
 
     if channel_dim < 0:
-        channel_dim += features.dim()
+        channel_dim += x.dim()
 
-    feature_map_size = features.shape[channel_dim + 1:]
+    feature_map_size = x.shape[channel_dim + 1:]
 
     if euclidian:
         # Concats N feature maps which contains euclidian coordinates (N being `len(feature_map_size)`, i.e. 1D, 2D or 3D coordinates)
@@ -238,11 +239,11 @@ def _concat_coords_maps_impl(x: torch.Tensor, channel_dim: int = 1, align_corner
         return torch.cat([x, *coords], dim=channel_dim)
     else:
         # Concats a single feature map which contains Hilbert curve coordinates
-    space_filling = HilbertCurve(n=len(feature_map_size), p=np.max(feature_map_size))
-    space_fill_coords_map = np.zeros(feature_map_size)
-    for coords in np.ndindex(feature_map_size):
-        space_fill_coords_map[coords] = space_filling.distance_from_coordinates(coords)
-    space_fill_coords_map = torch.from_numpy(space_fill_coords_map).view([1] * (channel_dim + 1) + [*feature_map_size])
+        space_filling = HilbertCurve(n=len(feature_map_size), p=np.max(feature_map_size))
+        space_fill_coords_map = np.zeros(feature_map_size)
+        for coords in np.ndindex(feature_map_size):
+            space_fill_coords_map[coords] = space_filling.distance_from_coordinates(coords)
+        space_fill_coords_map = torch.from_numpy(space_fill_coords_map).view([1] * (channel_dim + 1) + [*feature_map_size])
         return torch.cat([x, space_fill_coords_map], dim=channel_dim)
 
 
@@ -262,12 +263,14 @@ def nd_support(_nd_types: Dict[int, Union[Callable, Type]], dims: int, *args, _n
     return _nd_types[dims](*args, **kwargs)
 
 
+""" N-D Convolution operator based on `torch.nn.Conv*d` for 1D, 2D and 3D support """
 conv_nd = functools.partial(nd_support, nd_types={1: torch.nn.Conv1d, 2: torch.nn.Conv2d, 3: torch.nn.Conv3d}, _name='ConvNd')
+""" N-D Transposed Convolution operator based on `torch.nn.ConvTranspose*d` for 1D, 2D and 3D support """
 conv_transpose_nd = functools.partial(nd_support, nd_types={1: torch.nn.ConvTranspose1d, 2: torch.nn.ConvTranspose2d, 3: torch.nn.ConvTranspose3d}, _name='ConvTransposeNd')
-# Not applied at test/eval time.
+""" N-D Batch Normalization module based on `torch.nn.BatchNorm*d` for 1D, 2D and 3D support """
 batch_norm_nd = functools.partial(nd_support, _nd_types={1: torch.nn.BatchNorm3d, 2: torch.nn.BatchNorm3d, 3: torch.nn.BatchNorm3d}, _name='BatchNormNd')
-# Instance/Constrast Normalization. Applied at test/eval time.
-instance_norm_nd = functools.partial(nd_support, nd_types={1: torch.nn.InstanceNorm1d, 2: torch.nn.InstanceNorm2d, 3: torch.nn.InstanceNorm2d}, _name='InstanceNormNd')
+""" N-D Instance Normalization module (a.k.a Constrast Normalization) based on `torch.nn.InstanceNorm*d` for 1D, 2D and 3D support """
+instance_norm_nd = functools.partial(nd_support, nd_types={1: torch.nn.InstanceNorm1d, 2: torch.nn.InstanceNorm2d, 3: torch.nn.InstanceNorm3d}, _name='InstanceNormNd')
 
 
 def layer_norm_with_mean_only_batch_norm(input_shape: torch.Size, eps=1e-05, elementwise_affine: bool = True, momentum: float = 0.1, track_running_stats: bool = True) -> torch.nn.Sequential:
@@ -319,6 +322,7 @@ def normalization_techniques(norm_type: Union[NormTechniques, Sequence[NormTechn
         Intuitively, smaller batch sizes lead to a preference towards layer normalization and instance normalization (or Group Norm which is in between).  
         .. See also following blog post about DNN normalization techniques: https://medium.com/techspace-usict/normalization-techniques-in-deep-neural-networks-9121bf100d8 (Note above inspired from it)  
     TODO: Eventually setup warnings in cases where norm strategies doesnt seems compatible together or redundant (e.g.: May not play well = shape of normalized features not sufficent, ..., redundant = instance norm + another more general normalization, or group norm and layer norm and cases depending on parameters like group norm with only 1 group <=> Layer norm, Goup norm with C groups <=> Instance Norm, ...)
+    TODO: Implement unit testing for this function
     """
     if not (isinstance(norm_type, (NormTechniques, str)) and isinstance(norm_kwargs, Dict)) and not (isinstance(norm_type, Sequence) and isinstance(norm_kwargs, Sequence) and len(norm_type) == len(norm_kwargs)):
         raise TypeError('Error: `norm_type` and `norm_kwargs` must either both be a sequence of the same size or both only one normalization technique and one keyword argument dict; '
@@ -346,50 +350,47 @@ def normalization_techniques(norm_type: Union[NormTechniques, Sequence[NormTechn
         norm_ops.append(supported_norm_ops[norm_t](**kwargs))
     return norm_ops
 
+
+def weight_norm(module, name=None, dim=None):
+    # TODO: remove this function and add weight norm support in `deepcv.meta.base_module.DeepcvModule`
+    # Weight Norm: Implemented with hooks added on given module in order to apply normalization on parameter(s) named after `name` (defaults to 'weight') of given `module`
+    torch.nn.utils.weight_norm(module, name='weight', dim=0)
+    # To remove hooks: torch.nn.utils.remove_weight_norm(module, name='weight')
+
+    # Spectral Norm: Weight norm with spectral norm of the weight matrix calculated using power iteration method (Implemented with hooks added on given module)
+    torch.nn.utils.spectral_norm(module, name='weight', n_power_iterations=1, eps=1e-12, dim=None)  # containing module
+    # To remove hooks: torch.nn.utils.remove_spectral_norm(module, name='weight')
+
+
+def layer(layer_op: torch.nn.Module, act_fn: Optional[Type[torch.nn.Module]], dropout_prob: Optional[float] = None, norm_ops: Optional[Union[torch.nn.Module, Sequence[torch.nn.Module]]] = None, preactivation: bool = False) -> torch.nn.Module:
     """ Defines neural network layer operations
     Args:
-        - layer_op: Layer operation to be used (e.g. torch.nn.Conv2D, torch.nn.Linear, ...).
+        - layer_op: Layer operation to be used (e.g. torch.nn.Conv2d, torch.nn.Linear, ...).
         - act_fn: Activation function (if `None`, then defaults to `torch.nn.Identity()`)
         - dropout_prob: Dropout probability (if dropout_prob is None or 0., then no dropout ops is used)
-        - batch_norm: (if batch_norm is None, then no batch norm is used)
+        - norm_ops: Optional normalization module(s)/op(s), like `torch.nn.BatchNorm*d` module
         - preactivation: Boolean specifying whether to use preactivatation operation order: "(?dropout) - (?BN) - Act - Layer" or default operation order: "(?Dropout) - Layer - Act - (?BN)"
     Returns layer operations as a tuple of `torch.nn.Modules`
     Note: Dropout used along with batch norm may be unrecommended (see respective warning message).
+    TODO: allow instance norm, layer norm, group norm as alternatives to batch norm
+    TODO: allow grouped convolution (support from PyTorch) to be applied on varying feature map dimensions (HRNet) and/or different kernels (PyramidalConv)
     """
     if not hasattr(layer_op, 'weight'):
         raise ValueError(f'Error: Bad layer operation module argument, no `weight` attribute found in layer_op="{layer_op}"')
-    if batch_norm is not None and not hasattr(layer_op, 'out_channels') and not hasattr(layer_op, 'out_features'):
-        raise ValueError(f'Error: Bad layer op module argument, no `out_channels` nor `out_features` attribute in `layer_op={layer_op}`')
     if act_fn is None:
-        act_fn = torch.nn.Identity()
+        act_fn = torch.nn.Identity
+    if norm_ops is None:
+        norm_ops = list()
 
     def _dropout() -> Optional[torch.nn.Module]:
         if dropout_prob is not None and dropout_prob != 0.:
-            if batch_norm is not None:
-                logging.warn("""Warning: Dropout used along with batch norm may be unrecommended, see
+            if len(norm_ops) >= 1:
+                logging.warn("""Warning: Dropout used along with normalization technique(s), like BatchNorm, may be unrecommended, see
                                 [CVPR 2019 paper: 'Understanding the Disharmony Between Dropout and Batch Normalization by Variance'](https://zpascal.net/cvpr2019/Li_Understanding_the_Disharmony_Between_Dropout_and_Batch_Normalization_by_Variance_CVPR_2019_paper.pdf)""")
             return torch.nn.Dropout(p=dropout_prob)
 
-    def _bn() -> Optional[torch.nn.Module]:
-        if batch_norm is not None:
-            # Applies Batch_narm after activation function : see reddit thread about it : https://www.reddit.com/r/MachineLearning/comments/67gonq/d_batch_normalization_before_or_after_relu/
-            if layer_op.weight.dim() == 4:
-                return torch.nn.BatchNorm2d(layer_op.out_channels, **batch_norm)
-            elif layer_op.weight.dim() < 4:
-                return torch.nn.BatchNorm1d(layer_op.out_features, **batch_norm)
-
-    ops_order = (_dropout, _bn, act_fn, layer_op) if preactivation else (_dropout, layer_op, act_fn, _bn)
-    ops = [op if isinstance(op, torch.nn.Module) else op() for op in ops_order]
-    return tuple(filter(lambda x: x is not None, ops))
-
-
-def conv_layer(conv2d: dict, act_fn: Optional[type] = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
-    # TODO: Modify this function to support 1D and 3D, ND convolutions
-    return torch.nn.Sequential(*layer(torch.nn.Conv2d(**conv2d), None if act_fn is None else act_fn(), dropout_prob, batch_norm))
-
-
-def fc_layer(linear: dict, act_fn: Optional[type] = torch.nn.Identity, dropout_prob: float = 0., batch_norm: Optional[dict] = None, preactivation: bool = False) -> torch.nn.Module:
-    return torch.nn.Sequential(*layer(torch.nn.Linear(**linear), None if act_fn is None else act_fn(), dropout_prob, batch_norm))
+    ops = (_dropout(), *norm_ops, act_fn(), layer_op) if preactivation else (_dropout(), layer_op, act_fn(), *norm_ops)
+    return torch.nn.Sequential(*(m for m in ops if m is not None))
 
 
 def resnet_net_block(hp: SimpleNamespace) -> torch.nn.Module:

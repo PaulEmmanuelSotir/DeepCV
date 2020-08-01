@@ -104,7 +104,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     """
     TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'scheduler': ..., 'epochs': ..., 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
                             'validate_every_epochs': 1, 'save_every_iters': 1000, 'log_grads_every_iters': -1, 'log_progress_every_iters': 100, 'seed': None,
-                            'prefetch_batches': True, 'resume_from': '', 'crash_iteration': -1, 'deterministic_cudnn': False}
+                            'prefetch_batches': True, 'resume_from': '', 'crash_iteration': -1, 'deterministic_cudnn': False, 'use_sync_batch_norm': False}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(datasets) == 3 or len(datasets) == 2, 'Error: datasets tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
     hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
@@ -126,7 +126,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
             dl.__iter__ = deepcv.meta.data.datasets.batch_prefetch_dataloader_patch(iter(dl), device=backend_conf.device)
 
     model = model.to(device, non_blocking=True)
-    model = _setup_distributed_training(device, backend_conf, model, (trainset.batch_size, *trainset.dataset[0][0].shape))
+    model = _setup_distributed_training(device, backend_conf, model, (trainset.batch_size, *trainset.dataset[0][0].shape), use_sync_batch_norm=hp['use_sync_batch_norm'])
 
     if not backend_conf.distributed or backend_conf.rank == 0:
         # Create output directory if current node is master or if not distributed
@@ -285,6 +285,8 @@ def _setup_distributed_training(device, backend_conf: BackendConfig, model: torc
 
         if use_sync_batch_norm and any(map(model.modules(), lambda m: isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d, torch.nn.BatchNorm3d)))):
             # Convert batch normalization sub-modules to `SyncBatchNorm` before warping model with DDP (DistributedDataParallel), allowing to synchronizes statistics across nodes/GPUs in distributed setups, which can be usefull when batch size is too small on a single node/GPU
+            # NOTE: `convert_sync_batchnorm` is needed as direct usage of `SyncBatchNorm` doesnt upports DDP with mutliple GPU per process according to PyTorch 1.6.0 documentation
+            # TODO: may have been fixed since muti GPU per process use case of DDP have been fixed in 1.6.0 release?
             model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     elif not backend_conf.is_cpu and deepcv.meta.nn.is_data_parallelization_usefull_heuristic(model, batch_shape):
         # If not distributed, we can still use data parrallelization if there are multiple GPUs available and data is large enought to be worth it

@@ -15,7 +15,7 @@ import functools
 from enum import Enum, auto
 from types import SimpleNamespace, FunctionType
 from collections import OrderedDict
-from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence
+from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
 
 import numpy as np
 
@@ -26,51 +26,50 @@ import torch.distributions as tdist
 from hilbertcurve.hilbertcurve import HilbertCurve
 
 import deepcv.utils
-import deepcv.meta.base_module
 
-__all__ = ['HybridConnectivityGatedNet', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
+__all__ = ['to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
            'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords', 'nd_support', 'conv_nd', 'conv_transpose_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer_norm_with_mean_only_batch_norm', 'NormTechniques',
            'NORM_TECHNIQUES_MODULES', 'NORM_TECHNIQUES_MODULES_T', 'normalization_techniques', 'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer',
            'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class HybridConnectivityGatedNet(deepcv.meta.base_module.DeepcvModule):
-    """ Implementation of Hybrid Connectivity Gated Net (HCGN), residual/dense conv block architecture from the following paper: https://arxiv.org/pdf/1908.09699.pdf """
-    HP_DEFAULTS = {'architecture': ..., 'act_fn': torch.nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
+# class HybridConnectivityGatedNet(deepcv.meta.base_module.DeepcvModule):
+#     """ Implementation of Hybrid Connectivity Gated Net (HCGN), residual/dense conv block architecture from the following paper: https://arxiv.org/pdf/1908.09699.pdf """
+#     HP_DEFAULTS = {'architecture': ..., 'act_fn': torch.nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Size, hp: Dict[str, Any]):
-        """ HybridConnectivityGatedNet __init__ function
-        Args:
-            hp: Hyperparameters
-        """
-        super(HybridConnectivityGatedNet, self).__init__(input_shape, hp)
-        submodule_creators = deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS.update({'smg_module': self._smg_module_creator})
-        self.define_nn_architecture(hp['architecture'], submodule_creators)
-        self.initialize_parameters(hp['act_fn'])
+#     def __init__(self, input_shape: torch.Size, hp: Dict[str, Any]):
+#         """ HybridConnectivityGatedNet __init__ function
+#         Args:
+#             hp: Hyperparameters
+#         """
+#         super(HybridConnectivityGatedNet, self).__init__(input_shape, hp)
+#         submodule_creators = deepcv.meta.base_module.BASIC_SUBMODULE_CREATORS.update({'smg_module': self._smg_module_creator})
+#         self.define_nn_architecture(hp['architecture'], submodule_creators)
+#         self.initialize_parameters(hp['act_fn'])
 
-        # smg_modules = []
-        # for i, module_opts in enumerate(hp['modules']):
-        #     prev_module = smg_modules[-1]
-        #     gating = 'TODO'  # TODO: !!
-        #     raise NotImplementedError
-        #     ops = [('cell1', squeeze_cell(hp)), ('cell2', multiscale_exitation_cell(hp)), ('gating', gating)]
-        #     smg_modules.append((f'smg_module_{i}', torch.nn.Sequential(OrderedDict(ops))))
-        # self.net = torch.nn.Sequential(OrderedDict(smg_modules))
+#         # smg_modules = []
+#         # for i, module_opts in enumerate(hp['modules']):
+#         #     prev_module = smg_modules[-1]
+#         #     gating = 'TODO'  # TODO: !!
+#         #     raise NotImplementedError
+#         #     ops = [('cell1', squeeze_cell(hp)), ('cell2', multiscale_exitation_cell(hp)), ('gating', gating)]
+#         #     smg_modules.append((f'smg_module_{i}', torch.nn.Sequential(OrderedDict(ops))))
+#         # self.net = torch.nn.Sequential(OrderedDict(smg_modules))
 
-    def forward(self, x: torch.Tensor):
-        """ Forward propagation of given input tensor through conv hybrid gated neural network
-        Args:
-            - input: Input tensor fed to convolutional neural network (must be of shape (N, C, W, H))
-        """
-        return self._net(x)
+#     def forward(self, x: torch.Tensor):
+#         """ Forward propagation of given input tensor through conv hybrid gated neural network
+#         Args:
+#             - input: Input tensor fed to convolutional neural network (must be of shape (N, C, W, H))
+#         """
+#         return self._net(x)
 
-    @staticmethod
-    def _smg_module_creator():
-        raise NotImplementedError
+#     @staticmethod
+#     def _smg_module_creator():
+#         raise NotImplementedError
 
 
-def to_multiscale_inputs_model(model: deepcv.meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
+def to_multiscale_inputs_model(model: 'deepcv.meta.base_module.DeepcvModule', scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
     """ Turns a given deepcv module to a similar models which takes `scales` inputs at different layer depth instead of one input at first layer.
     Each new inputs are downscaled by a 2 factor, thus if you input `model` takes a 3x100x100 image the returned model will take 3 images of these respective shapes: (3x100x100; 3x50x50, 3x25x25) (assuming we have `no_downscale_dims=(0,)` and `scales=3`)
     Args:
@@ -96,7 +95,7 @@ def to_multiscale_inputs_model(model: deepcv.meta.base_module.DeepcvModule, scal
     return type(model)(model._input_shape, new_hp)
 
 
-def to_multiscale_outputs_model(model: deepcv.meta.base_module.DeepcvModule, scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
+def to_multiscale_outputs_model(model: 'deepcv.meta.base_module.DeepcvModule', scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
     """
     TODO: similar implementation than to_multiscale_inputs_model
     """
@@ -216,7 +215,7 @@ def concat_hilbert_coords_map(x: torch.Tensor, channel_dim: int = 1):
     return _concat_coords_maps_impl(x, channel_dim=channel_dim, euclidian=False)
 
 
-def _concat_coords_maps_impl(x: torch.Tensor, channel_dim: int = 1, align_corners=None, euclidian: bool = True) -> torch.Tensor:
+def _concat_coords_maps_impl(x: torch.Tensor, channel_dim: int = 1, euclidian: bool = True) -> torch.Tensor:
     """ Implementation of `concat_coords_maps` and `concat_hilbert_coords_channel`
     TODO: Add support for normalization of coordinates map(s) (normalization: Optional[...] = None argument)
     TODO: Implement unit testing for this function 
@@ -251,7 +250,7 @@ def _concat_coords_maps_impl(x: torch.Tensor, channel_dim: int = 1, align_corner
 Flatten = func_to_module('Flatten', ['from_dim'])(flatten)
 MultiHeadConcat = func_to_module('MultiHeadConcat', init_params=['heads', 'concat_dim', 'new_dim'])(multi_head_forward)
 ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', init_params=['channel_dim'])(concat_hilbert_coords_map)
-ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim', 'align_corners'])(concat_coords_maps)
+ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim'])(concat_coords_maps)
 
 
 def nd_support(_nd_types: Dict[int, Union[Callable, Type]], dims: int, *args, _name: Optional[str] = None, **kwargs) -> Any:
@@ -294,7 +293,7 @@ class NormTechniques(enum.Enum):
 
 NORM_TECHNIQUES_MODULES = {NormTechniques.BATCH_NORM: batch_norm_nd, NormTechniques.LAYER_NORM: torch.nn.LayerNorm, NormTechniques.INSTANCE_NORM: instance_norm_nd,
                            NormTechniques.GROUP_NORM: torch.nn.GroupNorm, NormTechniques.LOCAL_RESPONSE_NORM: torch.nn.LocalResponseNorm, NormTechniques.LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM: layer_norm_with_mean_only_batch_norm}
-NORM_TECHNIQUES_MODULES_T = Dict[NormTechniques, Union[Type[torch.nn.Module], Callable[[...], torch.nn.Module]]]
+NORM_TECHNIQUES_MODULES_T = Dict[NormTechniques, Union[Type[torch.nn.Module], Callable[..., torch.nn.Module]]]
 
 
 def normalization_techniques(norm_type: Union[NormTechniques, Sequence[NormTechniques]], norm_kwargs: Union[Sequence[Dict[str, Any]], Dict[str, Any]], input_shape: Optional[torch.Size] = None, supported_norm_ops: NORM_TECHNIQUES_MODULES_T = NORM_TECHNIQUES_MODULES) -> List[torch.nn.Module]:

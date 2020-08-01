@@ -27,17 +27,18 @@ import nni.nas.pytorch.mutables as nni_mutables
 
 import deepcv.utils
 import deepcv.meta.nn
-import deepcv.meta.hyperparams
 
 
 __all__ = ['TENSOR_OR_SEQ_OF_TENSORS_T', 'SUBMODULE_FORWARD_CALLBACK_T', 'REDUCTION_FN_T', 'TENSOR_REDUCTION_FNS', 'BASIC_SUBMODULE_CREATORS',
-           'ForwardCallbackSubmodule', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
+           'ForwardCallbackSubmodule', 'DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor',
+           'submodule_creator_dec', 'add_nn_layer_creator', 'add_residual_dense_link_creator']
 __author__ = 'Paul-Emmanuel Sotir'
 
 """ Helper constants for type checks and annotations in DeepcvModule """
 TENSOR_OR_SEQ_OF_TENSORS_T = Union[torch.Tensor, Sequence[torch.Tensor]]
 SUBMODULE_FORWARD_CALLBACK_T = Callable[[TENSOR_OR_SEQ_OF_TENSORS_T, Dict[str, torch.Tensor]], TENSOR_OR_SEQ_OF_TENSORS_T]
-REDUCTION_FN_T = Callable[[TENSOR_OR_SEQ_OF_TENSORS_T, ...], TENSOR_OR_SEQ_OF_TENSORS_T]  # NOTE: `concat` reduction fn takes another important arg, `dim` which defaults to 0
+# NOTE: `concat` reduction fn takes another important arg: `dim` which defaults to 0
+REDUCTION_FN_T = Callable[[TENSOR_OR_SEQ_OF_TENSORS_T, *'args'], TENSOR_OR_SEQ_OF_TENSORS_T]
 
 """ Reduction functions. These are available throught `yaml_tokens.REDUCTION_FN` parameter in YAML NN architecture specification of submodules which are instances of `ForwardCallbackSubmodule` (e.g. residual/dense links, ...: submodules defined by a callback called at forward passes) """
 TENSOR_REDUCTION_FNS = {'mean': torch.mean, 'sum': torch.sum, 'concat': torch.cat, 'none': lambda l: l}
@@ -48,12 +49,11 @@ NOTE: Unlike NNI NAS `InputChoice`, NNI NAS `LayerChoice`(s) uses NNI builtin re
 DEFAULT_LAYER_CHOICE_REDUCTION = r'mean'
 
 """ Default submodule types (defined by a name associated to a submodule creator function) available in 'deepcv.meta.base_module.DeepcvModule' YAML NN architecture specification.  
-This list can be extended or overriden according to your needs by providing your own submodule creator functions to `DeepcvModule`'s `__init__()` method.  
+This list can be extended or overriden according to your needs by providing your own submodule creator functions to `DeepcvModule`'s `__init__()` method ad/or using `deepcv.meta.base_module.submodule_creator_dec`  
 NOTE: By default, there are other possible submodules which are builtin DeepcvModule: see `yaml_tokens.NESTED_DEEPCV_MODULE`, `yaml_tokens.NAS_LAYER_CHOICE` and `yaml_tokens.NEW_BRANCH_FROM_TENSOR`  
+NOTE: You can add other base submodule creators to this dictionary by using `deepcv.meta.base_module.submodule_creator_dec` function decorator (see example usage in `deepcv.meta.base_module._create_avg_pooling`)
 """
-BASIC_SUBMODULE_CREATORS = {'avg_pooling': _create_avg_pooling, 'conv1d': _create_nn_layer(later_op_t=torch.nn.Conv1d), 'conv2d': _create_nn_layer(later_op_t=torch.nn.Conv2d), 'conv3d': _create_nn_layer(later_op_t=torch.nn.Conv3d),
-                            'transposed_conv1d': _create_nn_layer(later_op_t=torch.nn.ConvTranspose1d), 'transposed_conv2d': _create_nn_layer(later_op_t=torch.nn.ConvTranspose2d), 'transposed_conv3d': _create_nn_layer(later_op_t=torch.nn.ConvTranspose3d),
-                            'fully_connected': _create_nn_layer(later_op_t=torch.nn.linear), 'residual_link': _residual_dense_link(is_residual=True), 'dense_link': _residual_dense_link(is_residual=False)}
+BASIC_SUBMODULE_CREATORS = {}
 
 
 #_______________________________________________ DEEPCVMODULE CLASSES _________________________________________________#
@@ -79,7 +79,7 @@ class yaml_tokens(enum.Enum):
 class ForwardCallbackSubmodule(torch.nn.Module):
     """ `DeepcvModule`-specific Pytorch module which is defined from a callback called on forward passes.
     This Pytorch module behavior is only defined from given callback which makes it more suitable for residual/dense links, for example.
-    `ForwardCallbackSubmodule`s are handled in a specific way by `DeepcvModule` for builtin support for output tensor references (e.g. residual links with `yaml_tokens.FROM` parameter, see `_residual_dense_link` for example usage in a submodule creator)
+    `ForwardCallbackSubmodule`s are handled in a specific way by `DeepcvModule` for builtin support for output tensor references (e.g. residual links with `yaml_tokens.FROM` parameter, see `_add_residual_dense_link_creator` for example usage in a submodule creator)
     , reduction functions support (see TENSOR_REDUCTION_FNS for more details) and NNI NAS Mutable InputChoice support. It means that `DeepcvModule` will parse reduction function and output tensor references and provide those in `self.reduction_fn`, `self.mutable_input_choice` before any forward passes and give those along with `referenced_submodules_out` argument to forward pass callback.
     NOTE: `tensor_reduction_fn` and `referenced_submodules_out` arguments are not mandatory in forward callback signature from a submodule creator, but can be taken according to your needs (if reduction function, tensor references and/or NNI NAS Mutable InputChoice support is needed for this NN submodule).
     """
@@ -138,7 +138,8 @@ class DeepcvModule(torch.nn.Module):
 
     HP_DEFAULTS = {'architecture': ..., 'act_fn': ..., 'weight_norm': None, 'spectral_norm': None}
 
-    def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
+    def __init__(self, input_shape: torch.Size, hp: Union['deepcv.meta.hyperparams.Hyperparameters', Dict[str, Any]]):
+        from deepcv.meta.hyperparams import to_hyperparameters
         super().__init__()
         self._input_shape = input_shape
         self._uses_nni_nas_mutables = False
@@ -146,7 +147,7 @@ class DeepcvModule(torch.nn.Module):
 
         # Process module hyperparameters
         assert self.HP_DEFAULTS != ..., f'Error: Module classes which inherits from "DeepcvModule" ({type(self).__name__}) must define "HP_DEFAULTS" class attribute dict.'
-        self._hp, _missing = deepcv.meta.hyperparams.to_hyperparameters(hp, defaults=self.HP_DEFAULTS, raise_if_missing=True)
+        self._hp, _missing = to_hyperparameters(hp, defaults=self.HP_DEFAULTS, raise_if_missing=True)
 
         # Create model architecture according to hyperparameters's `architecture` entry (see ./conf/base/parameters.yml for examples of architecture specs.) and initialize its parameters
         self.define_nn_architecture(self._hp['architecture'])
@@ -504,7 +505,7 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
 
     SHARED_BLOCK_DISABLED_WARNING_MSG = r'Warning: `DeepcvModule.{}` called while `self._enable_shared_image_embedding_block` is `False` (Shared image embedding block disabled for this model)'
 
-    def __init__(self, input_shape: torch.Size, hp: deepcv.meta.hyperparams.Hyperparameters, enable_shared_block: bool = True, freeze_shared_block: bool = True):
+    def __init__(self, input_shape: torch.Size, hp: 'deepcv.meta.hyperparams.Hyperparameters', enable_shared_block: bool = True, freeze_shared_block: bool = True):
         super().__init__(input_shape, hp)
 
         self._shared_block_forked = False
@@ -641,6 +642,18 @@ class DeepcvModuleDescriptor:
 
 #__________________________________________ DEFAULT/BASE SUBMODULE CREATORS ___________________________________________#
 
+
+def submodule_creator_dec(name: str, submodule_creators: Dict[str, Callable[..., torch.nn.Module]] = BASIC_SUBMODULE_CREATORS) -> Callable[[Callable], Callable]:
+    """ Decorator helper function which appends a new entry to `submodule_creators` with decorated function associated to its `name`. """
+    assert name not in submodule_creators, f'Error: "{name}" submodule creator entry already exists, can have duplicate submodule creator names.'
+
+    def _decorator(creator: Callable[..., torch.nn.Module]):
+        submodule_creators[name] = creator
+        return creator
+    return _decorator
+
+
+@submodule_creator_dec(name='average_pooling')
 def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size]) -> torch.nn.Module:
     prev_dim = len(prev_shapes[-1][1:])
     if prev_dim >= 4:
@@ -650,12 +663,37 @@ def _create_avg_pooling(submodule_params: Dict[str, Any], prev_shapes: List[torc
     return torch.nn.AvgPool1d(**submodule_params)
 
 
-def _create_nn_layer(layer_op_t: Type[torch.nn.Module]) -> Callable[['submodule_params', 'prev_shapes', 'act_fn', 'dropout_prob', 'batch_norm', 'channel_dim', 'preactivation'], torch.nn.Module]:
+@submodule_creator_dec(name=yaml_tokens.NEW_BRANCH_FROM_TENSOR)
+def _new_branch_creator(submodule_params: Dict[str, Any], channel_dim: int = 1) -> ForwardCallbackSubmodule:
+    if yaml_tokens.FROM not in params and yaml_tokens.FROM_NAS_INPUT_CHOICE not in params:
+        raise ValueError(f'Error: You must either specify "{yaml_tokens.FROM}" or "{yaml_tokens.FROM_NAS_INPUT_CHOICE}" parameter '
+                         f'in a "{yaml_tokens.NEW_BRANCH_FROM_TENSOR}" submodule spec.')
+
+    def _new_branch_from_tensor_forward(x: TENSOR_OR_SEQ_OF_TENSORS_T, referenced_submodules_out: List[torch.Tensor], tensor_reduction_fn: REDUCTION_FN_T = TENSOR_REDUCTION_FNS['concat'], channel_dim: int = 1):
+        """ Simple forward pass callback which takes referenced output tensor(s) and ignores previous submodule output features, allowing to define siamese/parallel branches thereafter.
+        In other words, `yaml_tokens.NEW_BRANCH_FROM_TENSOR` submodules are similar to dense links but will only use referenced submodule(s) output, allowing new siamese/parrallel NN branches to be defined (wont reuse previous submodule output features)
+        If multiple tensors are referenced using `yaml_tokens.FROM` (or `yaml_tokens.FROM_NAS_INPUT_CHOICE`), `tensor_reduction_fn` reduction function will be applied.
+        Reduction function is 'concat' by default and can be overriden by `_reduction` parameter in link submodule spec., see `TENSOR_REDUCTION_FNS` for all possible reduction functions.
+        NOTE: As `yaml_tokens.NEW_BRANCH_FROM_TENSOR` submodules have a specific handling/meaning in `DeepcvModule`, this callback is directly used in `DeepcvModule.define_nn_architecture` instead of beeing part of a regular submodule creator in `BASIC_SUBMODULE_CREATORS` (like `_deepcvmodule` or `yaml_tokens.NAS_LAYER_CHOICE` submodules).
+        """
+        # Ignores `x` input tensor (previous submodule output tensor is ignored)
+        if tensor_reduction_fn == TENSOR_REDUCTION_FNS['concat']:
+            return tensor_reduction_fn(referenced_submodules_out, dim=channel_dim)
+        return tensor_reduction_fn(referenced_submodules_out)
+    return ForwardCallbackSubmodule(partial(_new_branch_from_tensor_forward, channel_dim=channel_dim))
+
+
+def add_nn_layer_creator(layer_op_t: Type[torch.nn.Module], creator_name: str, submodule_creators: Dict[str, Callable] = BASIC_SUBMODULE_CREATORS) -> Callable[['submodule_params', 'prev_shapes', 'act_fn', 'dropout_prob', 'batch_norm', 'channel_dim', 'preactivation'], torch.nn.Module]:
     """ Creates a fully connected or convolutional NN layer with optional dropout and batch/layer/instance/group norm support (and preactivation, activation function, ... choices)
     NOTE: We assume here that features/inputs are given in (mini)batches (`channel_dim` defaults to 1)
     """
-    def _create_conv_or_fc_layer(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], layer_op_t: Type[torch.nn.Module], act_fn: Optional[torch.nn.Module] = None, dropout_prob: Optional[float] = None, channel_dim: int = 1, preactivation: bool = False,
-                                 batch_norm: Optional[Dict[str, Any]] = None, layer_norm: Optional[Dict[str, Any]] = None, instance_norm: Optional[Dict[str, Any]] = None, group_norm: Optional[Dict[str, Any]] = None, layer_norm_with_mean_only_batch_norm: Optional[Dict[str, Any]] = None) -> torch.nn.Module:
+    if deepcv.meta.nn.is_conv(layer_op_t) and not isinstance(layer_op_t, torch.nn.Linear):
+        raise TypeError(f'Error: Wrong `layer_op_t` type, cant create a NN layer of type {layer_op_t} with `deepcv.meta.base_module.add_nn_layer_creator` '
+                        'submodule creator (`layer_op_t` should either be a convolution or a `torch.nn.Linear`).')
+
+    @submodule_creator_dec(name=creator_name, submodule_creators=submodule_creators)
+    def _nn_layer_creator(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], layer_op_t: Type[torch.nn.Module], act_fn: Optional[torch.nn.Module] = None, dropout_prob: Optional[float] = None, channel_dim: int = 1, preactivation: bool = False,
+                          batch_norm: Optional[Dict[str, Any]] = None, layer_norm: Optional[Dict[str, Any]] = None, instance_norm: Optional[Dict[str, Any]] = None, group_norm: Optional[Dict[str, Any]] = None, layer_norm_with_mean_only_batch_norm: Optional[Dict[str, Any]] = None) -> torch.nn.Module:
         # Handle specified normalization techniques if any (BatchNorm, LayerNorm, InstanceNorm, GroupNorm and/or layer_norm_with_mean_only_batch_norm)
         from deepcv.meta.nn import NormTechniques
         norm_techniques = {NormTechniques.BATCH_NORM: batch_norm, NormTechniques.LAYER_NORM: layer_norm, NormTechniques.INSTANCE_NORM: instance_norm,
@@ -665,19 +703,28 @@ def _create_nn_layer(layer_op_t: Type[torch.nn.Module]) -> Callable[['submodule_
         if len(norms) > 0:
             norm_ops = deepcv.meta.nn.normalization_techniques(norm_type=norms.keys(), norm_kwargs=norms.values(), input_shape=prev_shapes[-1][channel_dim:])
 
-        if deepcv.meta.nn.is_conv(layer_op_t):
-            submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
-        elif isinstance(layer_op_t, torch.nn.Linear):  # Only supports convolutions and linear layers in this submodule creator
+        if isinstance(layer_op_t, torch.nn.Linear):  # Only supports convolutions and linear layers in this submodule creator
             submodule_params['in_features'] = np.prod(prev_shapes[-1][channel_dim:])
         else:
-            raise TypeError(f'Error: Wrong `layer_op_t` type, cant create a NN layer of type {layer_op_t} with `deepcv.meta.base_module._create_nn_layer` submodule creator.')
+            submodule_params['in_channels'] = prev_shapes[-1][channel_dim]
         return deepcv.meta.nn.layer(layer_op=layer_op_t(**submodule_params), act_fn=act_fn, dropout_prob=dropout_prob, norm_ops=norm_ops, preactivation=preactivation)
 
-    _create_conv_or_fc_layer.__doc__ = _create_nn_layer.__doc__
-    return partial(_create_conv_or_fc_layer, layer_op_t=layer_op_t)
+    _nn_layer_creator.__doc__ = add_nn_layer_creator.__doc__
+    return partial(_nn_layer_creator, layer_op_t=layer_op_t)
 
 
-def _residual_dense_link(is_residual: bool = True) -> Callable[['submodule_params', 'allow_scaling', 'scaling_mode', 'channel_dim'], ForwardCallbackSubmodule]:
+# Add NN Layer submodule creator entries to `BASIC_SUBMODULE_CREATORS`
+add_nn_layer_creator(layer_op_t=torch.nn.Conv1d, creator_name='conv1d')
+add_nn_layer_creator(layer_op_t=torch.nn.Conv2d, creator_name='conv2d')
+add_nn_layer_creator(layer_op_t=torch.nn.Conv3d, creator_name='conv3d')
+add_nn_layer_creator(layer_op_t=torch.nn.ConvTranspose1d, creator_name='transosed_conv1d')
+add_nn_layer_creator(layer_op_t=torch.nn.ConvTranspose2d, creator_name='transosed_conv2d')
+add_nn_layer_creator(layer_op_t=torch.nn.ConvTranspose3d, creator_name='transosed_conv3d')
+add_nn_layer_creator(layer_op_t=torch.nn.Linear, creator_name='linear')
+add_nn_layer_creator(layer_op_t=torch.nn.Linear, creator_name='fully_connected')
+
+
+def add_residual_dense_link_creator(is_residual: bool, creator_name: str, submodule_creators: Dict[str, Callable] = BASIC_SUBMODULE_CREATORS) -> Callable[['submodule_params', 'allow_scaling', 'scaling_mode', 'channel_dim'], ForwardCallbackSubmodule]:
     """ Creates a residual or dense link sub-module which concatenates or adds features from previous sub-module output with other referenced sub-module(s) output(s).
     `submodule_params` argument must contain a `yaml_tokens.FROM` (or `yaml_tokens.FROM_NAS_INPUT_CHOICE`) entry giving the other sub-module reference(s) (sub-module name(s)) from which output(s) is added to previous sub-module output features.
 
@@ -689,7 +736,12 @@ def _residual_dense_link(is_residual: bool = True) -> Callable[['submodule_param
     NOTE: If `allow_scaling` is `False`, output features shapes of these two or more submodules must be the same, except for the channels/filters dimension if this is a dense link.
     NOTE: The only diference between residual and dense links ('is_residual' beeing 'True' of 'False') is the default `yaml_tokens.REDUCTION_FN` function beeing respectively 'sum' and 'concat'.
     """
-    def _create_link_submodule(submodule_params: Dict[str, Any], is_residual: bool, allow_scaling: bool = False, scaling_mode: str = 'linear', channel_dim: int = 1) -> ForwardCallbackSubmodule:
+    @submodule_creator_dec(name=creator_name, submodule_creators=submodule_creators)
+    def _link_creator(submodule_params: Dict[str, Any], is_residual: bool, allow_scaling: bool = False, scaling_mode: str = 'linear', channel_dim: int = 1) -> ForwardCallbackSubmodule:
+        if yaml_tokens.FROM not in params and yaml_tokens.FROM_NAS_INPUT_CHOICE not in params:
+            raise ValueError(f'Error: Missing "{yaml_tokens.FROM}" or "{yaml_tokens.FROM_NAS_INPUT_CHOICE}" parameter in '
+                             f'{"residual" if is_residual else "dense"} link YAML specification; You should at least provide a tensor reference.')
+
         def _forward_callback(x: TENSOR_OR_SEQ_OF_TENSORS_T, referenced_submodules_out: List[torch.Tensor], tensor_reduction_fn: REDUCTION_FN_T = (TENSOR_REDUCTION_FNS['sum'] if is_residual else TENSOR_REDUCTION_FNS['concat'])):
             """ Redisual or Dense link forward pass callbacks
             If target output shape is different from one of the referenced tensor shapes, a up/down-scaling (interpolation) may be performed according to `scaling_mode` and `allow_scaling` parameters.
@@ -713,21 +765,13 @@ def _residual_dense_link(is_residual: bool = True) -> Callable[['submodule_param
             rslt = tensor_reduction_fn(tensors, dim=channel_dim) if tensor_reduction_fn == TENSOR_REDUCTION_FNS['concat'] else tensor_reduction_fn(tensors)
         return ForwardCallbackSubmodule(_forward_callback)
 
-    _create_link_submodule.__doc__ = _residual_dense_link.__doc__
-    return partial(_create_link_submodule, is_residual=is_residual)
+    _link_creator.__doc__ = _add_residual_dense_link_creator.__doc__
+    return partial(_link_creator, is_residual=is_residual)
 
 
-def _new_branch_from_tensor_forward(x: TENSOR_OR_SEQ_OF_TENSORS_T, referenced_submodules_out: List[torch.Tensor], tensor_reduction_fn: REDUCTION_FN_T = TENSOR_REDUCTION_FNS['concat'], channel_dim: int = 1):
-    """ Simple forward pass callback which takes referenced output tensor(s) and ignores previous submodule output features, allowing to define siamese/parallel branches thereafter.
-    In other words, `yaml_tokens.NEW_BRANCH_FROM_TENSOR` submodules are similar to dense links but will only use referenced submodule(s) output, allowing new siamese/parrallel NN branches to be defined (wont reuse previous submodule output features)
-    If multiple tensors are referenced using `yaml_tokens.FROM` (or `yaml_tokens.FROM_NAS_INPUT_CHOICE`), `tensor_reduction_fn` reduction function will be applied.
-    Reduction function is 'concat' by default and can be overriden by `_reduction` parameter in link submodule spec., see `TENSOR_REDUCTION_FNS` for all possible reduction functions.
-    NOTE: As `yaml_tokens.NEW_BRANCH_FROM_TENSOR` submodules have a specific handling/meaning in `DeepcvModule`, this callback is directly used in `DeepcvModule.define_nn_architecture` instead of beeing part of a regular submodule creator in `BASIC_SUBMODULE_CREATORS` (like `_deepcvmodule` or `yaml_tokens.NAS_LAYER_CHOICE` submodules).
-    """
-    # Ignores `x` input tensor (previous submodule output tensor is ignored)
-    if tensor_reduction_fn == TENSOR_REDUCTION_FNS['concat']:
-        return tensor_reduction_fn(referenced_submodules_out, dim=channel_dim)
-    return tensor_reduction_fn(referenced_submodules_out)
+# Add Residual and Dense Link submodule creator entries to `BASIC_SUBMODULE_CREATORS`
+add_residual_dense_link_creator(is_residual=True, creator_name='residual_link')
+add_residual_dense_link_creator(is_residual=False, creator_name='dense_link')
 
 
 if __name__ == '__main__':

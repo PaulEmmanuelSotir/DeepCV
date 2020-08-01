@@ -314,7 +314,10 @@ class EventsHandler:
                 raise ValueError(msg)
 
             callbacks = [callbacks, ] if isinstance(callbacks, Callable) else (callbacks if callbacks is not None else [])
-            self._callbacks[event] = [(*self._callbacks[event]) if event in self._callbacks else (*[]), *callbacks]
+            if event in self._callbacks:
+                self._callbacks[event].extend(callbacks)
+            else:
+                self._callbacks[event] = callbacks
 
     def fire_event(self, event_names=Union[str, Sequence[str]], *callback_args, **callback_kwargs):
         for event in event_names:

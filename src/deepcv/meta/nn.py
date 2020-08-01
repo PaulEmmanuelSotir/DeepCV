@@ -30,7 +30,7 @@ import deepcv.meta.base_module
 
 __all__ = ['HybridConnectivityGatedNet', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
            'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords', 'nd_support', 'conv_nd', 'conv_transpose_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer_norm_with_mean_only_batch_norm', 'NormTechniques',
-           'NORM_TECHNIQUES_MODULES', 'NORM_TECHNIQUES_MODULES_T', 'normalization_techniques', 'weight_norm', 'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer',
+           'NORM_TECHNIQUES_MODULES', 'NORM_TECHNIQUES_MODULES_T', 'normalization_techniques', 'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer',
            'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
 __author__ = 'Paul-Emmanuel Sotir'
 
@@ -349,17 +349,6 @@ def normalization_techniques(norm_type: Union[NormTechniques, Sequence[NormTechn
             raise ValueError(F'Error: "{norm_t}" is an unkown or forbiden normalization technique: It isn\'t specified in `supported_norm_ops="{supported_norm_ops}"`')
         norm_ops.append(supported_norm_ops[norm_t](**kwargs))
     return norm_ops
-
-
-def weight_norm(module, name=None, dim=None):
-    # TODO: remove this function and add weight norm support in `deepcv.meta.base_module.DeepcvModule`
-    # Weight Norm: Implemented with hooks added on given module in order to apply normalization on parameter(s) named after `name` (defaults to 'weight') of given `module`
-    torch.nn.utils.weight_norm(module, name='weight', dim=0)
-    # To remove hooks: torch.nn.utils.remove_weight_norm(module, name='weight')
-
-    # Spectral Norm: Weight norm with spectral norm of the weight matrix calculated using power iteration method (Implemented with hooks added on given module)
-    torch.nn.utils.spectral_norm(module, name='weight', n_power_iterations=1, eps=1e-12, dim=None)  # containing module
-    # To remove hooks: torch.nn.utils.remove_spectral_norm(module, name='weight')
 
 
 def layer(layer_op: torch.nn.Module, act_fn: Optional[Type[torch.nn.Module]], dropout_prob: Optional[float] = None, norm_ops: Optional[Union[torch.nn.Module, Sequence[torch.nn.Module]]] = None, preactivation: bool = False) -> torch.nn.Module:

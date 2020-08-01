@@ -126,12 +126,17 @@ class DeepcvModule(torch.nn.Module):
     NOTE: Submodule creator functions (and/or specified submodules `torch.nn.Module` types `__init__` constructors) must take named arguments to be supported (`*args` and `**kwargs` not supported)
     NOTE: If a submodule creators takes a parameter directly as an argument instead of taking it from `submodule_params` dict argument, then this parameter won't be present in `submodule_params` dict, even if its value have been specified localy in submodule parameters (i.e. even if its value doesn't comes from global `hp` entries).
 
+    `DeepcvModule` have 'global' Weight Norm and Spectral Norm support through 'weight_norm' and 'spectral_norm' parameters dicts of `hp`:  
+        - 'weight_norm' parameter dict may specify 'name' and 'dim' arguments, see [Weight Norm in PyTorch docs](https://pytorch.org/docs/stable/generated/torch.nn.utils.weight_norm.html?highlight=weight%20norm#torch.nn.utils.weight_norm)
+        - 'spectral_norm' parameter dict may specify 'name', 'n_power_iterations', 'eps' and 'dim' arguments, see [Spectral Norm in PyTorch docs](https://pytorch.org/docs/stable/generated/torch.nn.utils.spectral_norm.html?highlight=spectral#torch.nn.utils.spectral_norm)
+    NOTE: If needed, you can remove weight norm or spectral norm hooks afterwards by using: `torch.nn.utils.remove_weight_norm(module, name=...)` or `torch.nn.utils.remove_spectral_norm(module, name=...)`  
+
     .. For more details about `architecture` hyperparameter parsing, see code in `DeepcvModule.define_nn_architecture` and examples of DeepcvModule(s) YAML architecture specification in ./conf/base/parameters.yml
     NOTE: A sub-module's name defaults to 'submodule_{i}' where 'i' is sub-module index in architecture sub-module list. Alternatively, you can specify a sub-module's name in architecture configuration (either using a tuple/list of submodule name and params or by specifying a `_name` argument in submodule params), which, for example, allows you to define residual/dense links referencing these tensor(s) by their name(s).
     .. See complete examples of `DeepcvModule` model NN architecture specification in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
     """
 
-    HP_DEFAULTS = {'architecture': ..., 'act_fn': ...}
+    HP_DEFAULTS = {'architecture': ..., 'act_fn': ..., 'weight_norm': None, 'spectral_norm': None}
 
     def __init__(self, input_shape: torch.Size, hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]]):
         super().__init__()
@@ -146,6 +151,14 @@ class DeepcvModule(torch.nn.Module):
         # Create model architecture according to hyperparameters's `architecture` entry (see ./conf/base/parameters.yml for examples of architecture specs.) and initialize its parameters
         self.define_nn_architecture(self._hp['architecture'])
         self.initialize_parameters(self._hp['act_fn'])
+
+        # Support for weight normalization and spectral weight normalization
+        if self._hp['weight_norm'] is not None:
+            # Weight Norm: Implemented with hooks added on given module in order to apply normalization on parameter(s) named after `self._hp['weight_norm']['name']` (defaults to 'weight')
+            torch.nn.utils.weight_norm(self, **self._hp['weight_norm'])
+        elif self._hp['spectral_norm'] is not None:
+            # Spectral Norm: Weight norm with spectral norm of the weight matrix calculated using power iteration method (Implemented with hooks added on given module)
+            torch.nn.utils.spectral_norm(self, **self._hp['spectral_norm'])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.dim() == len(self._input_shape):

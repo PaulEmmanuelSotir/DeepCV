@@ -15,7 +15,7 @@ import functools
 from enum import Enum, auto
 from types import SimpleNamespace, FunctionType
 from collections import OrderedDict
-from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
+from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List, Hashable
 
 import numpy as np
 
@@ -425,20 +425,33 @@ def meta_layer(input_feature_shape: torch.Size, target_module: torch.nn.Paramete
     return torch.nn.Sequential(OrderedDict(ops))
 
 
-def get_gain_name(act_fn: Type[torch.nn.Module]) -> str:
+""" Map of default supported activation functions for `deecv.meta.nn.get_gain_name` xavier initializaton helper function  
+Feel free to extend it for other activation functions in order to have the right xavier init gain when using `torch.nn.init.calculate_gain(deepcv.meta.nn.get_gain_name(...))` or `deepcv.meta.base_module.DeepcvModule`   
+NOTE: Here are some builtin actiavion function of PyTorch which doesnt have explicit support for Xavier Init gain: 'Hardtanh', 'LogSigmoid', 'PReLU', 'ReLU6', 'RReLU', 'SELU', 'CELU', 'GELU', 'Softplus', 'Softshrink', 'Softsign', 'Tanhshrink', 'Threshold', 'Softmin', 'Softmax', 'Softmax2d', 'LogSoftmax', ...
+"""
+XAVIER_INIT_SUPPORTED_ACT_FN = {torch.nn.ReLU: 'relu', torch.nn.LeakyReLU: 'leaky_relu', torch.nn.Tanh: 'tanh', torch.nn.Sigmoid: 'sigmoid', torch.nn.Identity: 'linear'}
+
+
+def get_gain_name(act_fn: Type[torch.nn.Module], default: str = 'relu', upported_act_fns: Dict[Type[torch.nn.Module, str]] = XAVIER_INIT_SUPPORTED_ACT_FN) -> str:
     """ Intended to be used with torch.nn.init.calculate_gain(str):
-    .. Example: torch.nn.init.calculate_gain(get_gain_act_name(torch.nn.ReLU))
+    NOTE: For `leaky_relu` (and any other parametric act fn with future support), `torch.nn.init.calculate_gain` needs another argument `param` which should be act fn parameter (Leaky ReLU slope)
+
+    Example usage: 
+    ``` python
+        weights_to_init = ...
+        gain = torch.nn.init.calculate_gain(get_gain_act_name(torch.nn.ReLU))
+        torch.nn.init.xavier_normal(weights_to_init, gain=gain) # You can alternatively use `torch.nn.init.xavier_uniform` according to your needs (e.g. linear layer weights init instead of convolution's)
+    ```
+
+    .. See (`torch.nn.init.calculate_gain` PyTorch documentation)[https://pytorch.org/docs/1.5.0/nn.init.html?highlight=calculate_gain#torch.nn.init.calculate_gain] for more details.
     """
-    if act_fn is torch.nn.ReLU:
-        return 'relu'
-    elif act_fn is torch.nn.LeakyReLU:
-        return 'leaky_relu'
-    elif act_fn is torch.nn.Tanh:
-        return 'tanh'
-    elif act_fn is torch.nn.Identity:
-        return 'linear'
+    if act_fn in upported_act_fns:
+        return upported_act_fns[act_fn]
     else:
-        raise Exception("Unsupported activation function, can't initialize it.")
+        logging.warn(f'Warning: Unsupported activation function "{act_fn}", defaulting to "{default}" xavier initialization. '
+                     f'(You may need to add support for "{act_fn}" xavier init gain through `supported_act_fns` arg or its default `XAVIER_INIT_SUPPORTED_ACT_FN`).\n'
+                     f'Supported activation function are: supported_act_fns="{supported_act_fns}"')
+        return default
 
 
 def data_parallelize(model: torch.nn.Module, print_msg: bool = True) -> torch.nn.Module:
@@ -515,12 +528,18 @@ def get_model_capacity(model: Optional[torch.nn.Module]):
     return sum([np.prod(param.shape) for param in model.parameters(recurse=True)])
 
 
-def get_out_features_shape(input_shape: torch.Size, module: torch.nn.Module, input_batches: bool = True) -> torch.Size:
-    """ Performs a forward pass with a dummy input tensor to figure out module's output shape """
+def get_out_features_shape(input_shape: torch.Size, module: torch.nn.Module, use_minibatches: bool = True) -> Union[torch.Size, List[torch.Size], Dict[Hashable, torch.Size]]:
+    """ Performs a forward pass with a dummy input tensor to figure out module's output shape.
+    NOTE: `input_shape` is assumed to be input tensor shape without eventual minibatch dim: If `use_minibatches` is `True`, input tensor will be unsueezed to have a minibatch dim, along with `input_shape` dims, before being forwarded throught given `module`.
+    Returns output tensor shape(s) of given `module` applied to a dummy input (`torch.nn.zeros`) with or without additional minibatch dim (depending on `use_minibatches`). If `module` returns a `Sequence` or a `Dict` of `torch.Tensor` instead of a single tensor, this function will return a list or a dict of output tensors shapes  
+    """
     module.eval()
     with torch.no_grad():
-        dummy_batch_x = torch.unsqueeze(torch.zeros(input_shape), dim=0) if input_batches else torch.zeros(input_shape)
-        return module(dummy_batch_x).shape
+        dummy_batch_x = torch.unsqueeze(torch.zeros(input_shape), dim=0) if use_minibatches else torch.zeros(input_shape)
+        outputs = module(dummy_batch_x)
+        if isinstance(outputs, torch.Tensor):
+            return outputs.shape
+        return {n: r.shape for n, r in outputs.items()} if isinstance(outputs, Dict) else [r.shape for r in outputs]
 
 
 def is_fully_connected(module_or_t: Union[torch.nn.Module, Type[torch.nn.Module]]) -> bool:

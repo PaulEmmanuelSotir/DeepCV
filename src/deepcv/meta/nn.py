@@ -213,13 +213,17 @@ def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, insp
                 bound_args.apply_defaults()
                 self._forward_args_from_init = bound_args.arguments
 
-            def forward(self, *inputs, **kwargs) -> torch.Tensor:
+            @functools.wraps(forward_func)
+            def forward(self, *inputs, **kwargs) -> TENSOR_OR_SEQ_OF_TENSORS_T:
                 bound_args = forward_signature.bind(*inputs, **kwargs)
                 bound_args.apply_defaults()
                 return forward_func(**bound_args.arguments, **self._forward_args_from_init)
 
+        prev_qualname = _Module.__qualname__ if _Module.__qualname__ not in ('', None) else _Module.__name__
+        _Module.__qualname__ = (forward_func.__qualname__.replace(forward_func.__name__, typename)) if forward_func.__name__ not in ('', None) else typename
         _Module.__name__ = typename
         _Module.__doc__ = f'Module created at runtime from `{forward_func.__name__}` forward function.{NL}Initial forward function documentation:{NL}' + forward_func.__doc__
+        _Module.__module__ = forward_func.__module__
 
         # Modify `_Module.__init__` function to match excpected signature
         init_signature = init_signature.replace(return_annotation=_Module)
@@ -228,13 +232,18 @@ def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, insp
         _Module.__init__.__signature__ = init_signature
         _Module.__init__.__annotations__ = {n: p.annotation for n, p in init_signature.parameters.items()}
         _Module.__init__.__doc__ = f"Instanciate a new `{typename}` PyTorch module. (Class generated at runtime from `{forward_func.__name__}` forward function with `deepcv.meta.nn.func_to_module`)."
+        _Module.__init__.__qualname__ = _Module.__init__.__qualname__.replace(prev_qualname, _Module.__qualname__)
+        _Module.__init__.__module__ = forward_func.__module__
 
         # Modify `_Module.forward` function to match excpected signature
         # TODO: make sure defaults are ordered the right way (should be the case as forward_signature.parameters is an OrderedDict) and make sure it plays well with `signature.apply_defaults` function
+        _Module.forward.__module__ = forward_func.__module__
         _Module.forward.__defaults__ = tuple(p.default for (n, p) in forward_signature.parameters.items() if p.default)
         _Module.forward.__signature__ = forward_signature
-        _Module.forward.__annotations__ = {n: p.annotation for (n, p) in forward_signature.parameters.items()}
-        _Module.forward.__doc__ = forward_func.__doc__
+        _Module.forward.__qualname__ = _Module.forward.__qualname__.replace(prev_qualname, _Module.__qualname__)
+        if getattr(forward_signature, '__annotations__', None) is None:
+            # TODO: make sure this is usefful: `__annotations__` is already copied by `functools.warps` but in case __annotations__ isn't defined, there may still be annotations accessible from `inspect.signature`:
+            _Module.forward.__annotations__ = {n: getattr(p, 'annotation', None) for (n, p) in forward_signature.parameters.items()}
         return _Module
     return functools.partial(_warper, typename=typename, init_params=init_params)
 

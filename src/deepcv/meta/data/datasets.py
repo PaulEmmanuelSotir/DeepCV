@@ -92,23 +92,26 @@ def dataloader_prefetch_batches(dataloader: DataLoader, device: Union[None, str,
     elif device is None or device == 'cpu' or (isinstance(device, torch.device) and device.type == 'cpu'):  # TODO: condition this on 'cuda' instead?
         logging.warn(f'Warning: DataLoader wont prefetch data batches as given `device` argument is `{device}` when prefetching is aimed at GPU(s).')
     else:
+        @functools.wraps(dataloader.__iter__)
         def __iter__patch(self: DataLoader, *args, **kwargs):
             iterator = self.__iter__(*args, **kwargs)
             iterator._prefetched_batch = iterator.__next__().to(device=self._prefetch_device, non_blocking=True)
+            iterator._dataloader = self
 
-            def __next__patch(iterator_self: Iterable, dl: DataLoader) -> Any:
+            @functools.wraps(iterator.__next__)
+            def __next__patch(iterator_self: Iterable) -> Any:
                 if isinstance(iterator_self._prefetched_batch, StopIteration):
                     raise iterator_self._prefetched_batch
                 else:
                     batch = iterator_self._prefetched_batch
                     try:
-                        iterator_self._prefetched_batch = iterator_self.__next__().to(device=dl._prefetch_device, non_blocking=True)
+                        iterator_self._prefetched_batch = iterator_self.__next__().to(device=iterator_self._dataloader._prefetch_device, non_blocking=True)
                     except StopIteration as e:
                         # Catch `StopIteration` to raise it later (during following call to `__next__`)
                         iterator_self._prefetched_batch = e
                     return batch
 
-            iterator.__next__ = functools.partial(__next__patch, dl=self)
+            iterator.__next__ = __next__patch
             return iterator
 
         dataloader._prefetch_device = device

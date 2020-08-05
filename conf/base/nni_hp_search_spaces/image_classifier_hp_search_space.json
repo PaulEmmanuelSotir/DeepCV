@@ -1,12 +1,12 @@
 {
-    "object_detector_model.dropout_keepprob": {
+    "image_classifier_model.dropout_keepprob": {
         "_type": "uniform",
         "_value": [
             0.0,
             0.5
         ]
     },
-    "object_detector_model.batch_norm": {
+    "image_classifier_model.batch_norm": {
         "_type": "choice",
         "_value": [
             null,
@@ -17,7 +17,7 @@
             }
         ]
     },
-    "object_detector_model.conv_size": {
+    "image_classifier_model.conv_size": {
         "_type": "choice",
         "_value": [
             2,
@@ -26,7 +26,7 @@
             7
         ]
     },
-    "object_detector_model.hidden_size": {
+    "image_classifier_model.hidden_size": {
         "_type": "choice",
         "_value": [
             124,
@@ -34,7 +34,7 @@
             1024
         ]
     },
-    "train_object_detector.batch_size": {
+    "train_image_classifier.batch_size": {
         "_type": "choice",
         "_value": [
             16,
@@ -44,14 +44,14 @@
             256
         ]
     },
-    "train_object_detector.optimizer_opts.lr": {
+    "train_image_classifier.optimizer_opts.lr": {
         "_type": "uniform",
         "_value": [
             1e-4,
             1e-1
         ]
     },
-    "train_object_detector.optimizer_opts.weight_decay": {
+    "train_image_classifier.optimizer_opts.weight_decay": {
         "_type": "uniform",
         "_value": [
             0.0001,

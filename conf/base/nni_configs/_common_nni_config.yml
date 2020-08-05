@@ -3,7 +3,7 @@
 # NOTE: These configurations are common to all hyperparameter searches, if you need to configure an hyperparameter search for a specific model, you should modify appropriate hp search configuration in parameters.yml
 authorName: "" # Will be populated automatically by DeepCV (named after current git username, which is the same as mlflow user)
 experimentName: "" # Will be populated automatically by DeepCV (named after mlflow experiment name)
-searchSpacePath: "./hp_search_spaces/object_detector_hp_search_space.json" # Will be determined by model name to be "./conf/base/hp_search_spaces/<model_name>_search_space.json" or will be overriden by your hp search configuration in parameters.yml ('searchSpacePath' entry if any)
+searchSpacePath: "./hp_search_spaces/image_classifier_hp_search_space.json" # Will be determined by model name to be "./conf/base/hp_search_spaces/<model_name>_search_space.json" or will be overriden by your hp search configuration in parameters.yml ('searchSpacePath' entry if any)
 trialConcurrency: 1 # Will be populated automatically by DeepCV according to distributed configuration and/or number of available GPUs
 maxTrialNum: -1 # Can be overriden by trials number ('maxTrialNum') you configured for your hyperparameter search in parameters.yml
 # maxExecDuration: 2h # Feel free to uncomment this if you want a default maximal execution duration for all of your hyperparameter searches. Can be overriden by your hyperparameter search config in parameters.yml

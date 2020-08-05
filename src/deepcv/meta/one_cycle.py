@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Object detection module - object.py - `DeepCV`__  
+""" One Cycle scheduling policy meta module - one_cycle.py - `DeepCV`__  
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 from typing import Optional, Callable, Iterable, Union, Tuple, List

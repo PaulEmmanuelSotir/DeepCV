@@ -50,8 +50,8 @@ def get_keypoints_detector_pipelines():
                         outputs=['datasets']),
                    node(create_model, name='create_keypoints_encoder_model', inputs=['datasets', 'params:keypoints_encoder_model'], outputs=['encoder']),
                    node(create_model, name='create_keypoints_decoder_model', inputs=['datasets', 'params:keypoints_decoder_model'], outputs=['decoder']),
-                   node(train, name='train_object_detector', inputs=['datasets', 'model', 'params:train_object_detector'], outputs=['ignite_state'])],
-                  name='train_object_detector')
+                   node(train, name='train_keypoint_detector', inputs=['datasets', 'model', 'params:train_keypoint_detector'], outputs=['ignite_state'])],
+                  name='train_keypoint_detector')
     return [p1]
 
 
@@ -61,7 +61,7 @@ def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T):
     input_shape = dummy_img.shape
     model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
-    # Create ObjectDetector model
+    # Create ImageClassifier model
     model = KeypointsDetector(input_shape, model_params)
     return model
 

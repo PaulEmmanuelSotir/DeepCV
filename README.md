@@ -38,8 +38,8 @@ kedro install
 # You then need to activate conda environment (make sure to have a conda distro installed)
 conda activate deepcv
 
-# You can then run tests of any deepcv module to verify successfull installation of DeepCV (Won't work for now, stay tuned 📡):
-python deepcv/detection/object.py
+# You can then run tests of any deepcv module to verify successfull installation of DeepCV (May not work for now, stay tuned 📡):
+python deepcv/classification/image.py
 ```
 
 ### Method #2: Install our package from Anaconda repository
@@ -54,8 +54,8 @@ kedro install
 # You then need to activate conda environement (make sure to have a conda distro installed)
 conda activate deepcv
 
-# You can then run tests of any deepcv module to verify successfull installation of DeepCV (Won't work for now, stay tuned 📡):
-python deepcv/detection/object.py
+# You can then run tests of any deepcv module to verify successfull installation of DeepCV (May not work for now, stay tuned 📡):
+python deepcv/classification/image.py
 ```
 
 ## Usage example
@@ -103,7 +103,7 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 👍 = DONE; ♻ = WIP; 💤: TODO  
 
 - 👍 Implement conda activate when kedro is called in kedro_cli.py (WIP: testing and debug) 
-- 👍Finalize object detection model definition + move generic code of ObjectDetector to DeepCVModule base class
+- 👍Finalize image classifier model definition + move generic code of ImageClassifier to DeepCVModule base class
 - 👍parse and process [deepcv.meta.data.preprocess](./src/deepcv/meta/data/preprocess.py) recipes from parameters.yml
 - 👍refactor augmentation operators of AugMix on PIL images in [deepcv.meta.data.augmentation](./src/deepcv/meta/data/augmentation.py)
 - 👍make possible to specify dense and/or residual links in NN architecture configuration ([parameters.yml](./conf/bas/parameters.yml)) and process it accordingly in forward method of [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) model base class
@@ -112,7 +112,7 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 - 👍Setup and download various torchvision datasets (at least CIFAR10/100)
 - 👍fix tests/deepcv module imports (make 'tests' like a third party module appart from deepcv or move 'tests' into deepcv module)
 - 👍fix code and YAML config files in order to be able to run basic kedro pipelines and build documentation
-- 👍Run and Debug whole object detector pipeline
+- 👍Run and Debug whole image classifier pipeline
 - 👍Look into possible implementation of AugMix into deepcv (+ see any improved versions of AugMix)
 - 👍Full Experiment tracking MLFlow integration
 - ♻parse and process [deepcv.meta.data.augmentation](./src/deepcv/meta/data/augmentation.py) recipes from parameters.yml
@@ -122,7 +122,7 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 - ♻Implement more tooling for hyperparameter scheduling: allow multiple schedulers and tools for easier "super-convergence"
 - ♻Improve Hyperparameters/HyperparameterSpace/HyperparameterEmbedding/GeneralizationAcrossScalesPredictor implementations
 - ♻Fully implement HybridConnectivityGatedNet model (+ refactor it to make usage of newest version of [deepcv.meta.base_module.DeepcvModule](./src/deepcv/meta/base_module.py) model base class)
-- ♻Train object detection model + perform its hp search + Human detection model
+- ♻Train image classifier model + perform its hp search + Human/object detection model
 - ♻Train HRNet implementation on CIFAR10/100 and try to reproduce their results
 - ♻Implement OneCycle Policy along with optional learning rate scales varying for each layers or conv blocks + momentum and eventually investigate similar policies for other hyperprarmeters (e.g. dropout_prob, L2, ...) + consider to integrate fastai to deepcv dependencies in order to reuse its OneCycle policy implemetation?
 - ♻Implement architectures templates/patterns for multiscale neural net inputs and outputs + eventually gaussian blur kernels applied to convolutions activations with decreasing blur kernel size during training steps (+ rapid SOTA review from citing papers of these techniques)

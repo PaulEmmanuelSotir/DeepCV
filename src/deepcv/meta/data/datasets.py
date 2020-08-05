@@ -21,11 +21,11 @@ import torch.nn as nn
 import torchvision.datasets
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
-import deepcv.utils
+from deepcv.utils import NL, get_by_identifier, import_tests
 import deepcv.meta.data.training_metadata
+from deepcv.meta.types_aliases import *
 
-
-__all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'batch_prefetch_dataloader_patch', 'get_random_subset_dataloader']
+__all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'dataloader_prefetch_batches', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
@@ -48,12 +48,12 @@ class PytorchDataset(kedro.io.AbstractDataSet):
         if isinstance(torch_dataset, str):
             try:
                 # Retreive PyTorch Dataset type from given string identifier
-                self.pytorch_dataset = deepcv.utils.get_by_identifier(torch_dataset)
+                self.pytorch_dataset = get_by_identifier(torch_dataset)
                 if not isinstance(self.pytorch_dataset, Dataset):
                     raise TypeError(f'Error: `{torch_dataset}` should either be a `torch.utils.data.Dataset` or an identifier string'
                                     f' of a type which inherits from `torch.utils.data.Dataset`, got `{self.pytorch_dataset}`')
             except Exception as e:
-                msg = f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` type cannot be found or instanciated with the following arguments keyword arguments: "{dataset_kwargs}". \nRaised exception: "{e}"'
+                msg = f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` type cannot be found or instanciated with the following arguments keyword arguments: "{dataset_kwargs}". {NL}Raised exception: "{e}"'
                 raise ValueError(msg) from e
         elif issubclass(torch_dataset, Dataset):
             self.pytorch_dataset = torch_dataset
@@ -89,7 +89,7 @@ def dataloader_prefetch_batches(dataloader: DataLoader, device: Union[None, str,
     """
     if not dataloader.pin_memory:
         logging.warn(f'Warning: DataLoader wont prefetch data batches: set `pin_memory=True` in your DataLoader when instanciating `{type(dataloader).__name__}`')
-    elif device is None or device == 'cpu' or (isinstance(device, torch.device) and device.type == 'cpu'):
+    elif device is None or device == 'cpu' or (isinstance(device, torch.device) and device.type == 'cpu'):  # TODO: condition this on 'cuda' instead?
         logging.warn(f'Warning: DataLoader wont prefetch data batches as given `device` argument is `{device}` when prefetching is aimed at GPU(s).')
     else:
         def __iter__patch(self: DataLoader, *args, **kwargs):
@@ -131,5 +131,5 @@ def get_random_subset_dataloader(dataset: Dataset, subset_size: Union[float, int
 
 
 if __name__ == '__main__':
-    cli = deepcv.utils.import_tests().test_module_cli(__file__)
+    cli = import_tests().test_module_cli(__file__)
     cli()

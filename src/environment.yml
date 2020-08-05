@@ -22,6 +22,7 @@ dependencies:
         - seaborn # Visualization/plotting library
         - scikit-learn # Machine learning toolkit (very common depedency for non-deep-learning machine learning project)
         - scikit-image # Extends scikit-learn with a collection of algorithms for image processing
+        - cudatoolkit=10.2
         - pytorch>=1.6.* # PyTorch DeepLearning framework, developped by Facebook. PyTorch is one of the main dependencies of DeepCV.
         - torchvision>=0.7.* # Vision tooling and datasets for PyTorch
         - albumentations>=0.4.* # Image augmentation trasforms library (allows coherent/target-aware image transform)

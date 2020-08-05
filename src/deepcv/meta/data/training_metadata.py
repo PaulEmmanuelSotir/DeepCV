@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 
 import deepcv.utils
-
+from deepcv.meta.types_aliases import *
 
 __all__ = ['TrainingMetaData', 'DatasetStats', 'Task', 'Experiment', 'HyperparameterSpace', 'Hyperparameters', 'MetaTracker']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -86,22 +86,23 @@ class Hyperparameters(TrainingMetaData, collections.abc.Mapping):
             self._hash = hash_
         return self._hash
 
-    def __eq__(self, other: Union[collections.abc.Mapping, "Hyperparameters"]):
+    def __eq__(self, other: Union[Dict[str, Any], "Hyperparameters"]):
         """ `__eq__` override so that `self.__uuid` isn't taken into account, which makes it consistent with `__hash__` override """
         if isinstance(other, Hyperparameters):
             return self._store == other._store
         else:
-            return self._store == other
+            return self._store == dict(other)
 
     def get_dict_view(self) -> types.MappingProxyType:
         return types.MappingProxyType(self._store)
 
-    def with_defaults(self, defaults: Union[Dict, 'Hyperparameters'], drop_keys_not_in_defaults: bool = False) -> Tuple['Hyperparameters', List[str]]:
+    def with_defaults(self, defaults: Union[Dict[str, Any], 'Hyperparameters'], drop_keys_not_in_defaults: bool = False) -> Tuple['Hyperparameters', List[str]]:
         """ Returns a new Hyperaparameter (Frozen dict of hyperparams), with specified defaults
         Args:
             - defaults: Defaults to be applied. Contains default hyperprarmeters with their associated values. If you want to specify some required hyperparameters, set their respective values to ellipsis value `...`.
         Returns a copy of current Hyperarameters (`self`) object updated with additional defaults if not already present in `self`, and a `list` of any missing required hyperparameters names
         """
+        defaults = dict(defaults)  # Ensure `defaults` is a dict (may be a generator or another Mapping type)
         new_store = {n: v for n, v in self._store.items() if n in defaults} if drop_keys_not_in_defaults else self._store.copy()
         new_store.update({n: v for n, v in defaults.items() if n not in new_store and v != ...})
         missing_hyperparams = [n for n in defaults if n not in new_store]

@@ -55,7 +55,7 @@ def get_keypoints_detector_pipelines():
     return [p1]
 
 
-def create_model(datasets: Dict[str, Dataset], model_params: Union[hyperparams.Hyperparameters, Dict[str, Any]]):
+def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T):
     # Determine input and output shapes
     dummy_img, dummy_target = datasets['train_loader'][0][0]
     input_shape = dummy_img.shape
@@ -66,15 +66,18 @@ def create_model(datasets: Dict[str, Dataset], model_params: Union[hyperparams.H
     return model
 
 
-def train(datasets: Dict[str, Dataset], encoder: nn.Module, decoder: nn.Module, hp: Union[hyperparams.Hyperparameters, Dict[str, Any]]) -> ignite.engine.State:
+def train(datasets: Dict[str, Dataset], encoder: nn.Module, decoder: nn.Module, hp: HYPERPARAMS_T) -> ignite.engine.State:
     # TODO: decide whether we take Datasets or Dataloaders arguments here (depends on how preprocessing is implemented)
     backend_conf = deepcv.meta.ignite_training.BackendConfig(**(hp['backend_conf'] if 'backend_conf' in hp else {}))
     metrics = {'accuracy': Accuracy(device=backend_conf.device if backend_conf.distributed else None)}
     loss = nn.CrossEntropyLoss()
     opt = optim.SGD
 
+    autoencoder = torch.nn.Sequential(encoder, decoder)
+
     # Determine maximal eval batch_size which fits in video memory
-    max_eval_batch_size = deepcv.meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=model, device=backend_conf.device, upper_bound=len(datasets['trainset']))
+    max_eval_batch_size = deepcv.meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=autoencoder,
+                                                                   device=backend_conf.device, upper_bound=len(datasets['trainset']))
 
     # Determine num_workers for DataLoaders
     if backend_conf.ngpus_current_node > 0 and backend_conf.distributed:
@@ -89,7 +92,7 @@ def train(datasets: Dict[str, Dataset], encoder: nn.Module, decoder: nn.Module, 
         batch_size = hp['batch_size'] if n == 'trainset' else max_eval_batch_size
         dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers, pin_memory=True))
 
-    return deepcv.meta.ignite_training.train(hp, model, loss, dataloaders, opt, backend_conf, metrics)
+    return deepcv.meta.ignite_training.train(hp, autoencoder, loss, dataloaders, opt, backend_conf, metrics)
 
 
 if __name__ == '__main__':

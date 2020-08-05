@@ -13,6 +13,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 import deepcv.utils
+from deepcv.meta.types_aliases import *
 
 
 __all__ = []
@@ -24,7 +25,7 @@ class Task(ABC):
     def __repr__(self) -> str: return f'class="{self.__class__.__name__}";hp="{self.hp}"'
 
     @abstractmethod
-    def loss(self) -> torch.nn.modules.loss._Loss: ...
+    def loss(self) -> LOSS_FN_T: ...
     @abstractmethod
     def head_model(self, embeding_shape: torch.Size) -> nn.Module: ...
     @abstractmethod

@@ -20,7 +20,7 @@ import nni
 import mlflow
 import configparser
 
-import deepcv.meta.hyperparams
+import deepcv.meta.nni_tools
 
 __all__ = ['ProjectMainHooks']
 
@@ -70,12 +70,12 @@ class ProjectMainHooks:
         NOTE: If NNI is in dry run mode (mode used to generate NNI Classic NAS search space JSON file from a model which contains NNI NAS Mutables `LayerChoice` and/or `InputChoice`) we avoid creating any new MLFlow experiment/run nor logging anything else to mlflow during this dry run
         """
         node_tags = functools.reduce(set.union, [n.tags for n in pipeline.nodes])
-        if not deepcv.meta.hyperparams.is_nni_gen_search_space_mode() and ('train' in run_params['tags'] or 'train' in node_tags):
+        if not deepcv.meta.nni_tools.is_nni_gen_search_space_mode() and ('train' in run_params['tags'] or 'train' in node_tags):
             if mlflow.active_run() is None:
                 # Create MLFlow run in an experiment named after pipeline involved in training and log various pipeline/datasets informations to mlflow. If we are running an NNI hp/nas search, mlflow experiment and run will be named after NNI experiment and trial ids for better consitency.
                 # TODO: find another way to name experiment as pipeline name is only available when running `kedro run --pipeline=<pipeline_name>` (e.g. special tag to node after which experiment is named)
 
-                if not deepcv.meta.hyperparams.is_nni_run_standalone():  # 'STANDALONE' is NNI default experiment ID if python process haven't been started by NNI
+                if not deepcv.meta.nni_tools.is_nni_run_standalone():  # 'STANDALONE' is NNI default experiment ID if python process haven't been started by NNI
                     nni_experiment = nni.get_experiment_id()
                     mlflow.set_experiment(nni_experiment)
                     mlflow.start_run(run_name=nni.get_trial_id())

@@ -19,6 +19,7 @@ import PIL
 import numpy as np
 import albumentations
 
+from deepcv.utils import NL
 import deepcv.utils
 import deepcv.meta.hyperparams
 import deepcv.meta.data.datasets
@@ -28,9 +29,9 @@ __all__ = ['PreprocessedDataset', 'fn_to_transform', 'split_dataset', 'preproces
 __author__ = 'Paul-Emmanuel Sotir'
 
 # Joblib memory used by `_process_normalization_stats`
-joblib_cache_path = Path.cwd() / 'data/03_primary/joblib_cache'
-joblib_cache_path.mkdir(parents=True, exist_ok=True)
-memory = Memory(joblib_cache_path, verbose=0)
+JOBLIB_CACHE_PATH = Path.cwd() / 'data/03_primary/joblib_cache'
+JOBLIB_CACHE_PATH.mkdir(parents=True, exist_ok=True)
+memory = Memory(JOBLIB_CACHE_PATH, verbose=0)
 
 
 class PreprocessedDataset(Dataset):
@@ -190,7 +191,7 @@ def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperpar
     if testset is None:
         if testset_ratio is None:
             raise ValueError(f'Error: {func_name} function either needs an existing `testset` as argument or you must specify a `testset_ratio` in `params` '
-                             f'(probably from parameters/preprocessing YAML config)\nProvided dataset spliting parameters: "{params}"')
+                             f'(probably from parameters/preprocessing YAML config){NL}Provided dataset spliting parameters: "{params}"')
         split_lengths += (int(len(dataset_or_trainset) * testset_ratio),)
 
     # Find validset size to sample from `dataset_or_trainset` if needed
@@ -203,7 +204,7 @@ def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperpar
     # Perform sampling/splitting
     trainset_size = int(len(dataset_or_trainset) - np.sum(split_lengths))
     if trainset_size < 1:
-        raise RuntimeError(f'Error in {func_name}: testset and eventual validset size(s) are too large, there is no remaining trainset samples '
+        raise RuntimeError(f'Error in {func_name}: testset and eventual validset size(s) are too large, there is no remaining trainset samples{NL}'
                            f'(maybe dataset is too small (`len(dataset_or_trainset)={len(dataset_or_trainset)}`) or there is a mistake in `testset_ratio={testset_ratio}` or `validset_ratio={validset_ratio}` values, whcih must be between 0. and 1.).')
     trainset, *testset_and_validset = torch.utils.data.random_split(dataset_or_trainset, (trainset_size, *split_lengths))
     if testset is None:

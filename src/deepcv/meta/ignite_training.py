@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 """ Training loop meta module - training_loop.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
+
+*To-Do List*
+    - TODO: Implement an `eval_on_testset` function in order to perform a final evaluation of best perfoming model on testset after training procdeure
 """
 import shutil
 import logging
@@ -30,9 +33,12 @@ import mlflow
 import kedro
 import nni
 
+from deepcv.utils import NL
 import deepcv.utils
 import deepcv.meta.nn
 import deepcv.meta.hyperparams
+import deepcv.meta.nni_tools
+from deepcv.meta.types_aliases import *
 
 
 __all__ = ['BackendConfig', 'train']
@@ -41,10 +47,10 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 class BackendConfig:
 
-    def __init__(self, device_or_id: Union[None, str, int, torch.Device] = None, dist_backend: Optional[dist.Backend] = None, dist_url: Optional[str] = None):
+    def __init__(self, device_or_id: Union[None, str, int, torch.device] = None, dist_backend: Optional[dist.Backend] = None, dist_url: Optional[str] = None):
         if device_or_id is None:
             self.device = deepcv.utils.get_device()
-        elif isinstance(device_or_id, (str, torch.Device)):
+        elif isinstance(device_or_id, (str, torch.device)):
             self.device = torch.device(device_or_id) if isinstance(device_or_id, str) else device_or_id
         else:
             self.device = deepcv.utils.get_device(devid=device_or_id)  # `device_or_id` is assumed to be an `int` (device ID)
@@ -83,7 +89,8 @@ TRAINING_EVENTS = {'TRAINING_INIT', 'AFTER_TRAINING_INIT', 'ON_EPOCH_STARTED', '
                    'ON_ITERATION_STARTED', 'ON_ITERATION_COMPLETED', 'ON_EVAL_STARTED', 'ON_EVAL_COMPLETED', 'ON_TRAINING_COMPLETED'}
 
 
-def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], model: torch.nn.Module, loss: Union[torch.nn.modules.loss._Loss, Callable[['pred', 'target'], torch.Tensor]], datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(), metrics: Dict[str, Metric] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None, nni_compression_pruner: Optional[nni.compression.torch.Compressor] = None) -> ignite.engine.State:
+def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(),
+          metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None, nni_compression_pruner: Optional[nni.compression.torch.Compressor] = None) -> Tuple[METRICS_DICT_T, ignite.engine.State]:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
@@ -99,10 +106,9 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).
 
     NOTE: `callbacks_handler` argument makes possible to register "two-way callbacks" for events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS`; Systematic "two-way callbacks" usage in training loop is a pattern well described in [FastAI blog post about DeepLearning API implementation choices for better flexibility and code stability using multiple API layers/levels and two-way callbacks](https://www.fast.ai/2020/02/13/fastai-A-Layered-API-for-Deep-Learning/#callback). "Two-way callback" usage at every steps of training procedure allows easier modification of training loop behavior without having to modify its code, which allows to implement new features while preserving code stability.
-    # TODO: add support for cross-validation
-    # TODO: call pruner.update_epoch(epoch) and pruner.step() during training loop for NNI compression/pruning support
+    # TODO: add support for cross-validations
     """
-    TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'scheduler': ..., 'epochs': ..., 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
+    TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'epochs': ..., 'scheduler': None, 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
                             'validate_every_epochs': 1, 'save_every_iters': 1000, 'log_grads_every_iters': -1, 'log_progress_every_iters': 100, 'seed': None,
                             'prefetch_batches': True, 'resume_from': '', 'crash_iteration': -1, 'deterministic_cudnn': False, 'use_sync_batch_norm': False}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
@@ -117,13 +123,10 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     for n, ds in datasets.items():
         shuffle = True if n == 'trainset' else False
         batch_size = hp['batch_size'] if n == 'trainset' else hp['batch_size'] * 32  # NOTE: Evaluation batches are choosen to be 32 times larger than train batches
-        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=not backend_conf.is_cuda))
+        dl = DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=not backend_conf.is_cuda)
+        # Setup data batch prefetching by patching dataloader(s) if asked so
+        dataloaders.append(deepcv.meta.data.datasets.dataloader_prefetch_batches(dl, device=backend_conf.device) if hp['prefetch_batches'] else dl)
     trainset, *validset_testset = dataloaders
-
-    # Setup data prefetch by patching dataloader
-    for dl in (trainset, *validset_testset):
-        if hp['prefetch_batches'] and dl.pin_memory:
-            dl.__iter__ = deepcv.meta.data.datasets.batch_prefetch_dataloader_patch(iter(dl), device=backend_conf.device)
 
     model = model.to(device, non_blocking=True)
     model = _setup_distributed_training(device, backend_conf, model, (trainset.batch_size, *trainset.dataset[0][0].shape), use_sync_batch_norm=hp['use_sync_batch_norm'])
@@ -140,9 +143,12 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
 
     loss = loss.to(device) if isinstance(loss, torch.nn.Module) else loss
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
-    args_to_eval = hp['scheduler']['eval_args'] if 'eval_args' in hp['scheduler'] else {}
-    scheduler = hp['scheduler']['type'](optimizer=optimizer, **{n: eval(v, {'hp': hp, 'iterations': len(trainset)})
-                                                                if n in args_to_eval else v for n, v in hp['scheduler']['kwargs'].items()})
+    scheduler = None
+    if hp['scheduler'] is not None:
+        args_to_eval = hp['scheduler']['eval_args'] if 'eval_args' in hp['scheduler'] else {}
+        scheduler_kwargs = {n: eval(v, {'hp': hp, 'iterations': len(trainset)}) if n in args_to_eval else v
+                            for n, v in hp['scheduler']['kwargs'].items()}
+        scheduler = hp['scheduler']['type'](optimizer=optimizer, **scheduler_kwargs)
 
     def process_function(engine: Engine, batch: Tuple[torch.Tensor]):
         if hasattr(engine._dataloader_iter, 'prefetch_device'):
@@ -159,7 +165,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         optimizer.zero_grad()
         loss_tensor.backward()
         optimizer.step()
-        return {'batch_loss': loss_tensor.item(), }
+        return {'batch_train_loss': loss_tensor.item(), }
 
     trainer = Engine(process_function)
 
@@ -167,8 +173,8 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
     train_sampler = torch.utils.data.distributed.DistributedSampler(trainset) if backend_conf.distributed else None
     if backend_conf.distributed and not callable(getattr(train_sampler, 'set_epoch', None)):
         raise ValueError(f'Error: `trainset` DataLoader\'s sampler should have a method `set_epoch` (train_sampler=`{train_sampler}`)')
-    to_save = {'trainer': trainer, 'model': model, 'optimizer': optimizer, 'scheduler': scheduler}
-    metric_names = ['batch_loss', ]
+    to_save = {'trainer': trainer, 'model': model, 'optimizer': optimizer} + (dict() if scheduler is None else {'scheduler': scheduler})
+    metric_names = ['batch_train_loss', ]
     common.setup_common_training_handlers(trainer,
                                           train_sampler=train_sampler,
                                           to_save=to_save,
@@ -187,10 +193,11 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         tb_logger.attach(trainer, log_handler=OutputHandler(tag='train', metric_names=metric_names), event_name=Events.ITERATION_COMPLETED)
         tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer, param_name='lr'), event_name=Events.ITERATION_STARTED)
 
-    metrics = {**metrics, 'loss': Loss(loss, device=device if backend_conf.distributed else None)}
+    def _metrics(prefix): return {**{f'{prefix}_{n}': m for n, m in metrics.items()},
+                                  f'{prefix}_loss': Loss(loss, device=device if backend_conf.distributed else None)}
 
-    valid_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
-    train_evaluator = create_supervised_evaluator(model, metrics=metrics, device=device, non_blocking=True)
+    valid_evaluator = create_supervised_evaluator(model, metrics=_metrics('valid'), device=device, non_blocking=True)
+    train_evaluator = create_supervised_evaluator(model, metrics=_metrics('train'), device=device, non_blocking=True)
 
     @trainer.on(Events.EPOCH_STARTED(every=hp['validate_every_epochs']))
     @trainer.on(Events.COMPLETED)
@@ -210,7 +217,7 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         for n, v in valid_metrics.items():
             mlflow.log_metric(n, v, step=engine.state.epoch)
 
-        if not deepcv.meta.hyperparams.is_nni_run_standalone():
+        if not deepcv.meta.nni_tools.is_nni_run_standalone():
             # TODO: make sure `valid_state.metrics` is ordered so that reported default metric to NNI is always the same
             nni.report_intermediate_result({'default': valid_state.metrics.values()[0], **train_metrics, **valid_metrics})
 
@@ -255,13 +262,13 @@ def train(hp: Union[deepcv.meta.hyperparams.Hyperparameters, Dict[str, Any]], mo
         state = trainer.run(trainset, max_epochs=hp['epochs'])
         logging.info(f'Training of "{model}" model done sucessfully.')
 
-        if not deepcv.meta.hyperparams.is_nni_run_standalone():
+        if not deepcv.meta.nni_tools.is_nni_run_standalone():
             # Report final training results to NNI (NNI HP or NNI Classic NAS APIs)
             # TODO: make sure `valid_state.metrics` is ordered so that reported default metric to NNI is always the same
-            nni.report_final_result({'default': valid_state.metrics.values()[0], **train_metrics, **valid_metrics})
-        return state
+            nni.report_final_result({'default': valid_evaluator.state.metrics.values()[0], **train_evaluator.state.metrics, **valid_evaluator.state.metrics})
+        return (valid_evaluator.state.metrics, state)
     except Exception as e:
-        logging.error(f'Ignite training loop of "{type(model).__name__}" model failed, exception "{e}" raised\n### Traceback ###\n{traceback.format_exc()}')
+        logging.error(f'Ignite training loop of "{type(model).__name__}" model failed, exception "{e}" raised{NL}### Traceback ###{NL}{traceback.format_exc()}')
         raise RuntimeError(f'Error: `{e}` exception raised during ignite training loop of "{type(model).__name__}" model...') from e
     finally:
         if backend_conf.rank == 0:
@@ -321,7 +328,7 @@ if __name__ == '__main__':
 
     # Main training loop
     for epoch in range(1, epochs + 1):
-        print("\nEpoch %03d/%03d\n" % (epoch, epochs) + '-' * 15)
+        print(f"{NL}Epoch %03d/%03d{NL}" % (epoch, epochs) + '-' * 15)
         train_loss = 0
 
         trange, update_bar = tu.progess_bar(trainset, '> Training on trainset', min(
@@ -443,7 +450,7 @@ def evaluate(epoch: int, model: torch.nn.Module, validset: DataLoader, bce_loss_
 
 #                 # Update running metric averages (Here we asume dataloader.batch_size == inputs.size(0) because DataLoader.drop_last == True)
 #                 # TODO: update progress bar with custom metrics
-#                 mean_loss = mean_loss * (1. - 1. / step) + mean_batch_loss(loss, batch_loss, inputs.size(0)) / step
+#                 mean_loss = mean_loss * (1. - 1. / step) + ensure_mean_batch_loss(loss, batch_loss, sum_divider=inputs.size(0)).item() / step
 #                 batches.set_postfix(step=step, batch_size=inputs.size(0), mean_loss=f'{mean_loss:.4E}', lr=f'{scheduler.get_lr().item():.3E}')
 #                 return mean_loss
 
@@ -462,6 +469,6 @@ def evaluate(epoch: int, model: torch.nn.Module, validset: DataLoader, bce_loss_
 #                 value = metric.compute()
 #                 summary.add_scalar(name, value, global_step=epoch)
 
-#             for name, value in vars(metrics) if isinstance(value, Number):
+#             for name, value in vars(metrics) if isinstance(value, deepcv.utils.NUMBER_T):
 #                 summary.add_scalar(name, value, global_step=epoch)
 #             yield epoch, metrics

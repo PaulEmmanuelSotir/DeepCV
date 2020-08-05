@@ -3,7 +3,6 @@
 """ Utils module - deepcv.utils.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-
 import os
 import re
 import imp
@@ -26,18 +25,31 @@ from functools import singledispatch, partial
 from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence, Callable, Type
 
 import torch
+
+import mlflow
 import anyconfig
 import numpy as np
 from tqdm import tqdm
 import tensorboard.program
 from kedro.io import DataCatalog
 
-__all__ = ['Number', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds', 'setup_cudnn', 'progess_bar', 'get_device',
-           'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo', 'recursive_getattr', 'get_by_identifier',
-           'get_str_repr', 'EventsHandler', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload', 'import_third_party', 'import_tests']
+__all__ = ['NUMBER_T', 'NL', 'mlflow_get_experiment_run_info', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds',
+           'setup_cudnn', 'progess_bar', 'get_device', 'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo',
+           'recursive_getattr', 'replace_newlines', 'get_by_identifier', 'get_str_repr', 'EventsHandler', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload',
+           'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
 
-Number = Union[builtins.int, builtins.float, builtins.bool]
+NUMBER_T = Union[builtins.int, builtins.float, builtins.bool]
+NL = os.linesep
+
+
+def mlflow_get_experiment_run_info() -> Optional[Tuple[mlflow.entities.Experiment, mlflow.entities.RunInfo]]:
+    """ Returns active MLFLow active experiment object and run infos if any """
+    run = mlflow.active_run()
+    if run is not None:
+        experiment = mlflow.get_experiment(run.info.experiment_id)
+        return experiment, run.info
+    return (None, None)
 
 
 def set_anyconfig_yaml_parser_priorities(pyyaml_priority: Optional[int] = None, ryaml_priority: Optional[int] = None):
@@ -214,8 +226,8 @@ def human_readable_size(size_bytes: int, format_to_str: bool = True) -> Union[st
     return f'{value:.2f}{unit}' if format_to_str else (value, unit)
 
 
-def is_roughtly_constant(values: Sequence[Number], threshold: float = 0.01) -> bool:
-    return max(values) - min(values) < threshold * sum(map(math.abs, values)) / float(len(values))
+def is_roughtly_constant(values: Sequence[NUMBER_T], threshold: float = 0.01) -> bool:
+    return max(values) - min(values) < threshold * sum(map(math.fabs, values)) / float(len(values))
 
 
 def yolo(self: DataCatalog, *search_terms):
@@ -265,6 +277,11 @@ def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Optional[Type] 
             next_recursion_objs.extend([o for o in attributes if isinstance(o, recurse_on_type)])
         underlying_objs = next_recursion_objs
     return default
+
+
+def replace_newlines(text: str) -> str:
+    """ Simple helper function which returns given `text` string with any '\r\n' or '\n' occurences replaced with `os.linesep` platform-dependent newline string (`deepcv.utils.NL`)  """
+    return re.sub(pattern='\\?\r?\\\n', repl=NL, string=text)
 
 
 def get_by_identifier(identifier: str):
@@ -332,9 +349,9 @@ class EventsHandler:
         self._callbacks = dict()
 
     def remove_event(self, event_names: Union[str, Sequence[str]]) -> bool:
-        for name in event_names:
-            if name in self._callbacks:
-                del self._callbacks[name]
+        for event in event_names:
+            if event in self._callbacks:
+                del self._callbacks[event]
             elif self._log_on_unkown_event:
                 logging.warn(f'Warning: "{EventsHandler.__name__}" events handler instance cannot remove unknown event `{event}`')
 

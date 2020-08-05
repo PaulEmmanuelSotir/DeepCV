@@ -20,7 +20,7 @@ __all__ = ['random_agent', 'run_environment']
 #     return action_space.sample()
 
 
-# def run_environment(agent: Callable[[gym.Env, gym.Space, gym.Space], Union[deepcv.utils.Number, np.ndarray]], environment: gym.Env, episodes: int, max_actions: int = 1e+4):
+# def run_environment(agent: Callable[[gym.Env, gym.Space, gym.Space], Union[deepcv.utils.NUMBER_T, np.ndarray]], environment: gym.Env, episodes: int, max_actions: int = 1e+4):
 #     for i_episode in range(episodes):
 #         observation = environment.reset()
 #         for t in range(max_actions):

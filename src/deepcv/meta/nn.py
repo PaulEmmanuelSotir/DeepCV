@@ -25,13 +25,86 @@ import torch.nn.functional as F
 import torch.distributions as tdist
 from hilbertcurve.hilbertcurve import HilbertCurve
 
-import deepcv.utils
+from deepcv.utils import NL, NUMBER_T, get_str_repr, import_tests
+from deepcv.meta.types_aliases import *
 
-__all__ = ['to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
-           'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords', 'nd_support', 'conv_nd', 'conv_transpose_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer_norm_with_mean_only_batch_norm', 'NormTechnique',
-           'NORM_TECHNIQUES_MODULES', 'NORM_TECHNIQUES_MODULES_T', 'normalization_techniques', 'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer',
-           'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
+__all__ = ['NormTechnique', 'NORM_TECHNIQUES_MODULES', 'NORM_TECHNIQUES_MODULES_T', 'METRICS_DICT_T', 'XAVIER_INIT_SUPPORTED_ACT_FN',
+           'ConvWithMetaLayer', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords',
+           'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'func_to_module', 'flatten', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
+           'nd_support', 'conv_nd', 'conv_transpose_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer_norm_with_mean_only_batch_norm', 'normalization_techniques',
+           'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer', 'get_gain_name', 'data_parallelize',
+           'is_data_parallelization_usefull_heuristic', 'ensure_mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
 __author__ = 'Paul-Emmanuel Sotir'
+
+#___________________________________________ NN TOOLING ENUMS & CONSTANTS _____________________________________________#
+
+
+class NormTechnique(enum.Enum):
+    BATCH_NORM = r'batch_norm'
+    LAYER_NORM = r'layer_norm'
+    INSTANCE_NORM = r'instance_norm'
+    GROUP_NORM = r'group_norm'
+    # Local Response Norm (Normalize across channels by taking into account `size` neightbouring channels; assumes channels is the 2nd dim). For more details, see https://pytorch.org/docs/master/generated/torch.nn.LocalResponseNorm.html?highlight=norm#torch.nn.LocalResponseNorm
+    LOCAL_RESPONSE_NORM = r'local_response_norm'
+    # `LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM` is a special case where LayerNorm is used along with 'mean-only' BatchNorm (as described in `LayerNorm` paper: https://arxiv.org/pdf/1602.07868.pdf)
+    LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM = r'layer_norm_with_mean_only_batch_norm'
+
+
+NORM_TECHNIQUES_MODULES = {NormTechnique.BATCH_NORM: deepcv.meta.nn.batch_norm_nd, NormTechnique.LAYER_NORM: torch.nn.LayerNorm, NormTechnique.INSTANCE_NORM: deepcv.meta.nn.instance_norm_nd,
+                           NormTechnique.GROUP_NORM: torch.nn.GroupNorm, NormTechnique.LOCAL_RESPONSE_NORM: torch.nn.LocalResponseNorm, NormTechnique.LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM: layer_norm_with_mean_only_batch_norm}
+
+""" Map of default supported activation functions for `deecv.meta.nn.get_gain_name` xavier initializaton helper function  
+Feel free to extend it for other activation functions in order to have the right xavier init gain when using `torch.nn.init.calculate_gain(deepcv.meta.nn.get_gain_name(...))` or `deepcv.meta.base_module.DeepcvModule`   
+NOTE: Here are some builtin actiavion function of PyTorch which doesnt have explicit support for Xavier Init gain: 'Hardtanh', 'LogSigmoid', 'PReLU', 'ReLU6', 'RReLU', 'SELU', 'CELU', 'GELU', 'Softplus', 'Softshrink', 'Softsign', 'Tanhshrink', 'Threshold', 'Softmin', 'Softmax', 'Softmax2d', 'LogSoftmax', ...
+"""
+XAVIER_INIT_SUPPORTED_ACT_FN = {torch.nn.ReLU: 'relu', torch.nn.LeakyReLU: 'leaky_relu', torch.nn.Tanh: 'tanh', torch.nn.Sigmoid: 'sigmoid', torch.nn.Identity: 'linear'}
+
+
+#_______________________________________________ NN TOOLING CLASSES ___________________________________________________#
+
+class ConvWithMetaLayer(torch.nn.Module):
+    def __init__(self, preactivation: bool = False):
+        raise NotImplementedError
+        self.conv = torch.nn.Conv2d(16, 3, (3, 3))  # TODO: preactivation, etc...
+        normalization = dict(norm_type=..., norm_kwargs=..., input_shape=...)
+        self.meta = torch.nn.Sequential(*layer(layer_op=self.conv, act_fn=torch.nn.ReLU, dropout_prob=0., preactivation=preactivation, **normalization))
+        self.RANDOM_PROJ = torch.randn_like(self.conv.weights)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        meta_out = self.meta(x)
+        weight_scale, meta_out = meta_out.split((1, meta_out.size(-1) - 1), dim=-1)
+        scaled_w = torch.mul(self.conv.weights.data, weight_scale)
+        meta_out = meta_out.reshape((1,) * (self.conv.weights.dim() - 1) + (-1,))
+        meta_out = meta_out.prod(self.RANDOM_PROJ)
+        self.conv.weights = torch.add(meta_out, scaled_w)
+        return self.conv(x)
+
+
+# class generic_mulltiscale_class_loss(torch.nn.loss._Loss):
+#     def __init__(self, reduction: str = 'mean') -> None:
+#         self._terms = [torch.nn.loss.MultiLabelMarginLoss, torch.nn.loss.BCELoss, torch.nn.loss.MultiLabelSoftMarginLoss, torch.nn.loss.KLDivLoss]
+
+#     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+#         raise NotImplementedError
+
+#     def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+#         return self.forward(input, target)
+
+
+# class generic_mulltiscale_class_reg_loss(torch.nn.loss._Loss):
+#     TERMS = [torch.nn.loss.PoissonNLLLoss, torch.nn.loss.SmoothL1Loss, torch.nn.loss.MSELoss, torch.nn.loss.HingeEmbeddingLoss, torch.nn.loss.CosineEmbeddingLoss]
+
+#     def __init__(self, reduction: str = 'mean', weights: torch.Tensor = torch.Tensor([1.] * len(TERMS))) -> None:
+#         self._norm_factors = torch.Tensor([1. / len(TERMS))] * len(TERMS))
+#         self._weights=weights
+#         self._terms=[T(reduction= reduction) for T in TERMS]
+
+#     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+#         return
+#         raise NotImplementedError
+
+#     def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+#         return self.forward(input, target)
 
 
 # class HybridConnectivityGatedNet(deepcv.meta.base_module.DeepcvModule):
@@ -67,6 +140,8 @@ __author__ = 'Paul-Emmanuel Sotir'
 #     @staticmethod
 #     def _smg_module_creator():
 #         raise NotImplementedError
+
+#_______________________________________________ NN TOOLING FUNCTIONS _________________________________________________#
 
 
 def to_multiscale_inputs_model(model: 'deepcv.meta.base_module.DeepcvModule', scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
@@ -144,7 +219,7 @@ def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, insp
                 return forward_func(**bound_args.arguments, **self._forward_args_from_init)
 
         _Module.__name__ = typename
-        _Module.__doc__ = f'Module created at runtime from `{forward_func.__name__}` forward function.\nInitial forward function documentation:\n' + forward_func.__doc__
+        _Module.__doc__ = f'Module created at runtime from `{forward_func.__name__}` forward function.{NL}Initial forward function documentation:{NL}' + forward_func.__doc__
 
         # Modify `_Module.__init__` function to match excpected signature
         init_signature = init_signature.replace(return_annotation=_Module)
@@ -223,7 +298,7 @@ def _concat_coords_maps_impl(x: torch.Tensor, channel_dim: int = 1, euclidian: b
     if channel_dim not in range(1-x.dim(), -1) and channel_dim not in range(0, x.dim()-1):
         raise ValueError(f'Error: Invalid argument: `channel_dim` must be in "]x.dim(); -1[ U ]-1 ; x.dim()[" range, got channel_dim={channel_dim}')
     if x.shape[channel_dim+1:] not in (1, 3, 3):
-        raise ValueError(f'Error: {deepcv.utils.get_str_repr(_concat_coords_maps_impl, __file__)} only support 2D or 3D input features '
+        raise ValueError(f'Error: {get_str_repr(_concat_coords_maps_impl, __file__)} only support 2D or 3D input features '
                          f'(e.g. `x` features dim of 4 or 5 with minibatch and channel dims), but got `x.dim()={x.dim()}`.')
 
     if channel_dim < 0:
@@ -280,29 +355,13 @@ def layer_norm_with_mean_only_batch_norm(input_shape: torch.Size, eps=1e-05, ele
     return torch.nn.Sequential([layer_norm_op, mean_only_batch_norm])
 
 
-class NormTechnique(enum.Enum):
-    BATCH_NORM = r'batch_norm'
-    LAYER_NORM = r'layer_norm'
-    INSTANCE_NORM = r'instance_norm'
-    GROUP_NORM = r'group_norm'
-    # Local Response Norm (Normalize across channels by taking into account `size` neightbouring channels; assumes channels is the 2nd dim). For more details, see https://pytorch.org/docs/master/generated/torch.nn.LocalResponseNorm.html?highlight=norm#torch.nn.LocalResponseNorm
-    LOCAL_RESPONSE_NORM = r'local_response_norm'
-    # `LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM` is a special case where LayerNorm is used along with 'mean-only' BatchNorm (as described in `LayerNorm` paper: https://arxiv.org/pdf/1602.07868.pdf)
-    LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM = r'layer_norm_with_mean_only_batch_norm'
-
-
-NORM_TECHNIQUES_MODULES = {NormTechnique.BATCH_NORM: batch_norm_nd, NormTechnique.LAYER_NORM: torch.nn.LayerNorm, NormTechnique.INSTANCE_NORM: instance_norm_nd,
-                           NormTechnique.GROUP_NORM: torch.nn.GroupNorm, NormTechnique.LOCAL_RESPONSE_NORM: torch.nn.LocalResponseNorm, NormTechnique.LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM: layer_norm_with_mean_only_batch_norm}
-NORM_TECHNIQUES_MODULES_T = Dict[NormTechnique, Union[Type[torch.nn.Module], Callable[..., torch.nn.Module]]]
-
-
 def normalization_techniques(norm_type: Union[NormTechnique, Sequence[NormTechnique]], norm_kwargs: Union[Sequence[Dict[str, Any]], Dict[str, Any]], input_shape: Optional[torch.Size] = None, supported_norm_ops: NORM_TECHNIQUES_MODULES_T = NORM_TECHNIQUES_MODULES) -> List[torch.nn.Module]:
     """ Creates `torch.nn.Module` operations for one or more normalization technique(s) as specified in `norm_type` (see `NORM_TECHNIQUES_MODULES` enum) and `norm_kwargs` (Keywoard arguments dict(s) given to their respective normalization Module)  
     Args:
         - norm_type: Normalization technique(s) to be used, specified as string(s) or `NormTechnique` enum value(s) (must have a corresponding entry in `supported_norm_ops`)
         - norm_kwargs: Keyword arguments dict(s) to be given to respective normalization module constructor
         - input_shape: Input tensor shape on which normalization(s) are performed, without eventual minibatch dim (i.e. `input_shape` must be the shape of input tensor starting from channel dim followed by normalized features shape, e.g. set `input_shape="(C, H, W)"` if normalized input tensor has `(N, C, H, W)` shape). If this argument is provided (not `None`), then InstanceNorm/BatchNorm's `num_features`, LayerNorm's `normalized_shape` and GroupNorm's `num_channels` args are automatically specified and wont be needed in `norm_kwargs`.
-        - supported_norm_ops: Supported normalization modules/ops dict; Defaults to `deepcv.meta.nn.NORM_TECHNIQUES_MODULES_T`.
+        - supported_norm_ops: Supported normalization modules/ops dict; Defaults to `deepcv.meta.nn.NORM_TECHNIQUES_MODULES`.
 
     Supported normalization techniques:  
     - `torch.nn.BatchNorm*d(num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)` (through `deepcv.meta.nn.batch_norm_nd`)
@@ -412,24 +471,6 @@ def multiscale_exitation_cell(hp: SimpleNamespace) -> torch.nn.Module:
     raise NotImplementedError
 
 
-class ConvWithMetaLayer(torch.nn.Module):
-    def __init__(self, preactivation: bool = False):
-        raise NotImplementedError
-        self.conv = torch.nn.Conv2d(16, 3, (3, 3))  # TODO: preactivation, etc...
-        normalization = dict(norm_type=..., norm_kwargs=..., input_shape=...)
-        self.meta = torch.nn.Sequential(*layer(layer_op=self.conv, act_fn=torch.nn.ReLU, dropout_prob=0., preactivation=preactivation, **normaliazation))
-        self.RANDOM_PROJ = torch.randn_like(self.conv.weights)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        meta_out = self.meta(x)
-        weight_scale, meta_out = meta_out.split((1, meta_out.size(-1) - 1), dim=-1)
-        scaled_w = torch.mul(self.conv.weights.data, weight_scale)
-        meta_out = meta_out.reshape((1,) * (self.conv.weights.dim() - 1) + (-1,))
-        meta_out = meta_out.prod(self.RANDOM_PROJ)
-        self.conv.weights = torch.add(meta_out, scaled_w)
-        return self.conv(x)
-
-
 def meta_layer(input_feature_shape: torch.Size, target_module: torch.nn.Parameter):
     """ A 'parallel'/'meta' layer applied to previous layer/block's features to infer global statistics of next layer's weight matrix
     Args:
@@ -444,14 +485,7 @@ def meta_layer(input_feature_shape: torch.Size, target_module: torch.nn.Paramete
     return torch.nn.Sequential(OrderedDict(ops))
 
 
-""" Map of default supported activation functions for `deecv.meta.nn.get_gain_name` xavier initializaton helper function  
-Feel free to extend it for other activation functions in order to have the right xavier init gain when using `torch.nn.init.calculate_gain(deepcv.meta.nn.get_gain_name(...))` or `deepcv.meta.base_module.DeepcvModule`   
-NOTE: Here are some builtin actiavion function of PyTorch which doesnt have explicit support for Xavier Init gain: 'Hardtanh', 'LogSigmoid', 'PReLU', 'ReLU6', 'RReLU', 'SELU', 'CELU', 'GELU', 'Softplus', 'Softshrink', 'Softsign', 'Tanhshrink', 'Threshold', 'Softmin', 'Softmax', 'Softmax2d', 'LogSoftmax', ...
-"""
-XAVIER_INIT_SUPPORTED_ACT_FN = {torch.nn.ReLU: 'relu', torch.nn.LeakyReLU: 'leaky_relu', torch.nn.Tanh: 'tanh', torch.nn.Sigmoid: 'sigmoid', torch.nn.Identity: 'linear'}
-
-
-def get_gain_name(act_fn: Type[torch.nn.Module], default: str = 'relu', supported_act_fns: Dict[Type[torch.nn.Module, str]] = XAVIER_INIT_SUPPORTED_ACT_FN) -> str:
+def get_gain_name(act_fn: Type[torch.nn.Module], default: str = 'relu', supported_act_fns: Dict[Type[torch.nn.Module], str] = XAVIER_INIT_SUPPORTED_ACT_FN) -> str:
     """ Intended to be used with torch.nn.init.calculate_gain(str):
     NOTE: For `leaky_relu` (and any other parametric act fn with future support), `torch.nn.init.calculate_gain` needs another argument `param` which should be act fn parameter (Leaky ReLU slope)
 
@@ -468,7 +502,7 @@ def get_gain_name(act_fn: Type[torch.nn.Module], default: str = 'relu', supporte
         return supported_act_fns[act_fn]
     else:
         logging.warn(f'Warning: Unsupported activation function "{act_fn}", defaulting to "{default}" xavier initialization. '
-                     f'(You may need to add support for "{act_fn}" xavier init gain through `supported_act_fns` arg or its default `XAVIER_INIT_SUPPORTED_ACT_FN`).\n'
+                     f'(You may need to add support for "{act_fn}" xavier init gain through `supported_act_fns` arg or its default `XAVIER_INIT_SUPPORTED_ACT_FN`).{NL}'
                      f'Supported activation function are: supported_act_fns="{supported_act_fns}"')
         return default
 
@@ -489,6 +523,7 @@ def is_data_parallelization_usefull_heuristic(model: torch.nn.Module, batch_shap
         - model: Model to be trained (computes its parameters capacity)
         - batch_shape: Dataset's batches shape
     TODO: perform a random/grid search to find out optimal factors (or using any other black box optimization techniques)
+    # TODO: improve `gpus_score` heuristic score term according to GPU bandwidth and FLOPs?
     """
     ngpus = torch.cuda.device_count()
     capacity_factor, batch_factor, ngpus_factor = 1. / (1024 * 1024), 1. / (1024 * 512), 1. / 8.
@@ -496,8 +531,7 @@ def is_data_parallelization_usefull_heuristic(model: torch.nn.Module, batch_shap
         return False
     capacity_score = 0.5 * torch.sigmoid(torch.log10(capacity_factor * torch.FloatTensor([get_model_capacity(model) + 1.]))) / 5.
     batch_score = 3. * torch.sigmoid(torch.log10(np.log10(batch_factor * torch.FloatTensor([np.prod(batch_shape) + 1.])) + 1.)) / 5.
-    gpus_score = 1.5 * torch.sigmoid(torch.log10(ngpus_factor * torch.FloatTensor([ngpus - 1.]) + 1.)) / \
-        5.  # TODO: improve this heuristic score according to GPU bandwidth and FLOPs?
+    gpus_score = 1.5 * torch.sigmoid(torch.log10(ngpus_factor * torch.FloatTensor([ngpus - 1.]) + 1.)) / 5.
     heuristic = float(capacity_score + batch_score + gpus_score)
     if print_msg:
         may_or_wont, lt_gt_op = ('may', '>') if heuristic > 0.5 else ('wont', '<')
@@ -505,40 +539,29 @@ def is_data_parallelization_usefull_heuristic(model: torch.nn.Module, batch_shap
     return heuristic > 0.5
 
 
-def mean_batch_loss(loss: torch.nn.modules.loss._Loss, batch_loss: torch.Tensor, batch_size=1) -> Optional[deepcv.utils.Number]:
-    if loss.reduction == 'mean':
-        return batch_loss.item()
+def ensure_mean_batch_loss(loss: LOSS_FN_T, batch_loss: Union[NUMBER_T, torch.Tensor, Sequence[NUMBER_T]], sum_divider: FLOAT_OR_FLOAT_TENSOR_T, dtype: Optional[torch.dtype] = torch.float) -> torch.FloatTensor:
+    """ Ensures `batch_loss` tensor resulting from given `loss` is a mean whatever `loss.reduction` is used (allways returns the mean of loss(es) across minibatch dim)
+    NOTE: Make sure `sum_divider` is the (mini)batch size in order to obtain a valid mean when `loss.reduction` is `sum`.
+    TODO: Raise or warn if tensor caontains `Nan` or +/-`inf` value(s)?
+    """
+    if isinstance(batch_loss, (NUMBER_T, Sequence)):
+        # If `batch_loss` is a Python builtin number (int, float, ...) or a Sequence, convert it back to a tensor
+        batch_loss = torch.Tensor(batch_loss if isinstance(batch_loss, Sequence) else [batch_loss, ])
+
+    # Convert `batch_loss` data type if `dtype` is not `None`
+    batch_loss = batch_loss if dtype is None else batch_loss.to(dtype)
+
+    # Make sure to return a mean loss from `batch_loss` by performing proper ops according to `loss.reduction` value (and eventually convert it to `dtype`)
+    if batch_loss.shape == torch.Size([0, ]):
+        return batch_loss  # Return empty tensor as is
+    if loss.reduction == 'none':
+        return torch.mean(batch_loss)
     elif loss.reduction == 'sum':
-        return torch.div(batch_loss, batch_size).item()
-    elif loss.reduction == 'none':
-        return torch.mean(batch_loss).item()
-
-
-# class generic_mulltiscale_class_loss(torch.nn.loss._Loss):
-#     def __init__(self, reduction: str = 'mean') -> None:
-#         self._terms = [torch.nn.loss.MultiLabelMarginLoss, torch.nn.loss.BCELoss, torch.nn.loss.MultiLabelSoftMarginLoss, torch.nn.loss.KLDivLoss]
-
-#     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-#         raise NotImplementedError
-
-#     def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-#         return self.forward(input, target)
-
-
-# class generic_mulltiscale_class_reg_loss(torch.nn.loss._Loss):
-#     TERMS = [torch.nn.loss.PoissonNLLLoss, torch.nn.loss.SmoothL1Loss, torch.nn.loss.MSELoss, torch.nn.loss.HingeEmbeddingLoss, torch.nn.loss.CosineEmbeddingLoss]
-
-#     def __init__(self, reduction: str = 'mean', weights: torch.Tensor = torch.Tensor([1.] * len(TERMS))) -> None:
-#         self._norm_factors = torch.Tensor([1. / len(TERMS))] * len(TERMS))
-#         self._weights=weights
-#         self._terms=[T(reduction= reduction) for T in TERMS]
-
-#     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-#         return
-#         raise NotImplementedError
-
-#     def __call__(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-#         return self.forward(input, target)
+        return torch.div(batch_loss, sum_divider)
+    elif loss.reduction == 'mean':
+        return batch_loss  # Return `batch_loss` as is (already reduced into a mean)
+    raise ValueError(f'Error Unsupported "{loss.reduction}" reduction value in `deepcv.meta.nn.ensure_mean_batch_loss`{NL}'
+                     f'Got: `loss.reduction="{loss.reduction}"`;`batch_loss="{batch_loss}"`; `sum_divider="{sum_divider}"`, `dtype="{dtype}"`')
 
 
 def get_model_capacity(model: Optional[torch.nn.Module]):
@@ -561,11 +584,11 @@ def get_out_features_shape(input_shape: torch.Size, module: torch.nn.Module, use
         return {n: r.shape for n, r in outputs.items()} if isinstance(outputs, Dict) else [r.shape for r in outputs]
 
 
-def is_fully_connected(module_or_t: Union[torch.nn.Module, Type[torch.nn.Module]]) -> bool:
+def is_fully_connected(module_or_t: MODULE_OR_TYPE_T) -> bool:
     return issubclass(module_or_t if isinstance(module_or_t, Type) else type(module_or_t), torch.nn.Linear)
 
 
-def is_conv(module_or_t: Union[torch.nn.Module, Type[torch.nn.Module]]) -> bool:
+def is_conv(module_or_t: MODULE_OR_TYPE_T) -> bool:
     """ Returns `True` if given `torch.nn.Module` instance or type is a convolution operation (i.e. inherits from `torch.nn.modules.conv._ConvNd`); Returns `False` otherwise. """
     return issubclass((module_or_t if isinstance(module_or_t, Type) else type(module_or_t)), torch.nn.modules.conv._ConvNd)
 
@@ -608,5 +631,5 @@ class TestNNMetaModule:
 
 
 if __name__ == '__main__':
-    cli = deepcv.utils.import_tests().test_module_cli(__file__)
+    cli = import_tests().test_module_cli(__file__)
     cli()

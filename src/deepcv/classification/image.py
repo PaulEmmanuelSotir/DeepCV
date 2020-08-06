@@ -67,6 +67,13 @@ def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T):
     return model
 
 
+# @image_classifier.single_shot_nas_training_procedure(allow_hp_search=True)
+# def train_single_shot_nas(datasets: Dict[str, Dataset], model: nn.Module, hp: HYPERPARAMS_T) -> METRICS_DICT_T:
+#     pass
+#     # TODO: ... deepcv.meta.nni_tools.handle_nni_nas_trial
+
+
+# @image_classifier.training_procedure(allow_hp_search=True, allow_classic_nas=True)
 
 def train(datasets: Dict[str, Dataset], model: nn.Module, hp: HYPERPARAMS_T) -> Tuple[METRICS_DICT_T, Union['final_nas_architecture_path', ignite.engine.State], Optional[str]]:
     """ Train image classifier model using `deepcv.meta.ignite_training`

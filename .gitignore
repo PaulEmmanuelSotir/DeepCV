@@ -1,3 +1,8 @@
+# Ignore files and directories finishing by '_WIP_IGNORE'
+*_WIP_IGNORE/
+*_WIP_IGNORE.*
+*_WIP_IGNORE
+
 # Kedro-specific
 ## ignore all local configuration
 conf/local/**
@@ -5,8 +10,8 @@ conf/local/**
 ## ignore potentially sensitive credentials files
 conf/**/*credentials*
 ## ignore everything in the following folders
-data/**
-logs/**
+/data/**
+/logs/**
 references/**
 results/**
 ## But keep all .gitkeep files
@@ -14,7 +19,6 @@ results/**
 ## Ignore conda environement directory/prefix
 /.conda_env/
 /.vscode/
-
 
 
 # MLFlow-specific

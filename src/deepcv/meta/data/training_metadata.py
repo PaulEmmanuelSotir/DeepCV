@@ -8,6 +8,7 @@ Builds a training meta-dataset and allows a unified treatment and understanding 
 *To-Do List*
     - TODO: Read more in depth Google's approach to meta-datasets: https://github.com/google-research/meta-dataset from this paper: https://arxiv.org/abs/1903.03096 and decide whether it could be relevent to use similar abstractions in deepcv.meta.data.training_tracker
 """
+import abc
 import uuid
 import types
 import collections.abc
@@ -23,7 +24,7 @@ __all__ = ['TrainingMetaData', 'DatasetStats', 'Task', 'Experiment', 'Hyperparam
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class TrainingMetaData:
+class TrainingMetaData(abc.ABC):
     def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
         self._uuid = uuid.uuid4() if existing_uuid is None else existing_uuid
 
@@ -87,11 +88,19 @@ class Hyperparameters(TrainingMetaData, collections.abc.Mapping):
         return self._hash
 
     def __eq__(self, other: Union[Dict[str, Any], "Hyperparameters"]):
-        """ `__eq__` override so that `self.__uuid` isn't taken into account, which makes it consistent with `__hash__` override """
+        """ `__eq__` override so that `self.__uuid` isn't taken into account, which makes it consistent with `__hash__` override
+        # TODO: May be unescessary as colletions.abc.Mapping defines equality by using 'self.items()': Test it before removing this code...
+        """
         if isinstance(other, Hyperparameters):
             return self._store == other._store
-        else:
+        elif isinstance(other, collections.abc.Mapping):
             return self._store == dict(other)
+        else:
+            # Delegate comparison to the other instance's __eq__.
+            raise NotImplemented
+
+    def __ne__(self, other: Any):
+        return not self == other
 
     def get_dict_view(self) -> types.MappingProxyType:
         return types.MappingProxyType(self._store)

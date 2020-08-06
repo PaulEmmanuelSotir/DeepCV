@@ -137,17 +137,17 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
 - ♻Implement a Web app merging and managing all web UIs (Tensorboard, Kedro Viz, MLFlow UI, NNI UI, Jupyter (Lab), and allow custom dashboards with Streamlit (www.streamlit.io) or Dash(plotly devs) + eventually a simple UI for thrid party git repository installation (Flask interface to install_thrid_party.py)) (+ Google facets, GGPlot, Seaborn, plotly, matplotlib tooling in notebook/custom dashboards)
 - ♻ hyperparameter search and neural architecture search with NNI HP/NAS (+ NNI compression/prunning/quantization) APIs integration, allowing easier NNI usage on DeepCV training pipelines. NNI tooling in DeepCV features:
   - 👍NNI YAML Config generated from common/default config template for each training pipelines
-  - ♻Allow NNI NAS Mutable Layer(s)/input(s) usage in 'deepcv.meta.base_module.DeepcvModule' YAML model specification (mutliple alternatives in submodules architectures spec.)
-  - ♻Automated NNI NAS search space generation from model throught `nnictl ss-gen-space` call from Python
-  - ♻Tooling for easier NNI NAS (single-shot or classic NAS algorithm) training
+  - 👍Allow NNI NAS Mutable Layer(s)/input(s) usage in 'deepcv.meta.base_module.DeepcvModule' YAML model specification (mutliple alternatives in submodules architectures spec.)
+  - 👍Automated NNI NAS search space generation from model throught `nnictl ss-gen-space` call from Python
+  - 👍Tooling for easier NNI NAS (single-shot or classic NAS algorithm) training
   - 👍Simple NNI compression (prunning and/or quantization) support in 'deepcv.meta.ignite_training.train' training procedure
   - ♻Make possible to easily run a NNI HP search which itself performs Single-Shot NNI NAS training for each HP trial (HP search over NAS search)
   - 👍Consistent MLFlow logging during NNI usage (NNI and MLFlow experiment/run names/ids are similar and NNI results are logged to MLFlow if DeepCV pipeline is tagged with 'train')
-  - 💤Make sure DeepCV tooling/integration for NNI wont raise issues during usage and wont interfere with regular `nnictl` calls (+ NNI experiments can be resumed, cleanly stoped and runned after code or config changes) (+ test NNI Web UI visualization for all use cases)
-- 💤Implement/extend 'deepcv.meta.nn' tooling with Pyramidal convolution kernels (PyConv), and more broadly, grouped convs, so that 'deepcv.meta.nn.conv' allows simple definition of any regular conv, grouped conv, pyramidal conv and conv on multiple resolution of input/output features maps (i.e. HRNet siamese conv branches implemetented as a single branch of multi-resolution convolutions). (PyramidalConv/PyConv features multiple kernel sizes, each of them beeing associated to a kernel depth/count choosen to have the same computational cost as a regular convolution. i.e., computational cost of larger kernels is balanced using more convolution groups, given that kernel depth determines how many groups are needed to perform a convolution. See 'PyConv' original paper: https://arxiv.org/pdf/2006.11538v1.pdf) _(TMP NOTE: look into paper for more implementation details: e.g. probably use zero padding with varying size w.r.t. kernel size in order to preserve constant output feature size)_
+  - ♻Make sure DeepCV tooling/integration for NNI wont raise issues during usage and wont interfere with regular `nnictl` calls (+ NNI experiments can be resumed, cleanly stoped and runned after code or config changes) (+ test NNI Web UI visualization for all use cases)
+- ♻Implement/extend 'deepcv.meta.nn' tooling with Pyramidal convolution kernels (PyConv), and more broadly, grouped convs, so that 'deepcv.meta.nn.conv' allows simple definition of any regular conv, grouped conv, pyramidal conv and conv on multiple resolution of input/output features maps (i.e. HRNet siamese conv branches implemetented as a single branch of multi-resolution convolutions). (PyramidalConv/PyConv features multiple kernel sizes, each of them beeing associated to a kernel depth/count choosen to have the same computational cost as a regular convolution. i.e., computational cost of larger kernels is balanced using more convolution groups, given that kernel depth determines how many groups are needed to perform a convolution. See 'PyConv' original paper: https://arxiv.org/pdf/2006.11538v1.pdf) _(TMP NOTE: look into paper for more implementation details: e.g. probably use zero padding with varying size w.r.t. kernel size in order to preserve constant output feature size)_
 - 💤Reuse outlier filtering technique for feature keypoint matching as a third party; see original paper: "AdaLAM: Revisiting Handcrafted Outlier Detection" and its respective github repository (PyTorch implementation): https://github.com/cavalli1234/AdaLAM _(TMP NOTES: Keypoint = Feature vector (made of scale and orientation sub-vectors) assiciated to a position vector (e.g. 2D position for 2D image keypoints). Similarity/distance metrics between two keypoints are often function of substraction between orientation sub-vectors and division of scale sub-vectors.)_
 - 💤Start Ensembling and stacking utilities module implementation
-- 💤Create jupyter notebook(s) for basic prototyping and training results visualization + implement utility tools for jupyter notebooks
+- ♻Create jupyter notebook(s) for basic prototyping and training results visualization + implement utility tools for jupyter notebooks
 - 💤Implement Uncertainty estimation utilities in [deepcv.meta.uncertainty.estimation module](./src/deepcv/meta/uncertainty/estimation.py) so that most of DeepCV Modules infers uncertainty estimates and exploit estimated uncertainty to perform a kind of active learning and/or boosting and to develop rules/lightweight-meta-models which improves generalization and accuracy. See: https://ai.googleblog.com/2020/01/can-you-trust-your-models-uncertainty.html and PhD thesis: https://www.mlmi.eng.cam.ac.uk/files/mphil_thesis_javier_antoran.pdf
 - 💤Implement or integrate distillation with optionnal quantization tools + distillation from ensembles of teacher networks (see NNI, Apex and built-in PyTorch quantization/compression tooling)
 - 💤Setup Continuous Integration using Travis CI
@@ -160,17 +160,17 @@ __DeepCV Features and code refactoring TODO List__ 💥(☞ﾟヮﾟ)☞💥
   - keep in mind the possibility of progressive image/frame loading/streaming in a future implementation<
   - benchmark performances on imagenet, compare speed and size with L3C (use benchmarking code from https://github.com/fab-jul/L3C-PyTorch)
 - 💤add a simple open-source implementation of wave function collapsing, optimize it -> Future work : Procedural Content Generation: Use a GAN to generates slots (learn scenes manifold by semantic clusters) used by Wave Function Collapse (+ Growing Grids as space filling algorithm to determine tile shapes)
-- 💤Finish implementation of 'meta convolution layers' and try to train it
-- 💤Fix, test DeepCV project packaging and deployment and improve modularity/portability
+- ♻Finish implementation of 'meta convolution layers' and try to train it
+- ♻Fix, test DeepCV project packaging and deployment and improve modularity/portability
 - 💤Integrate Kornia (https://github.com/kornia/kornia) pytorch-based vision library as third party dependency
 - 💤Find best performing video loading library (at least faster ffmpeg, e.g. video decoding directly to GPU memory ) for a broadly used codec and implement video processing tooling (convertion, preprocessing, image pipeline application, input and target interpolation, distributed video processing, ...)
 - 💤Implement various basic video pipeline processing tools
 - 💤Create more sophisticated video inference interpolation by avoiding end-to-end model inference on each frame and by making inference conditionned on previous frames's embedding and inference
 - 💤Implement timeseries models for high-level (low dimensionality) video features understanding
-- 💤Implement a pipeline for video stiching and add support for video stabilization, audio-and/or-visual synchronization, image compression (lossless or lossy), watermark removal, visual tracking, pose estimation
+- ♻Implement a pipeline for video stiching and add support for video stabilization, audio-and/or-visual synchronization, image compression (lossless or lossy), watermark removal, visual tracking, pose estimation
 - 💤Implement more tools for faster deep learning model convergence and generalization, thanks to active learning, boosting and meta-learning techniques
 - Read more papers and implement DeepCV accordingly ;-) (generic papers which seems relevant but I didn't read yet: [Fantastic Generalization Measures and Where to Find Them](https://openreview.net/forum?id=SJgIPJBFvH), [https://openreview.net/forum?id=HJg2b0VYDr](https://openreview.net/forum?id=HJg2b0VYDr), ect ... ...)
-- 💤...
+- 💤.../♻.../👍... And much more features/supackages have been already implemented, WIP, or TO-be-DOne
 
 __Interesting third party projects which could be integrated into DeepCV__
 

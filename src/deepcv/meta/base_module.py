@@ -217,7 +217,7 @@ class DeepcvModule(torch.nn.Module):
                         modules.remove(m)
         return python_sources
 
-    def _initialize_parameters(self, act_fn: Optional[Type[torch.nn.Module]] = None, additional_init_logic: Callable[[torch.nn.Module, 'xavier_gain'], None] = None):
+    def _initialize_parameters(self, act_fn: Type[torch.nn.Module] = None, additional_init_logic: Callable[[torch.nn.Module, 'xavier_gain'], None] = None):
         """ Initializes model's parameters with Xavier Initialization with a scale depending on given activation function (only needed if there are convolutional and/or fully connected layers).
         NOTE: For now this function only support Xavier Init for Linear (fc), convolutions and BatchNorm*d parameters/weights and Xavier Init gain will be calculated once from global `act_fn` values and won't take into account any different/overriding activation functions specified in a submodule spec. (See `additional_init_logic` argument if better intialization support is needed)  
         Args:

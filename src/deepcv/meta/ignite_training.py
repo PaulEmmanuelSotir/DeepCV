@@ -47,7 +47,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 class BackendConfig:
 
-    def __init__(self, device_or_id: Union[None, str, int, torch.device] = None, dist_backend: Optional[dist.Backend] = None, dist_url: Optional[str] = None):
+    def __init__(self, device_or_id: Union[None, str, int, torch.device] = None, dist_backend: dist.Backend = None, dist_url: str = None):
         if device_or_id is None:
             self.device = deepcv.utils.get_device()
         elif isinstance(device_or_id, (str, torch.device)):
@@ -90,7 +90,7 @@ TRAINING_EVENTS = {'TRAINING_INIT', 'AFTER_TRAINING_INIT', 'ON_EPOCH_STARTED', '
 
 
 def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(),
-          metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None, nni_compression_pruner: Optional[nni.compression.torch.Compressor] = None) -> Tuple[METRICS_DICT_T, ignite.engine.State]:
+          metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: deepcv.utils.EventsHandler = None, nni_compression_pruner: nni.compression.torch.Compressor = None) -> Tuple[METRICS_DICT_T, ignite.engine.State]:
     """ Pytorch model training procedure defined using ignite
     Args:
         - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
@@ -406,8 +406,8 @@ def evaluate(epoch: int, model: torch.nn.Module, validset: DataLoader, bce_loss_
 #         print(f'VALID_LOSS={metrics.valid_loss}')
 
 
-# def train_eval_loop(epochs : int, model: torch.nn.Module, loss: torch.nn.modules.loss._Loss, validset: DataLoader, trainset: Optional[DataLoader] = None, optimizer: Optional[Optimizer] = None,
-#                     scheduler: Optional[_LRScheduler] = None, custom_metrics: Optional[Metrics] = None, summary: SummaryWriter = None, device: torch.device = get_device(), disable_progress_bar: bool = False):
+# def train_eval_loop(epochs : int, model: torch.nn.Module, loss: torch.nn.modules.loss._Loss, validset: DataLoader, trainset: DataLoader = None, optimizer: Optimizer = None,
+#                     scheduler: _LRScheduler = None, custom_metrics: Metrics = None, summary: SummaryWriter = None, device: torch.device = get_device(), disable_progress_bar: bool = False):
 
 #     train = optimizer is not None and scheduler is not None and trainset is not None
 #     if (optimizer is not None or scheduler is not None or trainset is not None) and not train:

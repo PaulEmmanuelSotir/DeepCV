@@ -143,7 +143,7 @@ def gen_classic_nas_search_space(architecture_search_space_path: Union[str, Path
 
 
 def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: nn.Module, loss: Union[nn.modules.loss._Loss, Callable], datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: 'ignite_training.BackendConfig' = None,
-                                               metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: Optional[deepcv.utils.EventsHandler] = None, final_architecture_path: Union[str, Path] = None) -> Tuple[METRICS_DICT_T, Optional[Path], str]:
+                                               metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: deepcv.utils.EventsHandler = None, final_architecture_path: Union[str, Path] = None) -> Tuple[METRICS_DICT_T, Optional[Path], str]:
     """ Train model with provided NAS trainer in order to find out the best NN architecture by training a superset NN instead of performing multiple trainings/trials for each/many possible architectures.
     Args:
         - hp:
@@ -430,7 +430,7 @@ def get_hp_position_in_search_space(hp, hp_search_space):
     return torch.zeros((1, 10))
 
 
-def generate_hp_space_template(hyperparams: HYPERPARAMS_T, save_filename: str = r'nni_hp_space_template.json', exclude_params: Optional[Sequence[str]] = None, include_params: Optional[Sequence[str]] = None) -> Tuple[Dict[str, Any], Path]:
+def generate_hp_space_template(hyperparams: HYPERPARAMS_T, save_filename: str = r'nni_hp_space_template.json', exclude_params: Sequence[str] = None, include_params: Sequence[str] = None) -> Tuple[Dict[str, Any], Path]:
     """ Generates an hyperparameter space template/draft from given hyperparameter set, making it easier to define your JSON (NNI spec.) hp space definition (generates a start point for your JSON hp space)
     # TODO: active learning of a lightweight model which infers (options, low, high, q, mu and/or sigma) from (parameter name, type, hierarchy/context)
     # TODO: Samples from hp space should be merged to `hp` dict from YAML and vis versa, a given `hp` set should have a position in an hp search space

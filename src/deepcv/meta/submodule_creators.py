@@ -121,7 +121,7 @@ def add_nn_layer_creator(layer_op_t: Type[torch.nn.Module], creator_name: str, s
                         'submodule creator (`layer_op_t` should either be a convolution or a `torch.nn.Linear`).')
 
     @submodule_creator_dec(name=creator_name, submodule_creators=submodule_creators)
-    def _nn_layer_creator(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], layer_op_t: Type[torch.nn.Module], act_fn: Optional[torch.nn.Module] = None, dropout_prob: Optional[float] = None, channel_dim: int = 1, preactivation: bool = False,
+    def _nn_layer_creator(submodule_params: Dict[str, Any], prev_shapes: List[torch.Size], layer_op_t: Type[torch.nn.Module], act_fn: torch.nn.Module = None, dropout_prob: float = None, channel_dim: int = 1, preactivation: bool = False,
                           batch_norm: Optional[Dict[str, Any]] = None, layer_norm: Optional[Dict[str, Any]] = None, instance_norm: Optional[Dict[str, Any]] = None, group_norm: Optional[Dict[str, Any]] = None, layer_norm_with_mean_only_batch_norm: Optional[Dict[str, Any]] = None) -> torch.nn.Module:
         # Handle specified normalization techniques if any (BatchNorm, LayerNorm, InstanceNorm, GroupNorm and/or layer_norm_with_mean_only_batch_norm)
         norm_techniques = {deepcv.meta.nn.NormTechnique.BATCH_NORM: batch_norm, deepcv.meta.nn.NormTechnique.LAYER_NORM: layer_norm, deepcv.meta.nn.NormTechnique.INSTANCE_NORM: instance_norm,

@@ -4,6 +4,7 @@ channels:
         - conda-forge
         - pytorch
         - fastai
+        - tensorcomp # Tensor Comprehensions (TC) conda channel
         - thomasbrandon # [Linux-64 only]: Channel used for pillow-accel (metapackage with scripting aimed at easier automated pillow-simd installation as a replacement of pillow, see https://github.com/https://forums.fast.ai/t/performance-improvement-through-faster-software-components/32628/29, https://github.com/uploadcare/pillow-simd/issues/44 and https://github.com/uploadcare/pillow-simd
 dependencies:
         - python=3.7.*
@@ -35,8 +36,10 @@ dependencies:
         - tensorboardX # Tensorboard logging for pytorch
         - tensorboard # Tensorboard package now installs official tensorboard (may have tensorflow as dependency), allows Web UI vizualization of a run (vizualize metrics, parameters, ... logged to tensorboard during or after training)
         #- gym-atari>=0.17.* # Gym is a toolkit for developing and comparing reinforcement learning algorithms (by OpenAI )
+        - tensor_comprehensions # Tensor Comprehensions provides framework-agnostic abstractions for High-Performance Machine Learning (C++ DSL with PyTorch integration allowing low-level custom ops implementations on GPU with 'autotunning' support). See https://facebookresearch.github.io/TensorComprehensions/index.html and https://github.com/facebookresearch/TensorComprehensions
         - pillow-accel-avx2 # Pillow-accel with AVX2 (pillow-simd replacement for pillow with better performances) [Linux-64 with AVX2 support only]: See comment on `thomasbrandon` channel for more details
         - pip:
                   - nni # Microsoft Neural Network Inteligence: Open source AutoML toolkit to automate machine learning lifecycle, including feature engineering, neural architecture search, model compression and hyper-parameter tuning (mainly used for the later)
                   - kedro-viz # Allows Kedro data pipelines visualization
                   - ruamel.yaml # YAML configuration parsing library used as backend of anyconfig instead of PyYAML (which is used by Kedro to load configuration files)
+                  - git+https://github.com/modestyachts/ImageNetV2_pytorch # ImageNetV2 third party: A new/alternative testset wich have been sampled/created from the same image distribution/procedure (see https://github.com/modestyachts/ImageNetV2)

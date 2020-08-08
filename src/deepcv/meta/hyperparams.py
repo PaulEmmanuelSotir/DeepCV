@@ -36,7 +36,7 @@ class HyperparamsEmbedding(nn.Module):
     Applied to a valid hp dict, returns a fixed-size vector embedding which can be interpreted as vectors in an euclidian space (final neural net layers are enforced by loss constraints to output embeddings in euclidian-like space)
     """
 
-    def __init__(self, embedding_size: int, intermediate_embedding_size: Optional[int] = 128, hp_space: Optional[HyperparameterSpace] = None):
+    def __init__(self, embedding_size: int, intermediate_embedding_size: Optional[int] = 128, hp_space: HyperparameterSpace = None):
         self._embedding_size = embedding_size
         self._intermediate_embedding_size = max(embedding_size + 32, intermediate_embedding_size)
         self._hp_space = hp_space
@@ -52,7 +52,7 @@ class HyperparamsEmbedding(nn.Module):
         # Unsupervised training to learn 3-layers fully connected NN for hp embedding in euclidian-like space
         raise NotImplementedError
 
-    def _from_hp_space(self, hp: Dict[str, Any], _hp_repr: Optional[np.ndarray] = None):
+    def _from_hp_space(self, hp: Dict[str, Any], _hp_repr: np.ndarray = None):
         # TODO: parse hp space and append as much as possible (so that whole repr fits in 'embedding_size') binary representation of each relative positions in hp_space ranges/choices
         # TODO: refactor this code (use NNI's hp_space generated YAML file instead of hyperopt)
         # for node in hyperopt.vectorize.uniq(hyperopt.vectorize.toposort(self._hp_space)):
@@ -119,7 +119,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
     # TODO: predict best losses with their respective uncertainty in FC NN
     """
 
-    def __init__(self, trainings_count: int, fit_using_hps: Optional[HyperparamsEmbedding] = None, fit_using_dataset_stats: bool = False, fit_using_loss_curves: bool = False):
+    def __init__(self, trainings_count: int, fit_using_hps: HyperparamsEmbedding = None, fit_using_dataset_stats: bool = False, fit_using_loss_curves: bool = False):
         """
         Args:
             - trainings_count: Number of training which will be performed to predict generalization capability of a model (trainings differs between each other in scale either by having different trainset sizes (across subsets) or different model capacities (across model capacities))
@@ -152,7 +152,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             self._nn_metamodel.bias.data.fill_(0.)
 
     @staticmethod
-    def error_landscape_estimation(metaparms: np.array, m: Optional[int] = None, n: Optional[int] = None) -> float:
+    def error_landscape_estimation(metaparms: np.array, m: int = None, n: int = None) -> float:
         """ Enveloppe function modeling how best valid loss varies according to model size (m) and trainset size (n).
         This simple model's parameters (metaparms) can be fitted on a few training results over trainset subsets (~5-6 subsets) in order to predict model's generealization capability over full trainset without having to train on whole dataset.
         Thus, fitting this model during hyperparameter search can save time by estimating how promising is a hyperparmeter setup.
@@ -169,7 +169,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             emn += b * np.power(float(m), -beta)
         return eps0 * np.absolute(emn / (emn - eta * 1j))  # Complex absolute, i.e. 2D L2 norm
 
-    def fit_generalization(self, trainsets: Sequence[DataLoader], models: Sequence[nn.Module], best_valid_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T], best_train_losses: Optional[Sequence[FLOAT_OR_FLOAT_TENSOR_T]] = None):
+    def fit_generalization(self, trainsets: Sequence[DataLoader], models: Sequence[nn.Module], best_valid_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T], best_train_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T] = None):
         model_capacities = [deepcv.meta.nn.get_model_capacity(m) for m in models]
         cst_modelsize = deepcv.utils.is_roughtly_constant(model_capacities)
         if cst_modelsize:
@@ -224,7 +224,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
         return estimation
 
 
-def to_hyperparameters(hp: HYPERPARAMS_T, defaults: Optional[HYPERPARAMS_T] = None, raise_if_missing: bool = True) -> Union[Hyperparameters, Tuple[Hyperparameters, List[str]]]:
+def to_hyperparameters(hp: HYPERPARAMS_T, defaults: HYPERPARAMS_T = None, raise_if_missing: bool = True) -> Union[Hyperparameters, Tuple[Hyperparameters, List[str]]]:
     """ Converts given parameters Dict to a `deepcv.meta.hyperparams.Hyperparameters` object if needed. Alse allows you to check required and default hyperparameter through `defaults` argument (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
     Args:
         - hp: Parameter dict or `deepcv.meta.hyperparams.Hyperparameters` object

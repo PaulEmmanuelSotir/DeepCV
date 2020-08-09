@@ -52,7 +52,7 @@ def mlflow_get_experiment_run_info() -> Optional[Tuple[mlflow.entities.Experimen
     return (None, None)
 
 
-def set_anyconfig_yaml_parser_priorities(pyyaml_priority: Optional[int] = None, ryaml_priority: Optional[int] = None):
+def set_anyconfig_yaml_parser_priorities(pyyaml_priority: int = None, ryaml_priority: int = None):
     """ Changes 'anyconfig''s YAML backend parsers priority which makes possible to choose whether 'pyyaml' or 'ruamel.yaml' backend will be used as default Parser when loading/dumping YAML config files with 'anyconfig'.
     NOTE: Ruamel is, here, prefered over Pyyaml because of its YAML 1.2 support and allows 'unsafe/dangerous' Python tags usage by default (e.g. '!py!torch.nn.ReLU' YAML tags) without beging restricted to registered type constructors.
     """
@@ -79,7 +79,7 @@ def set_each_seeds(torch_seed: int = None, cuda_seed: int = None, np_seed: int =
         random.seed(python_seed)
 
 
-def setup_cudnn(deterministic: bool = False, use_gpu: bool = torch.cuda.is_available(), seed: Optional[int] = None):
+def setup_cudnn(deterministic: bool = False, use_gpu: bool = torch.cuda.is_available(), seed: int = None):
     if use_gpu:
         torch.backends.cudnn.deterministic = deterministic  # Makes training procedure reproducible (may have small performance impact)
         torch.backends.cudnn.benchmark = use_gpu and not torch.backends.cudnn.deterministic
@@ -139,7 +139,7 @@ def stop_tensorboard_server(port: Union[int, str], cmd_must_contain: Optional[st
     return success
 
 
-def get_device(devid: Optional[int] = None) -> torch.device:
+def get_device(devid: int = None) -> torch.device:
     if torch.cuda.is_available():
         return torch.device('cuda' + (f':{devid}' if devid else ''))
     return torch.device('cpu')
@@ -243,7 +243,7 @@ DataCatalog.yolo = yolo
 DataCatalog.yolo.__doc__ = "You Only Load Once. (Queries and loads from given search terms)"
 
 
-def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Optional[Type] = None, default: Optional[Any] = None) -> Any:
+def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Type = None, default: Any = None) -> Any:
     """ Recursively look for an attribute (`attr_name`) in given `obj` object and in any underlying/encapsulated objects of type 'type'.
     For example, this function may be usefull as `torch.utils.data.Dataset` child classes often encapsulates another dataset which could contain the attribute you look for (e.g. `Subset` Dataset encapsulates another Dataset).
     For such an usage, you would set `recurse_on_type` to `torch.utils.data.Dataset`, so that this function will look for `attr_name` attribute in `obj` (your dataset) and in all `obj`'s attributes which are Datasets, recursively.
@@ -310,7 +310,7 @@ def get_str_repr(fn_or_type: Union[Type, Callable], src_file: Optional[Union[str
 class EventsHandler:
     """ A basic callback handler allowing to raise/fire events by name which calls functions subscribed to fired event (synchronous calls to callbacks, no constraints on callbacks signature are enforced). """
 
-    def __init__(self, log_on_unkown_event: bool = True, must_register_events: bool = False, default_registered_events: Optional[Sequence[str]] = None):
+    def __init__(self, log_on_unkown_event: bool = True, must_register_events: bool = False, default_registered_events: Sequence[str] = None):
         self._log_on_unkown_event = log_on_unkown_event
         # Indicates whether if subscribing to an event which haven't been registered before is allowed (i.e. if `False`, no need to call `register_event`, if `True`, `subscribe` will fail if `register_event` haven't been called before (nor given throught constructor `default_registered_events` argument) for given event name)
         self._must_register_events = must_register_events
@@ -392,7 +392,7 @@ def import_and_reload(module_name: str, path: Union[str, Path] = Path('.')) -> t
     return module
 
 
-def import_third_party(src_path: Union[str, Path], namespace: Optional[str] = None, catch_excepts: bool = False) -> Optional[types.ModuleType]:
+def import_third_party(src_path: Union[str, Path], namespace: str = None, catch_excepts: bool = False) -> Optional[types.ModuleType]:
     """ Imports Python third party modules with importlib. Use this function if you need to import Python modules which are not installed in Python path and outside of deepcv (e.g. can be used to import any git sub-repository projects in `DeepCV/third_party/` directory or to import `DeepCV/src/tests`, which is outside of `DeepCV/src/deepcv` module).
     NOTE: `import_third_party` function won't append third party module path to the system PATH, thus, `import_third_party` is a proper way to import third party modules from code than `import_and_reload`, as there could be conflicts/unexpected bedhaviors when adding third party module path to system PATH. `import_and_reload` is only intented to be used in ipython or jupyter notebooks, not in production code.
     Args:

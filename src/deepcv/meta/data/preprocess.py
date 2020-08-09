@@ -37,7 +37,7 @@ memory = Memory(JOBLIB_CACHE_PATH, verbose=0)
 class PreprocessedDataset(Dataset):
     """ A Simple PyTorch Dataset which applies given inputs/target transforms to underlying pytorch dataset items """
 
-    def __init__(self, underlying_dataset: Dataset, img_transform: Optional[Callable], target_transform: Optional[Callable] = None, augmentation_transform: Optional[Callable] = None):
+    def __init__(self, underlying_dataset: Dataset, img_transform: Optional[Callable], target_transform: Callable = None, augmentation_transform: Callable = None):
         self._underlying_dataset = underlying_dataset
         self._img_transform = img_transform
         self._target_transform = target_transform
@@ -180,7 +180,7 @@ def _parse_transforms_specification(transform_identifiers: Sequence, trainset: D
     return torchvision.transforms.Compose(transforms)
 
 
-def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: Dataset, testset: Optional[Dataset] = None) -> Dict[str, Dataset]:
+def split_dataset(params: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], dataset_or_trainset: Dataset, testset: Dataset = None) -> Dict[str, Dataset]:
     func_name = deepcv.utils.get_str_repr(split_dataset, __file__)
     params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, defaults={'validset_ratio': None, 'testset_ratio': None, 'cache': False})
     logging.info(f'{func_name}: Spliting pytorch dataset into a trainset, testset and eventually a validset: `params="{params}"`')

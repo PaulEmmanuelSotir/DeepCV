@@ -19,7 +19,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 class OneCyclePolicy:
-    def __init__(self, base_lr: float = 1e-4, max_lr: float = 1e9, base_momentum: Optional[float] = None, max_momentum: Optional[float] = None):
+    def __init__(self, base_lr: float = 1e-4, max_lr: float = 1e9, base_momentum: float = None, max_momentum: float = None):
         self.base_lr = base_lr
         self.max_lr = max_lr
         self.base_momentum = base_momentum

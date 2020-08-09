@@ -15,7 +15,8 @@ from torch.utils.data import Dataset
 import deepcv.utils
 
 __all__ = ['TENSOR_OR_SEQ_OF_TENSORS_T', 'FLOAT_OR_FLOAT_TENSOR_T', 'HYPERPARAMS_T', 'METRICS_DICT_T', 'SUBMODULE_FORWARD_CALLBACK_T',
-           'SUBMODULE_CREATORS_DICT_T', 'REDUCTION_FN_T', 'NORM_TECHNIQUES_MODULES_T', 'MODULE_OR_TYPE_T']
+           'SUBMODULE_CREATORS_DICT_T', 'REDUCTION_FN_T', 'NORM_TECHNIQUES_MODULES_T', 'MODULE_OR_TYPE_T',
+           'SIZE_1_T', 'SIZE_2_T', 'SIZE_3_T', 'SIZE_N_T']
 __author__ = 'Paul-Emmanuel Sotir'
 
 #______________________________________________ TYPES ALIASES CONSTANTS _______________________________________________#
@@ -47,6 +48,11 @@ REDUCTION_FN_T = Callable[[TENSOR_OR_SEQ_OF_TENSORS_T, *'args'], TENSOR_OR_SEQ_O
 NORM_TECHNIQUES_MODULES_T = Dict['NormTechnique', Union[Type[torch.nn.Module], Callable[..., torch.nn.Module]]]
 
 MODULE_OR_TYPE_T = Union[torch.nn.Module, Type[torch.nn.Module]]
+
+SIZE_1_T = Union[int, Tuple[int]]  # e.g. can be used for 1D conv kernel size, padding, ... (equivalent to torch.nn.common_types._size_1_t)
+SIZE_2_T = Union[int, Tuple[int, int]]  # e.g. can be used for 2D conv kernel size, padding, ... (equivalent to torch.nn.common_types._size_2_t)
+SIZE_3_T = Union[int, Tuple[int, int, int]]  # e.g. can be used for 3D conv kernel size, padding, ... (equivalent to torch.nn.common_types._size_3_t)
+SIZE_N_T = Union[int, Tuple[int, ...]]  # Size type on N-D operations (equivalent to torch.nn.common_types._size_any_t)
 
 #______________________________________________ TYPES ALIASES UNIT TESTS ______________________________________________#
 

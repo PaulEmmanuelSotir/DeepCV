@@ -25,30 +25,30 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 class TrainingMetaData(abc.ABC):
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+    def __init__(self, existing_uuid: uuid.UUID = None):
         self._uuid = uuid.uuid4() if existing_uuid is None else existing_uuid
 
 
 class DatasetStats(TrainingMetaData):
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+    def __init__(self, existing_uuid: uuid.UUID = None):
         super(self.__class__).__init__(self, existing_uuid)
         # TODO: store dataset datas
 
 
 class Task(TrainingMetaData):
-    def __init__(self, train_loss: torch.nn.modules.loss._Loss, dummy_model_input: torch.Tensor, existing_uuid: Optional[uuid.UUID] = None):
+    def __init__(self, train_loss: torch.nn.modules.loss._Loss, dummy_model_input: torch.Tensor, existing_uuid: uuid.UUID = None):
         super(Task, self).__init__(existing_uuid)
         self._train_loss = train_loss
         self._dummy_model_input = dummy_model_input
 
 
 class Experiment(TrainingMetaData):
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+    def __init__(self, existing_uuid: uuid.UUID = None):
         super(Experiment, self).__init__(existing_uuid)
 
 
 class HyperparameterSpace(TrainingMetaData):
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None):
+    def __init__(self, existing_uuid: uuid.UUID = None):
         super(HyperparameterSpace, self).__init__(existing_uuid)
         # TODO: implement
 
@@ -64,7 +64,7 @@ class Hyperparameters(TrainingMetaData, collections.abc.Mapping):
     # TODO: refactor deepcv code to make use of this class instead of a simple Dict[str, Any]
     """
 
-    def __init__(self, existing_uuid: Optional[uuid.UUID] = None, **kwargs):
+    def __init__(self, existing_uuid: uuid.UUID = None, **kwargs):
         TrainingMetaData.__init__(self, existing_uuid)
         collections.abc.Mapping.__init__(self)
         self._store = dict(**kwargs)

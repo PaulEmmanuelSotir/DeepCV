@@ -68,7 +68,7 @@ class yaml_tokens(enum.Enum):
 #_____________________________________________ NN SPEC PARSING FUNCTIONS ______________________________________________#
 
 
-def define_nn_architecture(deepcv_module: 'deepcv.meta.base_module.DeepcvModule', architecture_spec: Iterable, submodule_creators: Optional[SUBMODULE_CREATORS_DICT_T] = None, extend_basic_submodule_creators_dict: bool = True):
+def define_nn_architecture(deepcv_module: 'deepcv.meta.base_module.DeepcvModule', architecture_spec: Iterable, submodule_creators: SUBMODULE_CREATORS_DICT_T = None, extend_basic_submodule_creators_dict: bool = True):
     """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
     .. For examples of DeepcvModules YAML architecture specification, see ./conf/base/parameters.yml
     NOTE: defines `deepcv_module._features_shapes`, `deepcv_module._submodules_capacities`, `deepcv_module._submodules` and `deepcv_module._architecture_spec`, ... attributes (usefull for forward passes, debuging and `deepcv_module.__str__` and `deepcv_module.describe` functions)

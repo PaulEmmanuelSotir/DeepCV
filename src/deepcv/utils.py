@@ -35,7 +35,7 @@ from kedro.io import DataCatalog
 
 __all__ = ['NUMBER_T', 'NL', 'mlflow_get_experiment_run_info', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds',
            'setup_cudnn', 'progess_bar', 'get_device', 'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo',
-           'recursive_getattr', 'replace_newlines', 'get_by_identifier', 'get_str_repr', 'EventsHandler', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload',
+           'recursive_getattr', 'replace_newlines', 'filter_kwargs', 'get_by_identifier', 'get_str_repr', 'EventsHandler', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload',
            'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
 
@@ -282,6 +282,20 @@ def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Type = None, de
 def replace_newlines(text: str) -> str:
     """ Simple helper function which returns given `text` string with any '\r\n' or '\n' occurences replaced with `os.linesep` platform-dependent newline string (`deepcv.utils.NL`)  """
     return re.sub(pattern='\\?\r?\\\n', repl=NL, string=text)
+
+
+def filter_kwargs(kwargs: Mapping[str, Any], to_call: Union[Callable, Type], keep_all_if_takes_var_kwargs: bool = True, keep_all_if_takes_var_args: bool = False) -> Dict[str, Any]:
+    """ Helper function returnining filtered-out `kwargs` keyword arguments which are not taken in `to_call` function signature (or `to_call.__init__` function if `to_call` is a Type).
+    NOTE: If `keep_all_if_takes_var_kwargs` is `True` and if given function (or type's `__init__` fn) takes variadic keyword arguments (`**`), then `kwargs` is returned as is. (idem for variadic positional args when `keep_all_if_takes_var_args` is `True`)
+    """
+    if isinstance(to_call, Type):
+        to_call = to_call.__init__
+    fn_params = inspect.signature(to_call).parameters
+    if keep_all_if_takes_var_kwargs and any([p.kind == p.VAR_KEYWORD for p in fn_params]):
+        return kwargs
+    elif keep_all_if_takes_var_args and any([p.kind == p.VAR_POSITIONAL for p in fn_params]):
+        return kwargs
+    return {n: v for n, v in kwargs.items() if n in fn_params}
 
 
 def get_by_identifier(identifier: str):

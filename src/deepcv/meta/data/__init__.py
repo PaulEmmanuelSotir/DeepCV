@@ -1,12 +1,15 @@
 
 # Lists all available 'deepcv.meta.data' sub-modules
-__all__ = ['augmentation', 'compressed_generator', 'datasets', 'generator', 'preprocess', 'training_metadata', 'viz']
+__all__ = ['augmentation', 'datasets', 'preprocess', 'singan', 'training_metadata', 'viz']
+
+# TODO: remove or put `compression` back into __all__
 
 # 'deepcv.meta.data' modules imports
-#import deepcv.meta.data.augmentation
-# import deepcv.meta.data.compressed_generator
-#import deepcv.meta.data.datasets
-# import deepcv.meta.data.generator
-#import deepcv.meta.data.preprocess
-#import deepcv.meta.data.training_metadata
-# import deepcv.meta.data.viz
+from . import training_metadata
+from .datasets import *
+from . import singan
+from . import viz
+# from . import augmentation # Augmentation needs 'deepcv.meta.hyperparams' which cant be imported before 'deepcv.meta.data'
+# from . import preprocess # Preprocess needs 'deepcv.meta.hyperparams' which cant be imported before 'deepcv.meta.data'
+
+# TODO: remove or put `import deepcv.meta.data.compression` back

@@ -36,9 +36,9 @@ from nni.nas.pytorch import enas, spos, proxylessnas
 
 import deepcv.utils
 from deepcv.utils import NL
-import deepcv.meta.hyperparams
-import deepcv.meta.data.datasets
-from deepcv.meta.types_aliases import *
+from . import hyperparams
+from .data import datasets
+from .types_aliases import *
 
 __all__ = ['is_nni_single_shot_nas_algorithm', 'is_nni_classic_nas_algorithm', 'is_nni_gen_search_space_mode', 'is_nni_run_standalone', 'get_nni_or_mlflow_experiment_and_trial', 'model_contains_nni_nas_mutable',
            'gen_classic_nas_search_space', 'nni_single_shot_neural_architecture_search', 'handle_nni_nas_trial', 'run_nni_hp_search', 'gen_nni_config', 'sample_nni_hp_space',
@@ -105,8 +105,8 @@ def model_contains_nni_nas_mutable(model: torch.nn.Module):
     Returns `True` if given model contains any NNI NAS Mutable (`InputChoice` or `LayerChoice`), returns `False` otherwise.
     """
     def _is_nni_nas_mutable(child_module: torch.nn.Module):
-        if isinstance(child_module, deepcv.meta.base_module.DeepcvModule):
-            return child_module.uses_nni_nas_mutables()
+        if getattr(child_module, 'uses_nni_nas_mutables', None):
+            return child_module.uses_nni_nas_mutables(recursive=False)  # No need to recurse here as we are already iterating over all child modules recursively
         else:
             return isinstance(child_module, (nni.nas.pytorch.mutables.LayerChoice, nni.nas.pytorch.mutables.InputChoice))
     return any(map(model.modules(), _is_nni_nas_mutable))
@@ -162,7 +162,7 @@ def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: nn.Modu
     # TODO: Allow resuming an NNI single shot NAS experiment throught 'hp['resume_from']' parameter (if possible easyly using NNI API?)
     # TODO: Add support for two-way callbacks using deepcv.utils.EventsHandler in a similar way than ignite_training.train (once ignite_training fully support it)
     """
-    from deepcv.meta.ignite_training import BackendConfig
+    from .ignite_training import BackendConfig
     if backend_conf is None:
         backend_conf = BackendConfig()
     experiment_name, run_id = get_nni_or_mlflow_experiment_and_trial()
@@ -171,7 +171,7 @@ def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: nn.Modu
 
     TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'epochs': ..., 'batch_size': None, 'nni_single_shot_nas_algorithm': ..., 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
                             'log_progress_every_iters': 100, 'seed': None, 'resume_from': '', 'deterministic_cudnn': False, 'nas_mutator': None, 'nas_mutator_kwarg': dict(), 'nas_trainer_kwargs': dict()}
-    hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
+    hp, _ = hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
     deepcv.utils.setup_cudnn(deterministic=hp['deterministic_cudnn'], seed=backend_conf.rank + hp['seed'])  # In distributed setup, we need to have different seed for each workers
     model = model.to(backend_conf.device, non_blocking=True)
     loss = loss.to(backend_conf.device) if isinstance(loss, torch.nn.Module) else loss
@@ -405,8 +405,8 @@ def hp_search(hp_space: Dict[str, Any], define_model_fn: Callable[['hp'], nn.Mod
         logging.info('Using "prediction of model\'s generalization across scales" technique by performing multiple trainings on small trainset subsets to be able to predict validation error if we had trained model on full trainset.')
         num_workers = max(1, multiprocessing.cpu_count() - 1)
         dl_kwargs = dict(batch_size=training_hps['batch_size'], num_workers=num_workers, pin_memory=True)
-        subsets = [deepcv.meta.data.datasets.get_random_subset_dataloader(trainset, ss, **dl_kwargs) for ss in subset_sizes]
-        generalization_predictor = deepcv.meta.hyperparams.GeneralizationAcrossScalesPredictor(
+        subsets = [datasets.get_random_subset_dataloader(trainset, ss, **dl_kwargs) for ss in subset_sizes]
+        generalization_predictor = hyperparams.GeneralizationAcrossScalesPredictor(
             len(subsets), fit_using_hps=False, fit_using_loss_curves=False, fit_using_dataset_stats=False)
 
     # TODO: add ignite training handler to report metrics to nni as intermediate results: nni.report_intermediate_result()

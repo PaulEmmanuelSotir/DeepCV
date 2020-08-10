@@ -33,13 +33,13 @@ import mlflow
 import kedro
 import nni
 
-from deepcv.utils import NL
 import deepcv.utils
-import deepcv.meta.nn
-import deepcv.meta.hyperparams
-import deepcv.meta.nni_tools
-from deepcv.meta.types_aliases import *
+from .nn import is_data_parallelization_usefull_heuristic, data_parallelize
+from .nni_tools import is_nni_run_standalone
+from .hyperparams import to_hyperparameters
+from .types_aliases import *
 
+from .data.datasets import dataloader_prefetch_batches
 
 __all__ = ['BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -113,7 +113,7 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
                             'prefetch_batches': True, 'resume_from': '', 'crash_iteration': -1, 'deterministic_cudnn': False, 'use_sync_batch_norm': False}
     logging.info(f'Starting ignite training procedure to train "{model}" model...')
     assert len(datasets) == 3 or len(datasets) == 2, 'Error: datasets tuple must either contain: `trainset and validset` or `trainset, validset and testset`'
-    hp, _ = deepcv.meta.hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
+    hp, _ = to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
     device = backend_conf.device
     deepcv.utils.setup_cudnn(deterministic=hp['deterministic_cudnn'], seed=backend_conf.rank + hp['seed'])  # In distributed setup, we need to have different seed for each workers
 
@@ -125,7 +125,7 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
         batch_size = hp['batch_size'] if n == 'trainset' else hp['batch_size'] * 32  # NOTE: Evaluation batches are choosen to be 32 times larger than train batches
         dl = DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=not backend_conf.is_cuda)
         # Setup data batch prefetching by patching dataloader(s) if asked so
-        dataloaders.append(deepcv.meta.data.datasets.dataloader_prefetch_batches(dl, device=backend_conf.device) if hp['prefetch_batches'] else dl)
+        dataloaders.append(dataloader_prefetch_batches(dl, device=backend_conf.device) if hp['prefetch_batches'] else dl)
     trainset, *validset_testset = dataloaders
 
     model = model.to(device, non_blocking=True)
@@ -217,7 +217,7 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
         for n, v in valid_metrics.items():
             mlflow.log_metric(n, v, step=engine.state.epoch)
 
-        if not deepcv.meta.nni_tools.is_nni_run_standalone():
+        if not is_nni_run_standalone():
             # TODO: make sure `valid_state.metrics` is ordered so that reported default metric to NNI is always the same
             nni.report_intermediate_result({'default': valid_state.metrics.values()[0], **train_metrics, **valid_metrics})
 
@@ -262,13 +262,14 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
         state = trainer.run(trainset, max_epochs=hp['epochs'])
         logging.info(f'Training of "{model}" model done sucessfully.')
 
-        if not deepcv.meta.nni_tools.is_nni_run_standalone():
+        if not is_nni_run_standalone():
             # Report final training results to NNI (NNI HP or NNI Classic NAS APIs)
             # TODO: make sure `valid_state.metrics` is ordered so that reported default metric to NNI is always the same
             nni.report_final_result({'default': valid_evaluator.state.metrics.values()[0], **train_evaluator.state.metrics, **valid_evaluator.state.metrics})
         return (valid_evaluator.state.metrics, state)
     except Exception as e:
-        logging.error(f'Ignite training loop of "{type(model).__name__}" model failed, exception "{e}" raised{NL}### Traceback ###{NL}{traceback.format_exc()}')
+        logging.error(
+            f'Ignite training loop of "{type(model).__name__}" model failed, exception "{e}" raised{deepcv.utils.NL}### Traceback ###{deepcv.utils.NL}{traceback.format_exc()}')
         raise RuntimeError(f'Error: `{e}` exception raised during ignite training loop of "{type(model).__name__}" model...') from e
     finally:
         if backend_conf.rank == 0:
@@ -295,9 +296,9 @@ def _setup_distributed_training(device, backend_conf: BackendConfig, model: torc
             # NOTE: `convert_sync_batchnorm` is needed as direct usage of `SyncBatchNorm` doesnt upports DDP with mutliple GPU per process according to PyTorch 1.6.0 documentation
             # TODO: may have been fixed since muti GPU per process use case of DDP have been fixed in 1.6.0 release?
             model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    elif not backend_conf.is_cpu and deepcv.meta.nn.is_data_parallelization_usefull_heuristic(model, batch_shape):
+    elif not backend_conf.is_cpu and is_data_parallelization_usefull_heuristic(model, batch_shape):
         # If not distributed, we can still use data parrallelization if there are multiple GPUs available and data is large enought to be worth it
-        model = deepcv.meta.nn.data_parallelize(model)
+        model = data_parallelize(model)
 
     return model
 
@@ -328,7 +329,7 @@ if __name__ == '__main__':
 
     # Main training loop
     for epoch in range(1, epochs + 1):
-        print(f"{NL}Epoch %03d/%03d{NL}" % (epoch, epochs) + '-' * 15)
+        print(f"{deepcv.utils.NL}Epoch %03d/%03d{deepcv.utils.NL}" % (epoch, epochs) + '-' * 15)
         train_loss = 0
 
         trange, update_bar = tu.progess_bar(trainset, '> Training on trainset', min(

@@ -18,8 +18,8 @@ import nni
 import nni.nas.pytorch.mutables as nni_mutables
 
 import deepcv.utils
-import deepcv.meta.nn
-from deepcv.meta.types_aliases import *
+from .types_aliases import *
+from .nn import get_model_capacity, get_out_features_shape
 
 
 __all__ = ['TENSOR_REDUCTION_FNS', 'DEFAULT_LAYER_CHOICE_REDUCTION', 'ignore_dim', 'define_nn_architecture']
@@ -68,7 +68,7 @@ class yaml_tokens(enum.Enum):
 #_____________________________________________ NN SPEC PARSING FUNCTIONS ______________________________________________#
 
 
-def define_nn_architecture(deepcv_module: 'deepcv.meta.base_module.DeepcvModule', architecture_spec: Iterable, submodule_creators: SUBMODULE_CREATORS_DICT_T = None, extend_basic_submodule_creators_dict: bool = True):
+def define_nn_architecture(deepcv_module: 'deepcv.meta.base_module.DeepcvModule', architecture_spec: Iterable, subm_creators: SUBMODULE_CREATORS_DICT_T = None, extend_basic_subm_creators_dict: bool = True):
     """ Defines neural network architecture by parsing 'architecture' hyperparameter and creating sub-modules accordingly
     .. For examples of DeepcvModules YAML architecture specification, see ./conf/base/parameters.yml
     NOTE: defines `deepcv_module._features_shapes`, `deepcv_module._submodules_capacities`, `deepcv_module._submodules` and `deepcv_module._architecture_spec`, ... attributes (usefull for forward passes, debuging and `deepcv_module.__str__` and `deepcv_module.describe` functions)
@@ -76,25 +76,25 @@ def define_nn_architecture(deepcv_module: 'deepcv.meta.base_module.DeepcvModule'
     Args:
         - deepcv_module: `deepcv.meta.base_module.DeepcvModule` NN model to be parsed/defined by YAML architecture specification
         - architecture_spec: Neural net architecture definition listing submodules to be created with their respective parameters (probably from hyperparameters of `conf/base/parameters.yml` configuration file)
-        - submodule_creators: Dict of possible architecture sub-modules associated with their respective module creators. If None, then defaults to `deepcv.meta.submodule_creators.BASIC_SUBMODULE_CREATORS`.
-        - extend_basic_submodule_creators_dict: Boolean indicating whether `submodule_creators` argument will be extended with `deepcv.meta.submodule_creators.BASIC_SUBMODULE_CREATORS` dict or not. i.e. whether `submodule_creators` defines additionnal sub-modules or all existing sub-modules.  
-            NOTE: If `True` and some creator name(s)/entries are both present in `submodule_creators` arg and in `deepcv.meta.submodule_creators.BASIC_SUBMODULE_CREATORS`, then `submodule_creators` dict values overrides defaults/base ones.  
+        - subm_creators: Dict of possible architecture sub-modules associated with their respective module creators. If None, then defaults to `deepcv.meta.subm_creators.BASIC_SUBMODULE_CREATORS`.
+        - extend_basic_subm_creators_dict: Boolean indicating whether `subm_creators` argument will be extended with `deepcv.meta.submodule_creators.BASIC_SUBMODULE_CREATORS` dict or not. i.e. whether `subm_creators` defines additionnal sub-modules or all existing sub-modules.  
+            NOTE: If `True` and some creator name(s)/entries are both present in `subm_creators` arg and in `deepcv.meta.submodule_creators.BASIC_SUBMODULE_CREATORS`, then `subm_creators` dict values overrides defaults/base ones.  
     """
-    from deepcv.meta.submodule_creators import ForwardCallbackSubmodule, BASIC_SUBMODULE_CREATORS
+    from .submodule_creators import ForwardCallbackSubmodule, BASIC_SUBMODULE_CREATORS
     deepcv_module._features_shapes = [deepcv_module._input_shape]
     deepcv_module._architecture_spec = architecture_spec
     deepcv_module._submodules_capacities = list()
     deepcv_module._submodules = OrderedDict()
     deepcv_module._submodule_references = dict()  # Dict which associates referenced sub-modules name/label with a set of their respective referrer sub-modules name/label (referenced tensor(s) using yaml_tokens.FROM or referenced tensors candidate(s)) using yaml_tokens.FROM_NAS_INPUT_CHOICE)
 
-    # Merge given submodule creators (if any) with defaults (`deepcv.meta.submodule_creators.BASIC_SUBMODULE_CREATORS`) ones if `extend_basic_submodule_creators_dict` is `True` (and make sure given `submodule_creators` overrides any `BASIC_SUBMODULE_CREATORS` entries/creators which have the same name)
-    submodule_creators = {**(BASIC_SUBMODULE_CREATORS if extend_basic_submodule_creators_dict else dict()),
-                          **(submodule_creators if submodule_creators is not None else dict())}
+    # Merge given submodule creators (if any) with defaults (`deepcv.meta.submodule_creators.BASIC_SUBMODULE_CREATORS`) ones if `extend_basic_subm_creators_dict` is `True` (and make sure given `subm_creators` overrides any `BASIC_SUBMODULE_CREATORS` entries/creators which have the same name)
+    subm_creators = {**(BASIC_SUBMODULE_CREATORS if extend_basic_subm_creators_dict else dict()),
+                     **(subm_creators if subm_creators is not None else dict())}
 
     # Parse submodule NN architecture spec in order to define PyTorch model's submodules accordingly
     for i, submodule_spec in enumerate(architecture_spec):
         # Parse submodule specification to obtain a new `torch.nn.Module` submodule of NN architecture
-        subm_name, subm = _parse_torch_module_from_submodule_spec(deepcv_module, submodule_spec, i, submodule_creators)
+        subm_name, subm = _parse_torch_module_from_submodule_spec(deepcv_module, submodule_spec, i, subm_creators)
         # Append new submodule to NN architecture (`deepcv_module._submodules` Ordered Dict)
         deepcv_module._submodules[subm_name] = subm
         # Store tensor references for easier/better memory handling during forward passes (e.g. residual/dense links, `yaml_tokens.NEW_BRANCH_FROM_TENSOR` usage, ...)
@@ -102,7 +102,7 @@ def define_nn_architecture(deepcv_module: 'deepcv.meta.base_module.DeepcvModule'
             deepcv_module._submodule_references[subm_name] = subm.referenced_submodules
         # Figure out new NN submodule capacity
         # TODO: Modify `deepcv.meta.nn.get_model_capacity` in case submodule is a `MutableLayer`s (Return a list of capacities or mean capacity? For now, returns sum of capacities...)?
-        deepcv_module._submodules_capacities.append(deepcv.meta.nn.get_model_capacity(subm))
+        deepcv_module._submodules_capacities.append(get_model_capacity(subm))
         if deepcv_module.is_sequencial_nn():
             # deepcv_module._sequential_net is only accurate/applicable/defined when there isn't any submodules using tensor reference(s), NNI NAS Mutable InputChoice(s), nor non-default reduction functions, but will still be accurate on features shapes (specific logic is needed in forward passes of `DeepcvModule`)
             deepcv_module._sequential_net = torch.nn.Sequential(deepcv_module._submodules)
@@ -115,11 +115,11 @@ def define_nn_architecture(deepcv_module: 'deepcv.meta.base_module.DeepcvModule'
             raise ValueError(f'Error: Invalid sub-module reference(s), cant find following sub-module name(s)/label(s): "{missing_refs}".'
                              ' Output tensor references must refer to a previously defined sub-module name.')
         # Figure out output features shape from new submodule by performing a dummy forward pass of `DeepcvModule` instance
-        subm_out_shape = deepcv.meta.nn.get_out_features_shape(deepcv_module._input_shape, deepcv_module, use_minibatches=True)
+        subm_out_shape = get_out_features_shape(deepcv_module._input_shape, deepcv_module, use_minibatches=True)
         deepcv_module._features_shapes.append(subm_out_shape[1:])  # subm_out_shape[1:] removes the first dim as `get_out_features_shape` returns output shape with minibatch dim
 
 
-def _parse_torch_module_from_submodule_spec(deepcv_module: 'deepcv.meta.base_module.DeepcvModule', submodule_spec: Union[Dict, Type[torch.nn.Module], str, Callable[..., torch.nn.Module]], submodule_pos: Union[int, str], submodule_creators: SUBMODULE_CREATORS_DICT_T, default_submodule_prefix: str = '_submodule_', allow_mutable_layer_choices: bool = True) -> Tuple[str, torch.nn.Module]:
+def _parse_torch_module_from_submodule_spec(deepcv_module: 'deepcv.meta.base_module.DeepcvModule', submodule_spec: Union[Dict, Type[torch.nn.Module], str, Callable[..., torch.nn.Module]], submodule_pos: Union[int, str], subm_creators: SUBMODULE_CREATORS_DICT_T, default_submodule_prefix: str = '_submodule_', allow_mutable_layer_choices: bool = True) -> Tuple[str, torch.nn.Module]:
     """ Defines a single submodule of `DeepcvModule` from its respective NN architecture spec.  
     TODO: Refactor `_parse_torch_module_from_submodule_spec` and underlying function to be independent of DeepcvModule (and, for ex., put those in a speratate `yaml_nn_spec_parsing.py` file) (Context which still depends on DeepcvModule instance: `deepcv_module._uses_nni_nas_mutables deepcv_module._uses_forward_callback_submodules deepcv_module._features_shapes deepcv_module._hp deepcv_module.HP_DEFAULTS`)  
     """
@@ -134,8 +134,8 @@ def _parse_torch_module_from_submodule_spec(deepcv_module: 'deepcv.meta.base_mod
 
     if subm_type == yaml_tokens.NESTED_DEEPCV_MODULE:
         # Allow nested DeepCV sub-module (see deepcv/conf/base/parameters.yml for examples)
-        module = type(deepcv_module)(input_shape=deepcv_module._features_shapes[-1], hp=params_with_globals, additional_submodule_creators=submodule_creators,
-                                     extend_basic_submodule_creators_dict=False, additional_init_logic=deepcv_module._additional_init_logic)
+        module = type(deepcv_module)(input_shape=deepcv_module._features_shapes[-1], hp=params_with_globals, additional_subm_creators=subm_creators,
+                                     extend_basic_subm_creators_dict=False, additional_init_logic=deepcv_module._additional_init_logic)
     elif subm_type == yaml_tokens.NAS_LAYER_CHOICE:
         deepcv_module._uses_nni_nas_mutables = True
         if not allow_mutable_layer_choices:
@@ -152,7 +152,7 @@ def _parse_torch_module_from_submodule_spec(deepcv_module: 'deepcv.meta.base_mod
         # Parse candidates/alternative submodules from params (recursive call to `_parse_torch_module_from_submodule_spec`)
         candidate_refs, candidates = tuple(), OrderedDict()
         for j, candidate_spec in enumerate(params[yaml_tokens.NAS_LAYER_CHOICE_CANDIDATES]):
-            candidate_name, candidate = _parse_torch_module_from_submodule_spec(deepcv_module, submodule_spec=candidate_spec, submodule_pos=j, submodule_creators=submodule_creators,
+            candidate_name, candidate = _parse_torch_module_from_submodule_spec(deepcv_module, submodule_spec=candidate_spec, submodule_pos=j, subm_creators=subm_creators,
                                                                                 default_submodule_prefix=prefix, allow_mutable_layer_choices=False)
             if isinstance(candidate, ForwardCallbackSubmodule) and getattr(candidate, 'referenced_submodules') is not None:
                 candidate_refs += candidate.referenced_submodules
@@ -173,13 +173,13 @@ def _parse_torch_module_from_submodule_spec(deepcv_module: 'deepcv.meta.base_mod
         # Parses a regular NN submodule from specs. (either based on a submodule creator or directly a `torch.nn.Module` type or string identifier)
         if isinstance(subm_type, str):
             # Try to find sub-module creator or a torch.nn.Module's `__init__` function which matches `subm_type` identifier
-            fn_or_type = submodule_creators.get(subm_type)
+            fn_or_type = subm_creators.get(subm_type)
             if not fn_or_type:
                 # If we can't find suitable function in module_creators, we try to evaluate function name (allows external functions to be used to define model's modules)
                 try:
                     fn_or_type = deepcv.utils.get_by_identifier(subm_type)
                 except Exception as e:
-                    raise RuntimeError(f'Error: Could not locate module/function named "{subm_type}" given module creators: "{submodule_creators.keys()}"') from e
+                    raise RuntimeError(f'Error: Could not locate module/function named "{subm_type}" given module creators: "{subm_creators.keys()}"') from e
         else:
             # Specified submodule is assumed to be directly a `torch.nn.Module` or `Callable[..., torch.nn.Module]` type which will be instanciated with its respective parameters as possible arguments according to its `__init__` signature (`params` and global NN spec. parameters)
             fn_or_type = subm_type

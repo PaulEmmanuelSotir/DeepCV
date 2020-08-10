@@ -22,8 +22,8 @@ import torchvision.datasets
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
 from deepcv.utils import NL, get_by_identifier, import_tests
-import deepcv.meta.data.training_metadata
-from deepcv.meta.types_aliases import *
+from . import training_metadata
+from ..types_aliases import *
 
 __all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'dataloader_prefetch_batches', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'

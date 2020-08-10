@@ -19,15 +19,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
 import deepcv.utils
-import deepcv.meta.nn
-import deepcv.meta.data.training_metadata
-from deepcv.meta.types_aliases import *
+from .nn import get_model_capacity
+from .data import training_metadata
+from .types_aliases import *
 
 __all__ = ['Hyperparameters', 'HyperparameterSpace', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor', 'to_hyperparameters', 'merge_hyperparameters']
 __author__ = 'Paul-Emmanuel Sotir'
 
-Hyperparameters = deepcv.meta.data.training_metadata.Hyperparameters
-HyperparameterSpace = deepcv.meta.data.training_metadata.HyperparameterSpace
+Hyperparameters = training_metadata.Hyperparameters
+HyperparameterSpace = training_metadata.HyperparameterSpace
 
 
 class HyperparamsEmbedding(nn.Module):
@@ -170,7 +170,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
         return eps0 * np.absolute(emn / (emn - eta * 1j))  # Complex absolute, i.e. 2D L2 norm
 
     def fit_generalization(self, trainsets: Sequence[DataLoader], models: Sequence[nn.Module], best_valid_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T], best_train_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T] = None):
-        model_capacities = [deepcv.meta.nn.get_model_capacity(m) for m in models]
+        model_capacities = [get_model_capacity(m) for m in models]
         cst_modelsize = deepcv.utils.is_roughtly_constant(model_capacities)
         if cst_modelsize:
             # If model capacity doesn't change, we can simplify model regression by removing 'b' and 'beta' parameters (constant term which can be modeled by 'cinf' parameter)
@@ -202,7 +202,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             # TODO: create and train on 'meta' dataset from MLFlow?
 
     def forward(self, model: Union[nn.Module, int], trainset: Union[DataLoader, int]) -> float:
-        model_capacity = deepcv.meta.nn.get_model_capacity(model) if isinstance(model, nn.Module) else model
+        model_capacity = get_model_capacity(model) if isinstance(model, nn.Module) else model
         trainset_size = trainset if isinstance(trainset, int) else len(trainset)
         estimation = GeneralizationAcrossScalesPredictor.error_landscape_estimation(self._leastsquares_params, model_capacity, trainset_size)
 

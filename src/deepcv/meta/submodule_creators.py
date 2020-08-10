@@ -17,9 +17,10 @@ import nni
 import nni.nas.pytorch.mutables as nni_mutables
 
 import deepcv.utils
-import deepcv.meta.nn
-from deepcv.meta.nn_spec import yaml_tokens, TENSOR_REDUCTION_FNS
-from deepcv.meta.types_aliases import *
+from .types_aliases import *
+from . import nn as deepcv_nn
+from .nn_spec import yaml_tokens, TENSOR_REDUCTION_FNS
+from . import hrnet
 
 __all__ = ['BASIC_SUBMODULE_CREATORS', 'ForwardCallbackSubmodule', 'submodule_creator_dec',
            'avg_pooling_creator', 'new_branch_creator', 'add_nn_layer_creator', 'add_residual_dense_link_creator']
@@ -33,9 +34,9 @@ This list can be extended or overriden according to your needs by providing your
 NOTE: By default, there are other possible submodules which are builtin DeepcvModule: see `deepcv.meta.nn_spec.yaml_tokens.NESTED_DEEPCV_MODULE`, `deepcv.meta.nn_spec.yaml_tokens.NAS_LAYER_CHOICE` and `deepcv.meta.nn_spec.yaml_tokens.NEW_BRANCH_FROM_TENSOR`  
 NOTE: You can add other base submodule creators to this dictionary by using `deepcv.meta.submodule_creators.submodule_creator_dec` function decorator (see example usage in `deepcv.meta.submodule_creators.avg_pooling_creator`)
 """
-BASIC_SUBMODULE_CREATORS = {'concat_coords': deepcv.meta.nn.ConcatCoords, 'concat_hilbert_coords': deepcv.meta.nn.ConcatHilbertCoords,
-                            'multiresolution_fusion': deepcv.meta.nn.MultiresolutionFusion, 'parallel_conv': deepcv.meta.nn.ParallelConvolution,
-                            'hrnet_input_stem': deepcv.meta.nn.hrnet_input_stem, 'hrnet_representation_head': deepcv.meta.nn.hrnet_output_representation_head}
+BASIC_SUBMODULE_CREATORS = {'concat_coords': deepcv_nn.ConcatCoords, 'concat_hilbert_coords': deepcv_nn.ConcatHilbertCoords,
+                            'multires_fusion': hrnet.MultiresolutionFusion, 'parallel_conv': hrnet.ParallelConvolution, 'hrnet_input_stem': hrnet.hrnet_input_stem,
+                            'hrnet_repr_head_v1': hrnet.HRNetV1RepresentationHead, 'hrnet_repr_head_vZ': hrnet.HRNetV2RepresentationHead, 'hrnet_repr_head_v2p': hrnet.HRNetV2pRepresentationHead}
 
 
 #____________________________________________ SUBMODULE CREATORS CLASSES ______________________________________________#
@@ -118,7 +119,7 @@ def add_nn_layer_creator(layer_op_t: Type[torch.nn.Module], creator_name: str, s
     """ Creates a fully connected or convolutional NN layer with optional dropout and batch/layer/instance/group norm support (and preactivation, activation function, ... choices)
     NOTE: We assume here that features/inputs are given in (mini)batches (`channel_dim` defaults to 1)
     """
-    if deepcv.meta.nn.is_conv(layer_op_t) and not isinstance(layer_op_t, torch.nn.Linear):
+    if deepcv_nn.is_conv(layer_op_t) and not isinstance(layer_op_t, torch.nn.Linear):
         raise TypeError(f'Error: Wrong `layer_op_t` type, cant create a NN layer of type {layer_op_t} with `deepcv.meta.submodule_creators.add_nn_layer_creator` '
                         'submodule creator (`layer_op_t` should either be a convolution or a `torch.nn.Linear`).')
 
@@ -126,8 +127,8 @@ def add_nn_layer_creator(layer_op_t: Type[torch.nn.Module], creator_name: str, s
     def _nn_layer_creator(submodule_params: Dict[str, Any], input_shape: torch.Size, layer_op_t: Type[torch.nn.Module], act_fn: torch.nn.Module = None, dropout_prob: float = None, channel_dim: int = 1, preactivation: bool = False,
                           batch_norm: Optional[Dict[str, Any]] = None, layer_norm: Optional[Dict[str, Any]] = None, instance_norm: Optional[Dict[str, Any]] = None, group_norm: Optional[Dict[str, Any]] = None, ln_with_mean_bn: Optional[Dict[str, Any]] = None) -> torch.nn.Module:
         # Handle specified normalization techniques if any (BatchNorm, LayerNorm, InstanceNorm, GroupNorm and/or ln_with_mean_bn)
-        norm_techniques = {deepcv.meta.nn.NormTechnique.BATCH_NORM: batch_norm, deepcv.meta.nn.NormTechnique.LAYER_NORM: layer_norm, deepcv.meta.nn.NormTechnique.INSTANCE_NORM: instance_norm,
-                           deepcv.meta.nn.NormTechnique.GROUP_NORM: group_norm, deepcv.meta.nn.NormTechnique.LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM: ln_with_mean_bn}
+        norm_techniques = {deepcv_nn.NormTechnique.BATCH_NORM: batch_norm, deepcv_nn.NormTechnique.LAYER_NORM: layer_norm, deepcv_nn.NormTechnique.INSTANCE_NORM: instance_norm,
+                           deepcv_nn.NormTechnique.GROUP_NORM: group_norm, deepcv_nn.NormTechnique.LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM: ln_with_mean_bn}
         norms = {t: args for t, args in norm_techniques.items() if args is not None and len(args) > 0}
 
         # Only supports convolutions and linear layers in this submodule creator
@@ -136,8 +137,8 @@ def add_nn_layer_creator(layer_op_t: Type[torch.nn.Module], creator_name: str, s
         if 'in_channels' not in submodule_params:
             submodule_params['in_channels'] = input_shape[channel_dim]
 
-        return deepcv.meta.nn.layer(layer_op=layer_op_t(**submodule_params), act_fn=act_fn, dropout_prob=dropout_prob, preactivation=preactivation,
-                                    norm_type=norms.keys(), norm_kwargs=norms.values(), input_shape=input_shape[channel_dim:])
+        return deepcv_nn.layer(layer_op=layer_op_t(**submodule_params), act_fn=act_fn, dropout_prob=dropout_prob, preactivation=preactivation,
+                               norm_type=norms.keys(), norm_kwargs=norms.values(), input_shape=input_shape[channel_dim:])
 
     _nn_layer_creator.__doc__ = add_nn_layer_creator.__doc__
     return partial(_nn_layer_creator, layer_op_t=layer_op_t)

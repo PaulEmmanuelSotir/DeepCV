@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 
 import deepcv.utils
-from deepcv.meta.types_aliases import *
+from ..types_aliases import *
 
 __all__ = ['TrainingMetaData', 'DatasetStats', 'Task', 'Experiment', 'HyperparameterSpace', 'Hyperparameters', 'MetaTracker']
 __author__ = 'Paul-Emmanuel Sotir'

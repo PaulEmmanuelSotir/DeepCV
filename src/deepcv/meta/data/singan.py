@@ -16,7 +16,6 @@ import torch.nn as nn
 import click
 from click import secho, style
 
-import deepcv
 import deepcv.utils
 
 

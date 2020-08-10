@@ -316,6 +316,8 @@ def get_by_identifier(identifier: str):
 
 
 def get_str_repr(fn_or_type: Union[Type, Callable], src_file: Optional[Union[str, Path]] = None):
+    """ Simple helper function which return human-readable/pretty-printable `fn_or_type` function name with eventual module(s) hierarchy of `src_file`. """
+    src_file = Path(src_file).relative_to(Path.cwd())  # TODO: replae cwd with project src path
     src_file_without_suffix = '.'.join([str(Path(src_file).parents), ] + [Path(src_file).stem, ]) + '.' if src_file else ''
     signature = inspect.signature(fn_or_type) if isinstance(fn_or_type, Callable) else ''
     return f'`{src_file_without_suffix}{fn_or_type.__name__}{signature}`'

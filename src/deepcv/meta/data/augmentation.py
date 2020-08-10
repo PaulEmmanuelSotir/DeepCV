@@ -6,10 +6,12 @@ Some of this python module code is a modified version of [official AugMix implem
 .. moduleauthor:: Paul-Emmanuel Sotir  
 
 *To-Do List*  
-    - TODO: parse YAML parameters for augmentations reciepes
+    - TODO: finish implementation of YAML parsing of augmentations reciepes specs
     - TODO: implement various augmentation operators: sharpness, crop, brightness, contrast, tweak_colors, gamma, noise, rotate, translate, scale, smooth_non_linear_deformation
     - TODO: implement augmentation based on distilled SinGAN model
     - TODO: AugMix augmentation recipe implementation? (see https://arxiv.org/pdf/1912.02781.pdf and parameters.yml)
+    - TODO: make sure Pillow-Simd is well installed and well performing. Otherwise, move to another transform framework
+    - TODO: Look into Albumentations Python package/library (or make sure to transform eventual targets to be coherent with transformed images)
 """
 import functools
 from typing import Union, Tuple, Callable, Mapping
@@ -22,7 +24,8 @@ import torchvision
 import torch.nn as nn
 
 import deepcv.utils
-import deepcv.meta
+from .. import hyperparams
+from ..types_aliases import *
 
 
 __all__ = ['apply_augmentation_reciepe', 'augment_and_mix', 'autocontrast', 'equalize', 'posterize',
@@ -100,7 +103,7 @@ def sharpness(pil_img: Image, severity: float, max_enhance_factor: float = 1.8, 
 AUGMENTATION_OPS = [autocontrast, equalize, posterize, rotate, solarize, shear_x, shear_y, translate_x, translate_y, color, contrast, brightness, sharpness]
 
 
-def apply_augmentation_reciepe(datasets: Tuple[torch.utils.data.Dataset], params: Union[deepcv.meta.hyperparams.Hyperparameters, Mapping]) -> Callable:
+def apply_augmentation_reciepe(datasets: Tuple[torch.utils.data.Dataset], params: HYPERPARAMS_T) -> Callable:
     """ Applies listed augmentation transforms with given configuration from `params` Dict.
     .. See [deepcv/conf/base/parameters.yml](./conf/base/parameters.yml) for examples of augmentation reciepe specification
     Args:

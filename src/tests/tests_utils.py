@@ -118,7 +118,7 @@ class TestProjectContext:
 
     def test_project_version(self, project_context):
         # DeepCV versioning is initially based on underlying Kedro version which have been used to generate this project
-        assert project_context.project_version == "0.16.1"
+        assert project_context.project_version == "0.16.4"
 
 
 if __name__ == '__main__':

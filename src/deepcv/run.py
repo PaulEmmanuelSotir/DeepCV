@@ -27,7 +27,7 @@ class ProjectContext(KedroContext):
     """ Users can override the remaining methods from the parent class here, or create new ones (e.g. as required by plugins) """
 
     project_name = "DeepCV"
-    project_version = "0.16.1"  # `project_version` is the version of kedro used to generate the project
+    project_version = "0.16.4"  # `project_version` is the version of kedro used to generate the project
     package_name = "deepcv"
 
     hooks = tuple()
@@ -50,7 +50,7 @@ class ProjectContext(KedroContext):
 
     def _create_catalog(self, *args, **kwargs):
         catalog = super()._create_catalog(*args, **kwargs)
-        # TODO: find profile time profiler replacement in Kedro 0.16.1 (was available in contrib subpackage of kedro <0.16.0)
+        # TODO: find profile time profiler replacement in Kedro 0.16.4 (was available in contrib subpackage of kedro <0.16.0)
         # profile_time = transformers.ProfileTimeTransformer()  # instantiate a built-in transformer
         # catalog.add_transformer(profile_time)  # apply it to the catalog
         return catalog

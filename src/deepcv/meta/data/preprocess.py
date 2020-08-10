@@ -21,8 +21,7 @@ import albumentations
 
 from deepcv.utils import NL
 import deepcv.utils
-import deepcv.meta.hyperparams
-import deepcv.meta.data.datasets
+from .. import hyperparams
 
 
 __all__ = ['PreprocessedDataset', 'fn_to_transform', 'split_dataset', 'preprocess', 'tensor_to_np']

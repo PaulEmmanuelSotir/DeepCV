@@ -24,10 +24,10 @@ import nni
 import nni.nas.pytorch.mutables as nni_mutables
 
 from deepcv.utils import NL, human_readable_size, import_tests
-import deepcv.meta.nn
-import deepcv.meta.nn_spec
-import deepcv.meta.submodule_creators
-from deepcv.meta.types_aliases import *
+from . import nn_spec
+from .submodule_creators import ForwardCallbackSubmodule
+from . import nn as deepcv_nn
+from .types_aliases import *
 
 
 __all__ = ['DeepcvModule', 'DeepcvModuleWithSharedImageBlock', 'DeepcvModuleDescriptor']
@@ -52,8 +52,8 @@ class DeepcvModule(torch.nn.Module):
     NOTE: In order to make usage of this mechanism, parameters/arguments names which can be specified globally should not be in `DeepcvModule.HP_DEFAULTS`, for example, a submodule creator can't take an argument named `architecture` because `architecture` is among `DeepcvModule.HP_DEFAULTS` entries so `hp['architecture']` won't be provided to any submodules creators nor nested DeepcvModule(s).
     NOTE: Submodule creator functions (and/or specified submodules `torch.nn.Module` types `__init__` constructors) must take named arguments to be supported (`*args` and `**kwargs` not supported)
     NOTE: If a submodule creators takes a parameter directly as an argument instead of taking it from `submodule_params` dict argument, then this parameter won't be present in `submodule_params` dict, even if its value have been specified localy in submodule parameters (i.e. even if its value doesn't comes from global `hp` entries).
-    .. See nn_spec._parse_torch_module_from_submodule_spec for more details on sumbodule creator usage
-    
+    .. See `deepcv.meta.nn_spec._parse_torch_module_from_submodule_spec` for more details on sumbodule creator usage
+
     `DeepcvModule` have 'global' Weight Norm and Spectral Norm support through 'weight_norm' and 'spectral_norm' parameters dicts of `hp`:  
         - 'weight_norm' parameter dict may specify 'name' and 'dim' arguments, see [Weight Norm in PyTorch docs](https://pytorch.org/docs/stable/generated/torch.nn.utils.weight_norm.html?highlight=weight%20norm#torch.nn.utils.weight_norm)
         - 'spectral_norm' parameter dict may specify 'name', 'n_power_iterations', 'eps' and 'dim' arguments, see [Spectral Norm in PyTorch docs](https://pytorch.org/docs/stable/generated/torch.nn.utils.spectral_norm.html?highlight=spectral#torch.nn.utils.spectral_norm)
@@ -70,7 +70,7 @@ class DeepcvModule(torch.nn.Module):
     NOTE: Any other args taken by a subm creator which is specified in `self.hp` (including those in `HP_DEFAULTS`) may also be passed to submodule creator as an argument named after hp name (allows to specify submodule params globaly). If no arg matches hp name in subm creator signature, those hp can still be passed through `submodule_params` argument.
     NOTE: Submodule spec params (subm-local params) may also be provided to submodule creator if an argument matches param name in subm creator signature or, throught `subm_params` argument otherwise. `subm_params` argument, if taken, will thus contain all local subm params and global hps which haven't been provided throught their own argument to subm creator. (priority is given to local subm params over global hps if some params have similar name(s))
     """
-    SUBM_CREATOR_SPECIAL_ARGS = {'submodule_params', 'prev_shapes', 'input_shape'} 
+    SUBM_CREATOR_SPECIAL_ARGS = {'submodule_params', 'prev_shapes', 'input_shape'}
 
     def __init__(self, input_shape: torch.Size, hp: HYPERPARAMS_T, additional_submodule_creators: Optional[Dict[str, Union[Callable, Type[torch.nn.Module]]]] = None, extend_basic_submodule_creators_dict: bool = True, additional_init_logic: Callable[[torch.nn.Module, 'xavier_gain'], None] = None):
         """ Instanciates a new `DeepcvModule` instance
@@ -83,7 +83,7 @@ class DeepcvModule(torch.nn.Module):
                 NOTE: If `True` and some creator name(s)/entries are both present in `submodule_creators` arg and in `deepcv.meta.submodule_creators.BASIC_SUBMODULE_CREATORS`, then `submodule_creators` dict values overrides defaults/base ones.  
             - additional_init_logic: Callback which may be used during parameter(s) initialization: Will be called for any unsupported child module(s) which have parameters to be initialized. This callback allows you to extend `self._initialize_parameters` function support for `torch.nn.Module`(s) other than convolutions, `torch.nn.Linear` and BatchNorm*d modules. This function should also take a `xavier_gain` argument along with `module` to be initialized.
         """
-        from deepcv.meta.hyperparams import to_hyperparameters
+        from .hyperparams import to_hyperparameters
         super().__init__()
         self._input_shape = input_shape
         self._uses_nni_nas_mutables = False
@@ -95,8 +95,8 @@ class DeepcvModule(torch.nn.Module):
         self._hp, _missing = to_hyperparameters(hp, defaults=self.HP_DEFAULTS, raise_if_missing=True)
 
         # Create model architecture according to hyperparameters's `architecture` entry (see ./conf/base/parameters.yml for examples of architecture specs.) and initialize its parameters
-        deepcv.meta.nn_spec.define_nn_architecture(self, self._hp['architecture'], submodule_creators=additional_submodule_creators,
-                                                   extend_basic_submodule_creators_dict=extend_basic_submodule_creators_dict)
+        nn_spec.define_nn_architecture(self, self._hp['architecture'], submodule_creators=additional_submodule_creators,
+                                       extend_basic_submodule_creators_dict=extend_basic_submodule_creators_dict)
         self._initialize_parameters(self._hp['act_fn'], additional_init_logic=self._additional_init_logic)
 
         # Support for weight normalization and spectral weight normalization
@@ -133,7 +133,7 @@ class DeepcvModule(torch.nn.Module):
                             # There isn't any referrer submodules to take stored features as input anymore, so we free memory for this referenced tensor
                             del referenced_output_features[referenced_submodule]
 
-                if isinstance(subm, nni_mutables.LayerChoice) or isinstance(subm, deepcv.meta.submodule_creators.ForwardCallbackSubmodule):
+                if isinstance(subm, nni_mutables.LayerChoice) or isinstance(subm, ForwardCallbackSubmodule):
                     # Forward pass through a `deepcv.meta.submodule_creators.ForwardCallbackSubmodule` or NNI NAS LayerChoice submodule (forward pass throught one or more underlying candidate submodules)
                     x = subm(x, referenced_output_features=current_subm_references)
                 else:
@@ -231,7 +231,7 @@ class DeepcvModule(torch.nn.Module):
             - act_fn: Activation function type which is used to process Xavier Init gain. (NOTE: All submodules/layers are assumed to use this same activation function and will use the smae Xavier Init gain)
             - additional_init_logic: Function called with all unsupported modules which have parameters to be initialized, allowing to extend initialization support for `torch.nn.Module`s other than convolutions, `torch.nn.Linear` and BatchNorm*d modules. This function should also take an `xavier_gain` (Optional[float]) argument along with `module` to be initialized.
         """
-        xavier_gain = torch.nn.init.calculate_gain(deepcv.meta.nn.get_gain_name(act_fn)) if act_fn else None
+        xavier_gain = torch.nn.init.calculate_gain(deepcv_nn.get_gain_name(act_fn)) if act_fn else None
 
         def _raise_if_no_act_fn(sub_module_name: str):
             # NOTE: This function is needed to avoid raising if activation function isn't needed (no xavier init to be performed if there isn't any conv nor fully connected parameters/weights)
@@ -240,11 +240,11 @@ class DeepcvModule(torch.nn.Module):
                                  f'{sub_module_name} sub-module(s) with Xavier Init. (See `deepcv.meta.nn.get_gain_name` for supported activation functions)')
 
         def _xavier_init(module: torch.nn.Module, additional_init: Callable[[torch.nn.Module, 'xavier_gain'], None]):
-            if deepcv.meta.nn.is_conv(module):
+            if deepcv_nn.is_conv(module):
                 _raise_if_no_act_fn('convolution')
                 torch.nn.init.xavier_normal_(module.weight.data, gain=xavier_gain)
                 module.bias.data.fill_(0.)
-            elif deepcv.meta.nn.is_fully_connected(module):
+            elif deepcv_nn.is_fully_connected(module):
                 _raise_if_no_act_fn('fully connected')
                 torch.nn.init.xavier_uniform_(module.weight.data, gain=xavier_gain)
                 module.bias.data.fill_(0.)
@@ -333,16 +333,16 @@ class DeepcvModuleWithSharedImageBlock(DeepcvModule):
         logging.info(f'Creating shared image embedding block of `{cls.__name__}` models...')
         norm_args = {'affine': True, 'eps': 1e-05, 'momentum': 0.0736}
         # ``input_shape`` argument doesnt needs valid dimensions apart from channel dim as we are using BatchNorm (See `deepcv.meta.nn.normalization_techniques` documentation)
-        def _norm_ops(chnls): return dict(norm_type=deepcv.meta.nn.NormTechnique.BATCH_NORM, norm_kwargs=norm_args, input_shape=[chnls, 10, 10])
+        def _norm_ops(chnls): return dict(norm_type=deepcv_nn.NormTechnique.BATCH_NORM, norm_kwargs=norm_args, input_shape=[chnls, 10, 10])
 
-        layers = [('shared_block_conv_1', deepcv.meta.nn.layer(layer_op=torch.nn.Conv2d(in_channels=in_channels, out_channels=8, kernel_size=(3, 3), padding=1),
-                                                               act_fn=torch.nn.ReLU, **_norm_ops(8))),
-                  ('shared_block_conv_2', deepcv.meta.nn.layer(layer_op=torch.nn.Conv2d(in_channels=8, out_channels=16, kernel_size=(3, 3), padding=1),
-                                                               act_fn=torch.nn.ReLU, **_norm_ops(16))),
-                  ('shared_block_conv_3', deepcv.meta.nn.layer(layer_op=torch.nn.Conv2d(in_channels=16, out_channels=8, kernel_size=(3, 3), padding=1),
-                                                               act_fn=torch.nn.ReLU, **_norm_ops(8))),
-                  ('shared_block_conv_4', deepcv.meta.nn.layer(layer_op=torch.nn.Conv2d(in_channels=8, out_channels=4, kernel_size=(3, 3), padding=1),
-                                                               act_fn=torch.nn.ReLU, **_norm_ops(4)))]
+        layers = [('shared_block_conv_1', deepcv_nn.layer(layer_op=torch.nn.Conv2d(in_channels=in_channels, out_channels=8, kernel_size=(3, 3), padding=1),
+                                                          act_fn=torch.nn.ReLU, **_norm_ops(8))),
+                  ('shared_block_conv_2', deepcv_nn.layer(layer_op=torch.nn.Conv2d(in_channels=8, out_channels=16, kernel_size=(3, 3), padding=1),
+                                                          act_fn=torch.nn.ReLU, **_norm_ops(16))),
+                  ('shared_block_conv_3', deepcv_nn.layer(layer_op=torch.nn.Conv2d(in_channels=16, out_channels=8, kernel_size=(3, 3), padding=1),
+                                                          act_fn=torch.nn.ReLU, **_norm_ops(8))),
+                  ('shared_block_conv_4', deepcv_nn.layer(layer_op=torch.nn.Conv2d(in_channels=8, out_channels=4, kernel_size=(3, 3), padding=1),
+                                                          act_fn=torch.nn.ReLU, **_norm_ops(4)))]
         cls.shared_image_embedding_block = torch.nn.Sequential(OrderedDict(*layers))
 
 
@@ -363,7 +363,7 @@ class DeepcvModuleDescriptor:
             logging.warn(f"Warning: `{type(self).__name__}({type(module)})`: cant find NN architecture, no `module.architecture_spec` attr. nor `architecture` in `module._hp`")
 
         # Fills and return a DeepCV module descriptor
-        self.capacity = deepcv.meta.nn.get_model_capacity(module)
+        self.capacity = deepcv_nn.get_model_capacity(module)
         self.human_readable_capacity = human_readable_size(self.capacity)
         self.model_class = module.__class__
         self.model_class_name = module.__class__.__name__

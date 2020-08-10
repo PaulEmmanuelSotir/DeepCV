@@ -29,7 +29,7 @@ dependencies:
         - albumentations>=0.4.* # Image augmentation trasforms library (allows coherent/target-aware image transform)
         - ignite>=0.4.* # High-level library to help with training neural networks in PyTorch (see 'deepcv.meta.ignite_training')
         - mlflow>=1.10.* # OpenSource platform for managing machine learning lifecycle (Tracking experiments, packaging ML code, Manage and deploy ML models, MLFlow Web UI for experiment tracking)
-        - kedro>=0.16.3 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
+        - kedro>=0.16.4 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
         - pynvml # Allows ignite to output GPU usage information in progress bars
         - networkx # Graph library for creation, manipulation, study of the structure, dynamics, and function of complex networks/graphs.
         - hilbertcurve # Used for an alternative approach to CoordConv where we append a single feature map of Hilbert Curve coordinates instead of euclidian coordinates on two features maps (see 'deepcv.meta.nn.concat_hilbert_coords_channel' function)

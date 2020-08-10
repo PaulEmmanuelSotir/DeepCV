@@ -129,8 +129,7 @@ def _parse_torch_module_from_submodule_spec(deepcv_module: 'deepcv.meta.base_mod
 
     # Add global (hyper)parameters from `hp` to `params` (allows to define parameters like `act_fn`, `dropout_prob`, `batch_norm`, ... either globaly in `hp` or localy in `params` from submodule specs)
     # NOTE: In case a parameter is both specified in `deepcv_module._hp` globals and in `params` local submodule specs, `params` entries from submodule specs will allways override parameters from `hp`
-    # NOTE: Merged parameters given to submodule (`params_with_globals`) wont contain any parameters specified in `DeepcvModule.HP_DEFAULTS` (e.g. submodule parameters won't contain parent architecture specs, i.e., no `DeepcvModule._hp['architecture']` in `params_with_globals`))
-    params_with_globals = {n: copy.deepcopy(v) for n, v in deepcv_module._hp.items() if n not in deepcv_module.HP_DEFAULTS and n not in params}
+    params_with_globals = {n: copy.deepcopy(v) for n, v in deepcv_module._hp.items() if n not in params}
     params_with_globals.update(params)
 
     if subm_type == yaml_tokens.NESTED_DEEPCV_MODULE:
@@ -187,13 +186,13 @@ def _parse_torch_module_from_submodule_spec(deepcv_module: 'deepcv.meta.base_mod
 
         # Create layer/block submodule from its module_creator or its `torch.nn.Module.__init__()` method (`fn_or_type`)
         submodule_signature_params = inspect.signature(fn_or_type).parameters
+        params_with_globals['prev_shapes'] = deepcv_module._features_shapes  # Make possible to take a specific argument to get previous submodules output tensor shapes
+        params_with_globals['input_shape'] = deepcv_module._features_shapes[-1]  # Make possible to take a specific argument to get input tensor shape fro
         provided_params = {n: v for n, v in params_with_globals.items() if n in submodule_signature_params}
         # Add `submodule_params` and ``prev_shapes` to `provided_params` if they are taken by submodule creator (or `torch.nn.Module` constructor)
         if 'submodule_params' in submodule_signature_params:
             # `submdule_params` parameter wont provide a param which is already provided through `provided_params` (either provided through `submdule_params` dict or directly as an argument named after this parameter `n`)
             provided_params['submodule_params'] = {n: v for n, v in params.items() if n not in provided_params}
-        if 'prev_shapes' in submodule_signature_params:
-            provided_params['prev_shapes'] = deepcv_module._features_shapes
         # Create submodule from its submdule creator or `torch.nn.Module` constructor
         module = fn_or_type(**provided_params)
 

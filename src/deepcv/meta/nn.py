@@ -32,7 +32,7 @@ from deepcv.meta.types_aliases import *
 __all__ = ['XAVIER_INIT_SUPPORTED_ACT_FN', 'ConvWithMetaLayer', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords',
            'func_to_module', 'flatten', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
            'get_padding_from_kernel', 'nd_support', 'conv_nd', 'conv_transpose_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer_norm_with_mean_only_batch_norm', 'NormTechnique',
-           'NORM_TECHNIQUES_MODULES', 'normalization_techniques', 'layer', 'hrnet_input_stem', 'ParallelConvolution', 'MutliresolutionFusion', 'HRNetOutHeadType', 'hrnet_output_representation_head',
+           'NORM_TECHNIQUES_MODULES', 'normalization_techniques', 'layer', 'hrnet_input_stem', 'ParallelConvolution', 'MultiresolutionFusion', 'HRNetv1RepresentationHead', 'HRNetv2RepresentationHead', 'HRNetv2pRepresentationHead',
            'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer', 'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic',
            'ensure_mean_batch_loss', 'get_model_capacity', 'get_out_features_shape', 'is_fully_connected', 'is_conv', 'contains_conv']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -371,7 +371,7 @@ class NormTechnique(enum.Enum):
     # Local Response Norm (Normalize across channels by taking into account `size` neightbouring channels; assumes channels is the 2nd dim). For more details, see https://pytorch.org/docs/master/generated/torch.nn.LocalResponseNorm.html?highlight=norm#torch.nn.LocalResponseNorm
     LOCAL_RESPONSE_NORM = r'local_response_norm'
     # `LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM` is a special case where LayerNorm is used along with 'mean-only' BatchNorm (as described in `LayerNorm` paper: https://arxiv.org/pdf/1602.07868.pdf)
-    LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM = r'layer_norm_with_mean_only_batch_norm'
+    LAYER_NORM_WITH_MEAN_ONLY_BATCH_NORM = r'ln_with_mean_bn'
 
 
 NORM_TECHNIQUES_MODULES = {NormTechnique.BATCH_NORM: deepcv.meta.nn.batch_norm_nd, NormTechnique.LAYER_NORM: torch.nn.LayerNorm, NormTechnique.INSTANCE_NORM: deepcv.meta.nn.instance_norm_nd,
@@ -480,17 +480,17 @@ def layer(layer_op: torch.nn.Module, act_fn: Optional[Type[torch.nn.Module]], dr
     return torch.nn.Sequential(*(m for m in ops if m is not None))
 
 
-def hrnet_input_stem(input_shape: torch.Size, conv_op_kwargs: Dict[str, Tuple[Sequence[Any], Any]], conv_count: int = 2, act_fn: Union[Sequence[Optional[Type]], Optional[Type]] = torch.nn.ReLU,
+def hrnet_input_stem(input_shape: torch.Size, submodule_params: Dict[str, Tuple[Sequence[Any], Any]], conv_count: int = 2, act_fn: Union[Sequence[Optional[Type]], Optional[Type]] = torch.nn.ReLU,
                      preactivation: Union[Sequence[bool], bool] = False, dropout_prob: float = None, norm_type: Sequence[NormTechnique] = None, norm_kwargs: Sequence[Dict[str, Any]] = None,
                      supported_norm_ops: NORM_TECHNIQUES_MODULES_T = None, channel_dim: int = 1) -> torch.nn.Module:
     """ Input stem block as described in [HRNet NN architecture](https://arxiv.org/abs/1908.07919).
     This input module consists of `conv_count` (2 by defaults) 3x3 2-stride convolutions. Hence, input stem decreases input resolution by a `1/2^N` factor (`1/4` by default).
-    `conv_op_kwargs` have default value for all convolution ops arguments, except for `out_channels` which is needed (filter count).
+    NOTE: `submodule_params` have default values for all convolution ops arguments, except for `out_channels` which is needed (filter count). Avoid providing `in_channels` as this is already known from `input_shape`.
     """
     assert conv_count > 0, f'Error in `hrnet_input_stem`, `conv_count` argument must be greater than 0, got `conv_count={conv_count}`'
     conv_defaults = dict(kernel_size=(3, 3), stride=2, padding=1, dilation=1, groups=1, bias=True, padding_mode='zeros')
-    conv_defaults.update(conv_op_kwargs)
-    if 'in_channels' not in conv_op_kwargs:
+    conv_defaults.update(submodule_params)
+    if 'in_channels' not in submodule_params:
         conv_defaults['in_channels'] = input_shape[channel_dim]
 
     strided_convs = list()
@@ -506,85 +506,88 @@ class ParallelConvolution(torch.nn.Module):
     """ParallelConvolution multi-resolution/parallel convolution module which is a generalization of multi-resolution convolution modules of [HRNet paper](https://arxiv.org/abs/1908.07919) and Pyramidal Convolutions as described in [PyConv paper](https://arxiv.org/pdf/2006.11538.pdf).
     This `torch.nn.Module` operation performs a grouped conv operation where each groups are regular/independant convolutions which may be applied on different feature map resolutions (like HRNet parallel streams/branches) and/or have different conv parameters, like different kernel sizes for each group (like PyConv does).
     Thus, this module can be interpreted as being multiple regular convolutions applied to different feature maps and performed in parrallel NN branches.
-    NOTE: Chaining such grouped multi-res convs in a `torch.nn.Sequential` is a simple way to define a siamese NN of parrallel convolutions. Moreover, combined with `deepcv.meta.nn.MutliresolutionFusion` module, `ParallelConvolution` allows to define HRNet-like NN architecture, where information from each siamese branches of parallel multi-res convs can flow between those throught fusion modules. (Multi-Resolution fusion modules can be compared to 'non-grouped' multi-resolution convolution, see repsective doc and HRNet paper for more details)
+    NOTE: Chaining such grouped multi-res convs in a `torch.nn.Sequential` is a simple way to define a siamese NN of parrallel convolutions. Moreover, combined with `deepcv.meta.nn.MultiresolutionFusion` module, `ParallelConvolution` allows to define HRNet-like NN architecture, where information from each siamese branches of parallel multi-res convs can flow between those throught fusion modules. (Multi-Resolution fusion modules can be compared to 'non-grouped' multi-resolution convolution, see repsective doc and HRNet paper for more details)
     """
 
-    def __init__(self, input_shapes: Sequence[torch.Size], conv_op_kwargs: Dict[str, Tuple[Sequence[Any], Any]], act_fn: Union[Sequence[Optional[Type]], Optional[Type]] = torch.nn.ReLU,
+    def __init__(self, input_shape: Union[torch.Size, Sequence[torch.Size]], submodule_params: Dict[str, Tuple[Sequence[Any], Any]], act_fn: Union[Sequence[Optional[Type]], Optional[Type]] = torch.nn.ReLU,
                  preactivation: Union[Sequence[bool], bool] = False, dropout_prob: float = None, norm_type: Sequence[NormTechnique] = None, norm_kwargs: Sequence[Dict[str, Any]] = None,
                  supported_norm_ops: NORM_TECHNIQUES_MODULES_T = None, channel_dim: int = 1, raise_on_not_enough_in_tensors: bool = True):
         """ Multi-resolution/parallel convolution module which is a generalization of multi-resolution convolution modules of [HRNet paper](https://arxiv.org/abs/1908.07919) and Pyramidal Convolutions as described in [PyConv paper](https://arxiv.org/pdf/2006.11538.pdf).
         This `torch.nn.Module` operation performs a grouped conv operation where each groups are regular/independant convolutions which may be applied on different feature map resolutions (like HRNet parallel streams/branches) and/or have different conv parameters, like different kernel sizes for each group (like PyConv does).
         Args:
-            - input_shapes: Input tensors shape(s), with channel dim located at `channel_dim`th dim and with or without minibatch dimension. These tensor shapes should be shapes on which each parrallel/multi-res convolutions will be performed. This argument can also be used by eventual normalization technique(s) (`input_shapes[channel_dim:]` passed to `normalization_techniques`).
-            - conv_op_kwargs: Keyword arguments dict passed `deepcv.meta.nn.conv_nd`. Each argument can either be a sequence (List, Tuple, ...) of the same lenght as `input_shapes` or a single value depending on if each multires-group convs have differents arg values or share the same argument value.
+            - input_shape: Input tensors shape(s), with channel dim located at `channel_dim`th dim and with or without minibatch dimension. These tensor shapes should be shapes on which each parrallel/multi-res convolutions will be performed. This argument can also be used by eventual normalization technique(s) (`input_shape[channel_dim:]` passed to `normalization_techniques`).
+            - submodule_params: Keyword arguments dict passed `deepcv.meta.nn.conv_nd`. Each argument can either be a sequence (List, Tuple, ...) of the same lenght as `input_shape` or a single value depending on if each multires-group convs have differents arg values or share the same argument value.
             - ... for other arguments, see corresponding arguments in `deepcv.meta.nn.layer` documentation.
-                NOTE: Note that `act_fn` and `preactivation`, like arguments in `conv_op_kwargs`, can also be sequences if different values for each group/parallel convs are needed, but normalization parameters and `dropout_prob` will be shared across all group/parallel convs (no support for different `dropout_prob`, `norm_type`, `norm_kwargs` and `supported_norm_ops` args across parallel convs for now)
-            - channel_dim: Channel dim index in provided `input_shapes` tensor shapes. Dimensions after channel dim should be spatial features dims on which convolution is applied (e.g. two dimensions after channel dim for a 2D convoltion)
-            - raise_on_not_enough_in_tensors: Boolean indicating whether to raise an exception if too few input tensors are given during forward passes (less than `len(input_shapes)` input tensors given to forward method)
+                NOTE: Note that `act_fn` and `preactivation`, like arguments in `submodule_params`, can also be sequences if different values for each group/parallel convs are needed, but normalization parameters and `dropout_prob` will be shared across all group/parallel convs (no support for different `dropout_prob`, `norm_type`, `norm_kwargs` and `supported_norm_ops` args across parallel convs for now)
+            - channel_dim: Channel dim index in provided `input_shape` tensor shapes. Dimensions after channel dim should be spatial features dims on which convolution is applied (e.g. two dimensions after channel dim for a 2D convoltion)
+            - raise_on_not_enough_in_tensors: Boolean indicating whether to raise an exception if too few input tensors are given during forward passes (less than `len(input_shape)` input tensors given to forward method)
 
-        NOTE: `kernel_size`, `padding` and `dilation` args in `conv_op_kwargs` must allways be specified as a sequence of integers (one for each dims, e.g. `kernel_size` cant be a single int, like `2` for a `2x2` kernel, otherwise, there could be ambiguities as conv args can be specified once or as a sequence of values for each parrallel conv groups/branches). I.e., their value must match this type: `Union[Sequence[Sequence[int]], Sequence[int]]` where inner-most sequence being of lenght `dims` and optional parent sequence being of the smae lenght as `input_shapes` sequence. See also related error message in function code.
+        NOTE: `kernel_size`, `padding` and `dilation` args in `submodule_params` must allways be specified as a sequence of integers (one for each dims, e.g. `kernel_size` cant be a single int, like `2` for a `2x2` kernel, otherwise, there could be ambiguities as conv args can be specified once or as a sequence of values for each parrallel conv groups/branches). I.e., their value must match this type: `Union[Sequence[Sequence[int]], Sequence[int]]` where inner-most sequence being of lenght `dims` and optional parent sequence being of the smae lenght as `input_shape` sequence. See also related error message in function code.
         NOTE: This is an helper function which actually is a special use case of `deepcv.meta.nn.layer` function; For more details about `deepcv.meta.nn.parallel_convolution` arguments, see `deepcv.meta.nn.layer` documentation.
 
-        .. See also related `deepcv.meta.nn.MutliresolutionFusion` module which is also part of basic HRNet architecture building blocks.
+        .. See also related `deepcv.meta.nn.MultiresolutionFusion` module which is also part of basic HRNet architecture building blocks.
         .. See also [`HigherHRNet` paper](https://arxiv.org/pdf/1908.10357.pdf).
         """
-        if isinstance(input_shapes, torch.Size):
-            input_shapes = [input_shapes, ]
-        elif len(input_shapes) == 0:
-            raise ValueError('Error in `deepcv.meta.nn.parallel_convolution`, `input_shapes` argument must be a sequence of `torch.Size` with at least one input tensor shape(s). '
-                             f'NOTE: If you are performing a single conv on a single tensor shape/resolution, use `deepcv.meta.nn.layer` instead. Got `input_shapes="{input_shapes}"`')
+        if isinstance(input_shape, torch.Size):
+            input_shape = [input_shape, ]
+        elif len(input_shape) == 0:
+            raise ValueError('Error in `deepcv.meta.nn.parallel_convolution`, `input_shape`(s) argument must be a sequence of `torch.Size` with at least one input tensor shape(s). '
+                             f'NOTE: If you are performing a single conv on a single tensor shape/resolution, use `deepcv.meta.nn.layer` instead. Got `input_shape="{input_shape}"`')
         self.raise_on_not_enough_in_tensors = raise_on_not_enough_in_tensors
         self.channel_dim = channel_dim
-        self.spatial_dims = len(input_shapes[0][channel_dim+1:])
+        self.spatial_dims = len(input_shape[0][channel_dim+1:])
 
         # Share the same activation function and/or preactivation for all group/parallel convolution layers if those are not sequences
         if not isinstance(act_fn, Sequence):
-            act_fn = [act_fn, ] * len(input_shapes)
+            act_fn = [act_fn, ] * len(input_shape)
         if not isinstance(preactivation, Sequence):
-            preactivation = [preactivation, ] * len(input_shapes)
-        # If act_fn and/or preactivation where sequences, those should have the same lenght as `input_shapes` (one different value for each parallel convolution)
-        if any([not len(input_shapes) == len(seq) for seq in {act_fn, preactivation}]):
-            raise ValueError('Error: If `preactivation` and/or `act_fn` args are sequences, those should have the same lenght as `input_shapes` (one value for each parallel convolution)')
+            preactivation = [preactivation, ] * len(input_shape)
+        # If act_fn and/or preactivation where sequences, those should have the same lenght as `input_shape` (one different value for each parallel convolution)
+        if any([not len(input_shape) == len(seq) for seq in {act_fn, preactivation}]):
+            raise ValueError('Error: If `preactivation` and/or `act_fn` args are sequences, those should have the same lenght as `input_shape` (one value for each parallel convolution)')
 
         # Forbid to specify a single int instead of a sequence of `dims` ints. Nescessary to avoid ambiguities between a sequence of different args for each group/parallel convs or a sequence of ints for each feature map dim (would be ambiguous when `dims==len(input_shape)`)
         conv_args_with_sequence_constraint = {'padding', 'kernel_size', 'dilation'}
 
         # Handle convs parameters to allow to either specify different parameters for each resolution(s)/group or a single parameter common to all mulit-res group convs.
         all_conv_ops_kwargs = list()
-        for i in range(len(input_shapes)):
+        for i in range(len(input_shape)):
             ith_conv_kwargs = dict(dims=self.spatial_dims)
-            for n, v in conv_op_kwargs.items():
+            for n, v in submodule_params.items():
                 if n in conv_args_with_sequence_constraint:
-                    if isinstance(v, Sequence) and len(v) == len(input_shapes) and all([isinstance(sub_v, Sequence) for sub_v in v]):
+                    if isinstance(v, Sequence) and len(v) == len(input_shape) and all([isinstance(sub_v, Sequence) for sub_v in v]):
                         v = v[i]
-                    elif not isinstance(v, Sequence) or len(v) not in {1, dims[-1]} or any([isinstance(sub_v, Sequence) for sub_v in v]):
-                        raise ValueError(f'Error: `{n}` entry of `conv_op_kwargs` should either be a different sequence for each group/parallel conv (sequence of sequence of size `len(input_shape) x [dims={self.dims[-1]} or 1]`) or a single sequence of size `1` or `dims={self.dims[-1]}` (then the value is common to all group/parallel convs).{NL}'
+                    elif not isinstance(v, Sequence) or len(v) not in {1, self.spatial_dims} or any([isinstance(sub_v, Sequence) for sub_v in v]):
+                        raise ValueError(f'Error: `{n}` entry of `submodule_params` should either be a different sequence for each group/parallel conv (sequence of sequence of size `len(input_shape) x [dims={self.spatial_dims} or 1]`) or a single sequence of size `1` or `dims={self.spatial_dims}` (then the value is common to all group/parallel convs).{NL}'
                                          f'This is a needed constraint to avoid ambiguous spec in `parallel_convolution`; '
                                          f'E.g., in case you need a `3x2` kernel size for two parallel/group convs you can specify `kernel_size = [3, 2]` but in order to have two parallel/group convs with different kernel sizes of 3x3 and 2x2, then you need to specify: `kernel_size = [[3, 3], [2, 2]]` or alternatively: `[[3], [2]]`.{NL}'
                                          f'I.e. Unlike for regular usage of `torch.nn.Conv*d`, sequence of int(s) are allways needed for "{conv_args_with_sequence_constraint}" conv(s) args; Spec would be ambiguous otherwise')
                     ith_conv_kwargs[n] = v if len(v) > 1 else v[0]
                 else:
-                    ith_conv_kwargs[n] = v[i] if isinstance(v, Sequence) and len(v) == len(input_shapes) else v
+                    ith_conv_kwargs[n] = v[i] if isinstance(v, Sequence) and len(v) == len(input_shape) else v
             all_conv_ops_kwargs.append(ith_conv_kwargs)
 
         self.group_convolutions = list()
-        for i, (shape, ith_conv_kwargs, act, preact) in enumerate(zip(input_shapes, all_conv_ops_kwargs, act_fn, preactivation)):
+        for i, (shape, ith_conv_kwargs, act, preact) in enumerate(zip(input_shape, all_conv_ops_kwargs, act_fn, preactivation)):
             conv_op = conv_nd(**ith_conv_kwargs)
             layer_op = layer(layer_op=conv_op, act_fn=act, dropout_prob=dropout_prob, preactivation=preact,
                              norm_type=norm_type, norm_kwargs=norm_kwargs, input_shape=shape[channel_dim:], supported_norm_ops=supported_norm_ops)
             self.group_convolutions.append((f'parallel_conv_{self.spatial_dims}D_{i}', layer_op))
 
-    def forward(self, inputs: Sequence[torch.Tensor]) -> List[torch.Tensor]:
+    def forward(self, inputs: TENSOR_OR_SEQ_OF_TENSORS) -> TENSOR_OR_SEQ_OF_TENSORS:
         # Check if input tensors are valid
+        if isinstance(inputs, torch.Tensor):
+            inputs = [inputs,]
         if len(inputs) > len(self.group_convolutions) or (self.raise_on_not_enough_in_tensors and len(inputs) < len(self.group_convolutions)):
             raise ValueError(f'Error: Cant apply `{type(self).__name__}` module with {len(self.group_convolutions)} parallel/group convolutions on {len(inputs)} input tensors.')
         # Append minibatch dim to input tensor(s) if it is missing
         inputs = [torch.unsqueeeze(x, dim=0) if len(x.shape) - self.spatial_dims < self.channel_dim + 1 else x for x in inputs]
         # Apply parallel/group convolutions
-        return list([parallel_conv(in_tensor) for in_tensor, parallel_conv in zip(inputs, self.group_convolutions)])
+        output = list([parallel_conv(in_tensor) for in_tensor, parallel_conv in zip(inputs, self.group_convolutions)])
+        return output if len(output) > 1 else output
 
-
-class MutliresolutionFusion(torch.nn.Module):
+    
+class MultiresolutionFusion(torch.nn.Module):
     """ Multi-resolution Fusion module as described in [HRNet paper](https://arxiv.org/abs/1908.07919) NN architecture.
     This fusion module can be compared to a regular convolution layer but applied on feature maps with varying resolutions. However, in order to be applied in a 'fully connected' conv. way, each feature maps will be up/down-scaled to each target resolutions (either using bilinear upsampling followed by a 1x1 conv or by applying a 3x3 conv with stride of 2).
     Multi-resolution Fusion modules thus 'fuses' information across all siamese branches (i.e. across all resolutions) of HRNet architecture.
@@ -593,33 +596,33 @@ class MutliresolutionFusion(torch.nn.Module):
     .. See also [`HigherHRNet` paper](https://arxiv.org/pdf/1908.10357.pdf).
     """
 
-    def __init__(self, input_shapes: Sequence[torch.Size], upscale_conv_kwargs: Dict[str, Any] = None, downscale_conv_kwargs: Dict[str, Any] = None, create_new_branch: bool = True, new_branch_channels: int = None, channel_dim: int = 1, reuse_scaling_convs: bool = True):
-        """ Instanciate `MutliresolutionFusion` module which 'fuses' information across all multi-resoution siamese branches/streams, like described in [HRNet architecture paper](https://arxiv.org/abs/1908.07919)
+    def __init__(self, input_shape: Union[torch.Size, Sequence[torch.Size]], upscale_conv_kwargs: Dict[str, Any] = None, downscale_conv_kwargs: Dict[str, Any] = None, create_new_branch: bool = True, new_branch_channels: int = None, channel_dim: int = 1, reuse_scaling_convs: bool = True):
+        """ Instanciate `MultiresolutionFusion` module which 'fuses' information across all multi-resoution siamese branches/streams, like described in [HRNet architecture paper](https://arxiv.org/abs/1908.07919)
         Args:
-            - input_shapes: Input tensors shapes for each parallel/siamese input branches/streams, with minibatch dim (change `channel_dim` accordingly if needed). All `input_shapes` tensor shapes should have the same number of dimensions after `channel_dim` dimension.
+            - input_shape: Input tensors shapes for each parallel/siamese input branches/streams, with minibatch dim (change `channel_dim` accordingly if needed). All `input_shape` tensor shapes should have the same number of dimensions after `channel_dim` dimension.
             - upscale_conv_kwargs:
             - downscale_conv_kwargs:
             - create_new_branch: Boolean indicating whether to create a new stage by outputing (new parallel branch/stream) by outputing an additional tensor with lower resolution feature maps (See HRNet paper for more details on multiresolution fusion module stages)
             - new_branch_channels: If `create_new_branch`, you can specify how many channels/feature-maps are outputed for this new parallel branch/stream. If `None` (Default), then output the same sumber of channels as previous/upper branch (same kernel/filter count).
-            - channel_dim: Channel dim index in provided `input_shapes` tensor shapes. Dimensions after channel dim should be spatial features dims on which convolutions are applied (e.g. `input_shapes` should have two dims after `channel_dim` for 2D convoltions)
+            - channel_dim: Channel dim index in provided `input_shape` tensor shapes. Dimensions after channel dim should be spatial features dims on which convolutions are applied (e.g. `input_shape` should have two dims after `channel_dim` for 2D convoltions)
             - reuse_scaling_convs: If `self.reuse_scaling_convs` is `True`, then all up/down scaling convolutions are reused when possible (i.e. weight sharing when (in_channels, out_channels) tuple is the same)
 
         NOTE: Avoid providing custom `in_channels`, `out_channels` nor `padding` through `upscale_conv_kwargs` and/or `downscale_conv_kwargs` as, by default, those are proccessed automatically from input_shapes and kernel sizes (may be invalid otherwise as `out_channels` must be similar to `in_channel` for a given stream/branch and padding better should keep feature maps size unchanged).
         NOTE: When `self.reuse_scaling_convs` is `True`, having similar number of filters/channels/feature-maps across parallel branches will allow much more weight/parameter sharing than if they are different between parallel streams/branches.
         NOTE: If not excpilitly provided in `downscale_conv_kwargs` and/or `upscale_conv_kwargs`, zero padding is used and padding values are proceessed from kernel sizes in order to obtain unchanged output feature map sizes (See `deepcv.meta.nn.get_padding_from_kernel`).
         """
-        if isinstance(input_shapes, torch.Size):
-            input_shapes = [input_shapes, ]
-        elif len(input_shapes) == 0:
-            raise ValueError('Error in `deepcv.meta.nn.MutliresolutionFusion`, `input_shapes` argument must be a sequence of `torch.Size` with at least one input tensor shape(s). '
-                             f'NOTE: If you are performing a single conv on a single tensor shape/resolution, use `deepcv.meta.nn.layer` instead. Got `input_shapes="{input_shapes}"`')
+        if isinstance(input_shape, torch.Size):
+            input_shape = [input_shape, ]
+        elif len(input_shape) == 0:
+            raise ValueError('Error in `deepcv.meta.nn.MultiresolutionFusion`, `input_shape`(s) argument must be a sequence of `torch.Size` with at least one input tensor shape(s). '
+                             f'NOTE: If you are performing a single conv on a single tensor shape/resolution, use `deepcv.meta.nn.layer` instead. Got `input_shape="{input_shape}"`')
 
         # `create_new_branch` indicates whether to create a new conv parallel branch/stream at a lower resoltion (See HRNet paper for more details on multiresolution fusion module)
         self.create_new_branch = create_new_branch
-        self.input_shapes = input_shapes
+        self.input_shape = input_shape
         self.channel_dim = channel_dim
         self.reuse_scaling_convs = reuse_scaling_convs
-        self.spatial_dims = len(input_shapes[0][self.channel_dim+1:])  # Assume all input features have the same spatial dims count
+        self.spatial_dims = len(input_shape[0][self.channel_dim+1:])  # Assume all input features have the same spatial dims count
 
         # Apply default up/down-scaling convolutions ops parameters and process padding from kernel size if needed
         upscale_conv_kwargs = dict(kernel_size=1, dims=self.spatial_dims).update(upscale_conv_kwargs)
@@ -629,8 +632,8 @@ class MutliresolutionFusion(torch.nn.Module):
                 args['padding'] = get_padding_from_kernel(args['kernel_size'], warn_on_uneven_kernel=True)
 
         # New branch either outputs `new_branch_channels` (if provided), latest/upper branch `out_channels` (if provided) or latest/upper branch `in_channels` features-maps/chanels
-        self.new_branch_channels = downscale_conv_kwargs.get('out_channels', input_shapes[-1][channel_dim]) if new_branch_channels is None else new_branch_channels
-        in_channels = [in_shape[channel_dim] for in_shape in input_shapes]
+        self.new_branch_channels = downscale_conv_kwargs.get('out_channels', input_shape[-1][channel_dim]) if new_branch_channels is None else new_branch_channels
+        in_channels = [in_shape[channel_dim] for in_shape in input_shape]
         out_channels = [*in_channels, self.new_branch_channels] if self.create_new_branch else in_channels
 
         # Define all needed convolutions modules for up/down-scaling between input/output parallel streams/branches
@@ -664,7 +667,7 @@ class MutliresolutionFusion(torch.nn.Module):
         Each parallel branch/streams process feature maps at a resolution divided by 2, i.e. 4 times less features per map on 2D maps.
         """
         if apply_n_times <= 0:
-            raise ValueError(f'Error: received bad argument value, `apply_n_times={apply_n_times}`, in `MutliresolutionFusion._downsample`')
+            raise ValueError(f'Error: received bad argument value, `apply_n_times={apply_n_times}`, in `MultiresolutionFusion._downsample`')
 
         if self.reuse_scaling_convs:
             for i in range(apply_n_times):
@@ -675,12 +678,14 @@ class MutliresolutionFusion(torch.nn.Module):
                 x = self.additional_downscaling_3x3_convs[out_branch_idx](x)
         return x
 
-    def forward(self, inputs: Sequence[torch.Tensor]) -> List[torch.Tensor]:
+    def forward(self, inputs: TENSOR_OR_SEQ_OF_TENSORS) -> List[torch.Tensor]:
         """ Fusion is performed by summing all down/up-scaled input features from each streams/branches.
         Thus, all inputs are down/up-scaled to all other resolutions before being sumed (plus down-scaled to new branch/stream resolution if `create_new_branch`).
         """
-        if len(inputs) != len(self.input_shapes):
-            raise ValueError(f'Error: Cant apply `{type(self).__name__}` module with {len(self.input_shapes)} input parallel branches/streams on {len(inputs)} input tensors.')
+        if isinstance(inputs, torch.Tensor):
+            inputs = [inputs,]
+        if len(inputs) != len(self.input_shape):
+            raise ValueError(f'Error: Cant apply `{type(self).__name__}` module with {len(self.input_shape)} input parallel branches/streams on {len(inputs)} input tensors.')
 
         # Append minibatch dim to input tensor(s) if it is missing and keep track of their respective usage of minibatch dim in order to restore it at module output
         had_minibatch_dim = [len(x.shape) - self.spatial_dims >= self.channel_dim + 1 for x in inputs]
@@ -716,21 +721,46 @@ class MutliresolutionFusion(torch.nn.Module):
         return [x if keep_minibatch else x.squeeze(dim=0) for keep_minibatch, x in zip(had_minibatch_dim, outputs)]
 
 
-class HRNetOutHeadType(enum.IntEnum):
-    """ HRNet output representation head variants. See[HRNet NN Architecture paper](https: // arxiv.org/pdf/1908.07919.pdf) for more details. """
-    # Only outputs the representation from the high-resolution convolution stream/branch (mostly applied to human pose estimation in HRNet paper as performances are similar to HRNetV2 when infering an heatmap NOTE: ground truth heatmaps are generated using 2D Gaussians with 2px std-dev around keypoints)
-    # TODO: improve HRNet inference head for human pose estimation to better infer keypoints of an human: each humans are detected through heat map but, unlike HRNet, keypoints are then infered for each humans with another inference head conditioned on detected human position and its respective features (attention?) (this inference head would be applied N times with the same weights but with a different attention map, N being the number of detected humans from heatmap)
-    HRNetV1 = 1
-    # Concatenates the representations that are from all the resolutions. All channels of lower-res representations are upscaled with bilinear upsampling, then, a 1x1 convolution is applied to mix all resulting representations/channels (from all four res./streams/branches, by default) (mostly applied to semantic segmentation in HRNet paper)
-    HRNetV2 = 2
-    # Outputs a feature pyramid (multi-level-repr) from the representation of HRNetV2: Concatenated and mixed high-resolution features from HRNetV2 are then downsampled to each stream/branch resolutions. (mostly applied to object detection in HRNet paper)
-    HRNetV2p = 3
+class HRNetv1RepresentationHead(torch.nn.Module):
+    def __init__(self, input_shape: Union[torch.Size, Sequence[torch.Size]], channel_dim: int = 1) -> torch.nn.Module:
+        if isinstance(input_shape, torch.Size):
+            input_shape = [input_shape, ]
+        self.input_shape = input_shape
+        self.channel_dim = channel_dim
+
+    def _forward(self, inputs: TENSOR_OR_SEQ_OF_TENSORS) -> torch.Tensor:
+        if isinstance(inputs, torch.Tensor):
+            inputs = [inputs,]
+        if len(inputs) != len(self.input_shape):
+            raise ValueError(f'Error: Cant apply `{type(self).__name__}` module with {len(self.input_shape)} input parallel branches/streams on {len(inputs)} input tensors.')
+        max_idx = np.argmax(np.prod(x.shape[self.channel_dim+1:] for x in inputs))
+        return inputs[max_idx]
 
 
-def hrnet_output_representation_head(variant: HRNetOutHeadType = HRNetOutHeadType.HRNetV2p) -> torch.nn.Module:
-    ops = list()
-    return torch.nn.Sequential(OrderedDict(ops))
+class HRNetv2RepresentationHead(torch.nn.Module):
+    def __init__(self, input_shape: Union[torch.Size, Sequence[torch.Size]], upscale_conv_kwargs: Dict[str, Any] = None, channel_dim: int = 1) -> torch.nn.Module:
+        if isinstance(input_shape, torch.Size):
+            input_shape = [input_shape, ]
+        self.input_shape = input_shape
+        self.channel_dim = channel_dim
+        # TODO: ...    
+        
+    def forward(self, inputs: TENSOR_OR_SEQ_OF_TENSORS) -> TENSOR_OR_SEQ_OF_TENSORS:
+        if isinstance(inputs, torch.Tensor):
+            inputs = [inputs,]
+        if len(inputs) != len(self.input_shape):
+            raise ValueError(f'Error: Cant apply `{type(self).__name__}` module with {len(self.input_shape)} input parallel branches/streams on {len(inputs)} input tensors.')
+        # TODO: upscale input features from lwer branches...
+    
 
+class HRNetv2pRepresentationHead(HRNetv2RepresentationHead):
+    def __init__(self, input_shape: Union[torch.Size, Sequence[torch.Size]], upscale_conv_kwargs: Dict[str, Any] = None, downscale_conv_kwargs: Dict[str, Any] = None, channel_dim: int = 1) -> torch.nn.Module:
+        super().__init__(input_shape=input_shape, upscale_conv_kwargs=upscale_conv_kwargs, channel_dim=channel_dim)
+        # TODO: ...
+    
+    def forward(self, inputs: TENSOR_OR_SEQ_OF_TENSORS) -> TENSOR_OR_SEQ_OF_TENSORS:
+        hrnetv2_out = super().forward(inputs)
+        # TODO: Downscale representation from HRNetV2 head to all input_shapes
 
 def resnet_net_block(hp: Union[Dict[str, Any], 'deepcv.meta.hyperparams.Hyperparameters']) -> torch.nn.Module:
     raise NotImplementedError

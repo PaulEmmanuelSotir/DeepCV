@@ -52,7 +52,8 @@ class DeepcvModule(torch.nn.Module):
     NOTE: In order to make usage of this mechanism, parameters/arguments names which can be specified globally should not be in `DeepcvModule.HP_DEFAULTS`, for example, a submodule creator can't take an argument named `architecture` because `architecture` is among `DeepcvModule.HP_DEFAULTS` entries so `hp['architecture']` won't be provided to any submodules creators nor nested DeepcvModule(s).
     NOTE: Submodule creator functions (and/or specified submodules `torch.nn.Module` types `__init__` constructors) must take named arguments to be supported (`*args` and `**kwargs` not supported)
     NOTE: If a submodule creators takes a parameter directly as an argument instead of taking it from `submodule_params` dict argument, then this parameter won't be present in `submodule_params` dict, even if its value have been specified localy in submodule parameters (i.e. even if its value doesn't comes from global `hp` entries).
-
+    .. See nn_spec._parse_torch_module_from_submodule_spec for more details on sumbodule creator usage
+    
     `DeepcvModule` have 'global' Weight Norm and Spectral Norm support through 'weight_norm' and 'spectral_norm' parameters dicts of `hp`:  
         - 'weight_norm' parameter dict may specify 'name' and 'dim' arguments, see [Weight Norm in PyTorch docs](https://pytorch.org/docs/stable/generated/torch.nn.utils.weight_norm.html?highlight=weight%20norm#torch.nn.utils.weight_norm)
         - 'spectral_norm' parameter dict may specify 'name', 'n_power_iterations', 'eps' and 'dim' arguments, see [Spectral Norm in PyTorch docs](https://pytorch.org/docs/stable/generated/torch.nn.utils.spectral_norm.html?highlight=spectral#torch.nn.utils.spectral_norm)
@@ -63,7 +64,13 @@ class DeepcvModule(torch.nn.Module):
     .. See complete examples of `DeepcvModule` model NN architecture specification in `[Kedro hyperparameters YAML config file]conf/base/parameters.yml`
     """
 
+    # `HP_DEFAULTS` defines required `DeepcvModule` hyperparameters (`...` valued) and optional hyperparameters with default values (those associated with a value other than `...`)
     HP_DEFAULTS = {'architecture': ..., 'act_fn': ..., 'weight_norm': None, 'spectral_norm': None}
+    """ `SUBM_CREATOR_SPECIAL_ARGS` contains submodule creator arg names which can be provided automatically by `DeepcvModule` without having to provide those throught YAML spec submodule params (Defaulted global Hyper-Parameters from `self.hp` may also be provided like so). 
+    NOTE: Any other args taken by a subm creator which is specified in `self.hp` (including those in `HP_DEFAULTS`) may also be passed to submodule creator as an argument named after hp name (allows to specify submodule params globaly). If no arg matches hp name in subm creator signature, those hp can still be passed through `submodule_params` argument.
+    NOTE: Submodule spec params (subm-local params) may also be provided to submodule creator if an argument matches param name in subm creator signature or, throught `subm_params` argument otherwise. `subm_params` argument, if taken, will thus contain all local subm params and global hps which haven't been provided throught their own argument to subm creator. (priority is given to local subm params over global hps if some params have similar name(s))
+    """
+    SUBM_CREATOR_SPECIAL_ARGS = {'submodule_params', 'prev_shapes', 'input_shape'} 
 
     def __init__(self, input_shape: torch.Size, hp: HYPERPARAMS_T, additional_submodule_creators: Optional[Dict[str, Union[Callable, Type[torch.nn.Module]]]] = None, extend_basic_submodule_creators_dict: bool = True, additional_init_logic: Callable[[torch.nn.Module, 'xavier_gain'], None] = None):
         """ Instanciates a new `DeepcvModule` instance

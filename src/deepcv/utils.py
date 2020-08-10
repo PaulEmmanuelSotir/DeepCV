@@ -22,7 +22,7 @@ from pathlib import Path
 import importlib.machinery
 from types import SimpleNamespace
 from functools import singledispatch, partial
-from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence, Callable, Type
+from typing import Union, Iterable, Optional, Dict, Any, List, Tuple, Sequence, Callable, Type, Mapping
 
 import torch
 

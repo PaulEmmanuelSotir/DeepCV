@@ -3,4 +3,4 @@
 __all__ = ['image']
 
 # 'deepcv.classification' modules imports
-import deepcv.classification.image
+from .image import *

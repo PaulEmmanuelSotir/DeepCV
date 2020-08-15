@@ -6,12 +6,12 @@
 from typing import Tuple, Sequence, Iterable, Generator, Dict
 
 import torch
-from torch import nn
+import torch.nn
 
 import deepcv.utils
 
 
-def deep_feature_flow_inference(video_frames: Iterable[torch.Tensor], features_model: nn.Module, tasks_models: Sequence[nn.Module], flow_estimation: nn.Module, keyframe_period: int) -> Generator[Dict[int, Tuple], None, None]:
+def deep_feature_flow_inference(video_frames: Iterable[torch.Tensor], features_model: torch.nn.Module, tasks_models: Sequence[torch.nn.Module], flow_estimation: torch.nn.Module, keyframe_period: int) -> Generator[Dict[int, Tuple], None, None]:
     """ Implementation of [Deep Feature Flow for Video Recognition 2017 Paper](https://arxiv.org/abs/1611.07715)
     Args:
         - video_frames: Generator or iterable which yields input video frames

@@ -3,5 +3,5 @@
 __all__ = ['detector', 'matching']
 
 # Default 'deepcv.keypoints' module import
-import deepcv.keypoints.detector
-import deepcv.keypoints.matching
+from .detector import *
+from .matching import *

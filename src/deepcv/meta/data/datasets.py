@@ -3,13 +3,9 @@
 """ Datasets meta module - datasets.py - `DeepCV`__
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
-import uuid
 import logging
 import inspect
 import functools
-import threading
-import collections
-from pathlib import Path
 from typing import Optional, Type, Union, Iterable, Dict, Any, Tuple, Callable
 
 import PIL
@@ -17,13 +13,12 @@ import kedro.io
 import numpy as np
 
 import torch
-import torch.nn as nn
 import torchvision.datasets
 from torch.utils.data import DataLoader, SubsetRandomSampler, Dataset
 
 from deepcv.utils import NL, get_by_identifier, import_tests
-import deepcv.meta.data.training_metadata
-from deepcv.meta.types_aliases import *
+from . import training_metadata
+from ..types_aliases import *
 
 __all__ = ['TORCHVISION_DATASETS', 'PytorchDataset', 'dataloader_prefetch_batches', 'get_random_subset_dataloader']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -33,7 +28,7 @@ TORCHVISION_DATASETS = {identifier: value for identifier, value in torchvision.d
 
 
 class PytorchDataset(kedro.io.AbstractDataSet):
-    """ Kedro dataset which warps a PyTorch dataset (`torch.utils.data.Dataset`). PyTorch Dataset is only instanciated when `PytorchDataset._load` function is called. """
+    """ Kedro dataset which wraps a PyTorch dataset (`torch.utils.data.Dataset`). PyTorch Dataset is only instanciated when `PytorchDataset._load` function is called. """
 
     def __init__(self, torch_dataset: Union[str, Type[Dataset]], **dataset_kwargs):
         """ Instanciates a `PytorchDataset` Kedro dataset which stores underlying PyTorch dataset (`torch.utils.data.Dataset`) type and arguments needed to instanciate it.
@@ -42,7 +37,7 @@ class PytorchDataset(kedro.io.AbstractDataSet):
             - torch_dataset: PyTorch dataset type. Can either be a Type inheriting from `torch.utils.data.Dataset` or a string identifier which will be parsed by `deepcv.utils.get_by_identifier` in order to retreive specified PyTorch dataset type (It is adviced to use absolute module names when specifying dataset type in a string identifier)
             - dataset_kwargs: Keyword arguments needed to instantiate Pytorch dataset (passed to `__init__` of given PyTorch dataset type).
         """
-        super(PytorchDataset, self).__init__()
+        super().__init__()
         self.dataset_kwargs = dataset_kwargs
 
         if isinstance(torch_dataset, str):
@@ -53,8 +48,8 @@ class PytorchDataset(kedro.io.AbstractDataSet):
                     raise TypeError(f'Error: `{torch_dataset}` should either be a `torch.utils.data.Dataset` or an identifier string'
                                     f' of a type which inherits from `torch.utils.data.Dataset`, got `{self.pytorch_dataset}`')
             except Exception as e:
-                msg = f'Error: Dataset warper received a bad argument: ``torch_dataset="{torch_dataset}"`` type cannot be found or instanciated with the following arguments keyword arguments: "{dataset_kwargs}". {NL}Raised exception: "{e}"'
-                raise ValueError(msg) from e
+                raise ValueError(f'Error: Dataset wraper received a bad argument: ``torch_dataset="{torch_dataset}"`` type cannot be found or '
+                                 f'instanciated with the following arguments keyword arguments: "{dataset_kwargs}". {NL}Raised exception: "{e}"') from e
         elif issubclass(torch_dataset, Dataset):
             self.pytorch_dataset = torch_dataset
         else:

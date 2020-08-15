@@ -4,7 +4,7 @@
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
 import torch
-from torch import nn
+import torch.nn
 
 import deepcv.utils
 

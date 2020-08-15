@@ -1,6 +1,6 @@
 
 # Lists all available 'deepcv.detection' sub-modules
-__all__ = ['object']
+__all__ = ['detector']
 
 # 'deepcv.detection' modules imports
-import deepcv.detection.object
+from .detector import *

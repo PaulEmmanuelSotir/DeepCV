@@ -20,7 +20,7 @@ import nni
 import mlflow
 import configparser
 
-import deepcv.meta.nni_tools
+import deepcv.meta
 
 __all__ = ['ProjectMainHooks']
 

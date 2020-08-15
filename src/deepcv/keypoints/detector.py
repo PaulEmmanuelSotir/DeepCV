@@ -11,12 +11,12 @@ Implements image/video keypoint detector from [detector part of Unsupervised Lea
 """
 import logging
 import multiprocessing
-from typing import Union, List, Dict, Any, Optional
+from typing import Union, List, Dict, Any, Optional, Tuple
 
 import torch
-from torch import nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
+import torch.nn
+import torch.optim
+from torch.utils.data import Dataset
 
 import ignite
 import numpy as np
@@ -24,75 +24,64 @@ from ignite.metrics import Accuracy
 from kedro.pipeline import Pipeline, node
 
 import deepcv.utils
-from deepcv import meta
-from deepcv.meta import base_module
-from deepcv.meta import hyperparams
+import deepcv.meta
+from deepcv.meta.types_aliases import HYPERPARAMS_T, METRICS_DICT_T
+import deepcv.meta.data.preprocess
 
 __all__ = ['KeypointsDetector']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-class KeypointsDetector(base_module.DeepcvModule):
-    HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
+class KeypointsDetector(deepcv.meta.base_module.DeepcvModule):
+    HP_DEFAULTS = {'architecture': ..., 'act_fn': torch.nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
-    def __init__(self, input_shape: torch.Tensor, hp: Union[Dict[str, Any], hyperparams.Hyperparameters]):
+    def __init__(self, input_shape: torch.Tensor, hp: HYPERPARAMS_T):
         super().__init__(input_shape, hp)
         self.define_nn_architecture(self._hp['architecture'])
         self.initialize_parameters(self._hp['act_fn'])
 
 
-def get_keypoints_detector_pipelines():
-    p1 = Pipeline([node(deepcv.meta.data.preprocess.split_dataset, name='split_dataset',
-                        inputs={'trainset': 'cifar10_train', 'testset': 'cifar10_test', 'params': 'params:split_dataset_ratios'},
-                        outputs=['trainset', 'validset', 'testset']),
-                   node(deepcv.meta.data.preprocess.preprocess, name='preprocess',
-                        inputs={'trainset': 'trainset', 'testset': 'testset', 'validset': 'validset', 'params': 'params:cifar10_preprocessing'},
+def get_pipelines() -> Dict[str, Pipeline]:
+    p1 = Pipeline([node(deepcv.meta.data.preprocess.preprocess, name='preprocess', tags=['preprocess'],
+                        inputs={'dataset_or_trainset': 'cifar10_train', 'testset': 'cifar10_test', 'params': 'params:cifar10_preprocessing'},
                         outputs=['datasets']),
-                   node(create_model, name='create_keypoints_encoder_model', inputs=['datasets', 'params:keypoints_encoder_model'], outputs=['encoder']),
-                   node(create_model, name='create_keypoints_decoder_model', inputs=['datasets', 'params:keypoints_decoder_model'], outputs=['decoder']),
-                   node(train, name='train_keypoint_detector', inputs=['datasets', 'model', 'params:train_keypoint_detector'], outputs=['ignite_state'])],
-                  name='train_keypoint_detector')
-    return [p1]
+                   node(create_model, name='create_keypoints_encoder_model', inputs=['datasets', 'params:keypoints_encoder_model'], outputs=['encoder'], tags=['model']),
+                   node(create_model, name='create_keypoints_decoder_model', inputs=['datasets', 'params:keypoints_decoder_model'], outputs=['decoder'], tags=['model']),
+                   node(train, name='train_keypoint_detector', inputs=['datasets', 'encoder', 'decoder', 'params:train_keypoint_detector'], outputs=['train_results'], tags=['train'])],
+                  tags=['keypoint', 'detection'])
+    return {'train_keypoint_detector': p1}
 
 
-def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T):
+def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T) -> torch.nn.Module:
     # Determine input and output shapes
     dummy_img, dummy_target = datasets['train_loader'][0][0]
     input_shape = dummy_img.shape
-    model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
+
+    if not hasattr(model_params['architecture'][-1]['fully_connected'], 'out_features'):
+        # TODO: modify output usage for inference on detection task
+        model_params['architecture'][-1]['fully_connected']['out_features'] = np.prod(dummy_target.shape)
 
     # Create ImageClassifier model
-    model = KeypointsDetector(input_shape, model_params)
-    return model
+    return deepcv.meta.base_module.DeepcvModule(input_shape, model_params)
 
 
-def train(datasets: Dict[str, Dataset], encoder: nn.Module, decoder: nn.Module, hp: HYPERPARAMS_T) -> ignite.engine.State:
+def train(datasets: Dict[str, Dataset], encoder: torch.nn.Module, decoder: torch.nn.Module, hp: HYPERPARAMS_T) -> Tuple[METRICS_DICT_T, Union['final_nas_architecture_path', ignite.engine.State], Optional[str]]:
     # TODO: decide whether we take Datasets or Dataloaders arguments here (depends on how preprocessing is implemented)
     backend_conf = deepcv.meta.ignite_training.BackendConfig(**(hp['backend_conf'] if 'backend_conf' in hp else {}))
-    metrics = {'accuracy': Accuracy(device=backend_conf.device if backend_conf.distributed else None)}
-    loss = nn.CrossEntropyLoss()
-    opt = optim.SGD
-
     autoencoder = torch.nn.Sequential(encoder, decoder)
+    training_procedure_kwargs = dict(hp=hp, model=autoencoder, datasets=datasets, backend_conf=backend_conf,
+                                     loss=torch.nn.CrossEntropyLoss(),
+                                     opt=torch.optim.AdamW,
+                                     metrics={'accuracy': Accuracy(device=backend_conf.device if backend_conf.distributed else None)},
+                                     callbacks_handler=None)
 
-    # Determine maximal eval batch_size which fits in video memory
-    max_eval_batch_size = deepcv.meta.nn.find_best_eval_batch_size(datasets['trainset'][0].shape, model=autoencoder,
-                                                                   device=backend_conf.device, upper_bound=len(datasets['trainset']))
-
-    # Determine num_workers for DataLoaders
-    if backend_conf.ngpus_current_node > 0 and backend_conf.distributed:
-        workers = max(1, (backend_conf.ncpu - 1) // backend_conf.ngpus_current_node)
+    single_shot_nas = ...  # TODO: ...
+    if single_shot_nas:
+        fixed_architecture_path = ...
+        return deepcv.meta.nni_tools.nni_single_shot_neural_architecture_search(**training_procedure_kwargs, final_architecture_path=fixed_architecture_path)
     else:
-        workers = max(1, multiprocessing.cpu_count() - 1)
-
-    # Create dataloaders from dataset
-    dataloaders = []
-    for n, ds in datasets.items():
-        shuffle = True if n == 'trainset' else False
-        batch_size = hp['batch_size'] if n == 'trainset' else max_eval_batch_size
-        dataloaders.append(DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=workers, pin_memory=True))
-
-    return deepcv.meta.ignite_training.train(hp, autoencoder, loss, dataloaders, opt, backend_conf, metrics)
+        nni_compression_pruner = None
+        return (*deepcv.meta.ignite_training.train(**training_procedure_kwargs, nni_compression_pruner=nni_compression_pruner), None)
 
 
 if __name__ == '__main__':

@@ -15,38 +15,39 @@ import numpy as np
 import scipy.optimize
 
 import torch
-import torch.nn as nn
+import torch.nn
 from torch.utils.data import DataLoader, Dataset
 
 import deepcv.utils
-import deepcv.meta.nn
-import deepcv.meta.data.training_metadata
-from deepcv.meta.types_aliases import *
+from .nn import get_model_capacity
+from .data import training_metadata
+from .types_aliases import *
 
 __all__ = ['Hyperparameters', 'HyperparameterSpace', 'HyperparamsEmbedding', 'GeneralizationAcrossScalesPredictor', 'to_hyperparameters', 'merge_hyperparameters']
 __author__ = 'Paul-Emmanuel Sotir'
 
-Hyperparameters = deepcv.meta.data.training_metadata.Hyperparameters
-HyperparameterSpace = deepcv.meta.data.training_metadata.HyperparameterSpace
+Hyperparameters = training_metadata.Hyperparameters
+HyperparameterSpace = training_metadata.HyperparameterSpace
 
 
-class HyperparamsEmbedding(nn.Module):
+class HyperparamsEmbedding(torch.nn.Module):
     """ Hyper-parameter dict embedding module
     Given an hyper-parameter space (hp_space usually used during smpling of hyperopt's hyperparameter search), converts input hyperparameter dict into a vectorized representation.
     Applied to a valid hp dict, returns a fixed-size vector embedding which can be interpreted as vectors in an euclidian space (final neural net layers are enforced by loss constraints to output embeddings in euclidian-like space)
     """
 
     def __init__(self, embedding_size: int, intermediate_embedding_size: Optional[int] = 128, hp_space: HyperparameterSpace = None):
+        super().__init__()
         self._embedding_size = embedding_size
         self._intermediate_embedding_size = max(embedding_size + 32, intermediate_embedding_size)
         self._hp_space = hp_space
 
         # Define a simple shallow neural net architecture used to obtain final hyper-parameter embedding in appropriate space (euclidian space easier to interpret than space of `_from_hp_space(hp)` vector)
         mean_embedding_size = sum(self._intermediate_embedding_size, self.embedding_size) // 2
-        linear1 = nn.Linear(in_features=self._intermediate_embedding_size + 1, out_features=mean_embedding_size)  # + 1 for hp dict hash input
-        linear2 = nn.Linear(in_features=mean_embedding_size, out_features=min(mean_embedding_size, self.embedding_size * 2))
-        linear3 = nn.Linear(in_features=min(mean_embedding_size, self.embedding_size * 2), out_features=self.embedding_size)
-        self._net = nn.Sequential(linear1, nn.ReLU(), linear2, nn.ReLU(), linear3, nn.Softmax())
+        linear1 = torch.nn.Linear(in_features=self._intermediate_embedding_size + 1, out_features=mean_embedding_size)  # + 1 for hp dict hash input
+        linear2 = torch.nn.Linear(in_features=mean_embedding_size, out_features=min(mean_embedding_size, self.embedding_size * 2))
+        linear3 = torch.nn.Linear(in_features=min(mean_embedding_size, self.embedding_size * 2), out_features=self.embedding_size)
+        self._net = torch.nn.Sequential(linear1, torch.nn.ReLU(), linear2, torch.nn.ReLU(), linear3, torch.nn.Softmax())
 
     def fit(self, hp_dicts):
         # Unsupervised training to learn 3-layers fully connected NN for hp embedding in euclidian-like space
@@ -106,7 +107,7 @@ class HyperparamsEmbedding(nn.Module):
         return topo_embedding
 
 
-class GeneralizationAcrossScalesPredictor(nn.Module):
+class GeneralizationAcrossScalesPredictor(torch.nn.Module):
     """ GeneralizationAcrossScalesPredictor
     Improved implementation of [a constructive prediction of the generalization error across scales](https://arxiv.org/pdf/1909.12673.pdf), which can combine proposed paper's model with a two layer fully connected neural net to better predict valid loss (optional).
     By default, validation error is predicted by performing a least squares regression of `GeneralizationAcrossScalesPredictor.error_landscape_estimation` enveloppe function which depends on a few parameters (max. 6 parameters to fit).
@@ -127,6 +128,7 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             - fit_using_dataset_stats:
             - fit_using_loss_curves:
         """
+        super().__init__()
         self._fit_using_hps = fit_using_hps
         self._fit_using_dataset_stats = fit_using_dataset_stats
         self._fit_using_loss_curves = fit_using_loss_curves
@@ -145,10 +147,10 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
                 self._input_size += ...  # + Input dataset stats like trainset/validset ratio, data shape, batch_size, mean;variance;quartiles;... of trainset targets, data-type #TODO: see https://arxiv.org/pdf/1810.06305.pdf for interesting dataset embedding/stats
             if self._fit_using_loss_curves:
                 self._input_size += ...  # + Validation and training losses evaluated during training iterations
-            linear1 = nn.Linear(in_features=self._input_size, out_features=64)
-            linear2 = nn.Linear(in_features=64, out_features=2)  # Outputs valid and train losses
-            self._nn_metamodel = nn.Sequential(linear1, nn.Tanh(), linear2, nn.Tanh())
-            nn.init.xavier_uniform_(self._nn_metamodel.weight.data, gain=nn.init.calculate_gain('tanh'))
+            linear1 = torch.nn.Linear(in_features=self._input_size, out_features=64)
+            linear2 = torch.nn.Linear(in_features=64, out_features=2)  # Outputs valid and train losses
+            self._nn_metamodel = torch.nn.Sequential(linear1, torch.nn.Tanh(), linear2, torch.nn.Tanh())
+            torch.nn.init.xavier_uniform_(self._nn_metamodel.weight.data, gain=torch.nn.init.calculate_gain('tanh'))
             self._nn_metamodel.bias.data.fill_(0.)
 
     @staticmethod
@@ -169,8 +171,8 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             emn += b * np.power(float(m), -beta)
         return eps0 * np.absolute(emn / (emn - eta * 1j))  # Complex absolute, i.e. 2D L2 norm
 
-    def fit_generalization(self, trainsets: Sequence[DataLoader], models: Sequence[nn.Module], best_valid_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T], best_train_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T] = None):
-        model_capacities = [deepcv.meta.nn.get_model_capacity(m) for m in models]
+    def fit_generalization(self, trainsets: Sequence[DataLoader], models: Sequence[torch.nn.Module], best_valid_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T], best_train_losses: Sequence[FLOAT_OR_FLOAT_TENSOR_T] = None):
+        model_capacities = [get_model_capacity(m) for m in models]
         cst_modelsize = deepcv.utils.is_roughtly_constant(model_capacities)
         if cst_modelsize:
             # If model capacity doesn't change, we can simplify model regression by removing 'b' and 'beta' parameters (constant term which can be modeled by 'cinf' parameter)
@@ -201,8 +203,8 @@ class GeneralizationAcrossScalesPredictor(nn.Module):
             # TODO: online training considerations
             # TODO: create and train on 'meta' dataset from MLFlow?
 
-    def forward(self, model: Union[nn.Module, int], trainset: Union[DataLoader, int]) -> float:
-        model_capacity = deepcv.meta.nn.get_model_capacity(model) if isinstance(model, nn.Module) else model
+    def forward(self, model: Union[torch.nn.Module, int], trainset: Union[DataLoader, int]) -> float:
+        model_capacity = get_model_capacity(model) if isinstance(model, torch.nn.Module) else model
         trainset_size = trainset if isinstance(trainset, int) else len(trainset)
         estimation = GeneralizationAcrossScalesPredictor.error_landscape_estimation(self._leastsquares_params, model_capacity, trainset_size)
 

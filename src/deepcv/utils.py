@@ -35,7 +35,7 @@ from kedro.io import DataCatalog
 
 __all__ = ['NUMBER_T', 'NL', 'mlflow_get_experiment_run_info', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds',
            'setup_cudnn', 'progess_bar', 'get_device', 'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo',
-           'recursive_getattr', 'replace_newlines', 'filter_kwargs', 'get_by_identifier', 'get_str_repr', 'EventsHandler', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload',
+           'recursive_getattr', 'replace_newlines', 'filter_kwargs', 'parse_slice', 'get_by_identifier', 'get_str_repr', 'EventsHandler', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload',
            'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
 
@@ -296,6 +296,22 @@ def filter_kwargs(kwargs: Mapping[str, Any], to_call: Union[Callable, Type], kee
     elif keep_all_if_takes_var_args and any([p.kind == p.VAR_POSITIONAL for p in fn_params]):
         return kwargs
     return {n: v for n, v in kwargs.items() if n in fn_params}
+
+
+def parse_slice(value: str) -> slice:
+    """ Parses an integer `slice` from string, like `start:stop:step`. (code modified from https://stackoverflow.com/questions/680826/python-create-slice-object-from-string) """
+    match = re.fullmatch(r'\s*\[([0-9:\s*]+)\]\s*', value)
+    if match is None or match.group(1) is None:
+        return None
+    value = match.group(1)
+
+    def to_piece(s):
+        return s and int(s) or None
+    pieces = list(map(to_piece, value.split(':')))
+    if len(pieces) == 1:
+        return slice(pieces[0], pieces[0] + 1)
+    else:
+        return slice(*pieces)
 
 
 def get_by_identifier(identifier: str):

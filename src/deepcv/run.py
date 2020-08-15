@@ -18,7 +18,6 @@ import anyconfig
 import torchvision
 
 import deepcv
-import deepcv.hooks
 
 __author__ = 'Paul-Emmanuel Sotir'
 

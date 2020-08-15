@@ -12,7 +12,6 @@ from typing import Optional, Dict, Tuple, List, Iterable, Union, Callable, Any, 
 
 import torch
 import torchvision
-import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 import PIL
@@ -99,12 +98,12 @@ def register_transform_processor(transform: Union[str, Callable], processable_ar
         - transform: Transform which needs keyword arguments proceesed by decorated function
         - processable_args_names: Transform arguments names which can be processed by decorated function to be provided to transform constructor
     """
-    def _warp(process_fn: Callable[['trainset', 'to_process'], Dict[str, Any]]):
+    def _wrap(process_fn: Callable[['trainset', 'to_process'], Dict[str, Any]]):
         if transform in TRANSFORM_ARGS_PROCESSORS:
             raise RuntimeError(f'Error: {transform} is already registered in `deepcv.meta.data.preprocess.TRANSFORM_ARGS_PROCESSORS`')
         TRANSFORM_ARGS_PROCESSORS[transform] = (process_fn, processable_args_names)
         return process_fn
-    return _warp
+    return _wrap
 
 
 @memory.cache

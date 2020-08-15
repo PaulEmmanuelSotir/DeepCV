@@ -12,7 +12,6 @@ import numpy as np
 import matplotlib
 
 import torch
-import torch.nn as nn
 from PIL import Image
 
 import deepcv.utils
@@ -37,7 +36,7 @@ def plot(backend: ModuleType = matplotlib, show_in_tensorboard: bool = False, **
         raise NotImplementedError
 
 
-def sample_tumbails(datatset, image_count=64, tumbail_size: Tuple[int, int] = (32, 32)):
+def sample_tumbails(datatset, image_count: int = 64, tumbail_size: Tuple[int, int] = (32, 32)):
     with datatset.threadlocal_shuffle():
         for image, _taget in datatset[:image_count]:
             tumb = image.thumbnail(tumbail_size)

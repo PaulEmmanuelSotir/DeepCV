@@ -15,7 +15,7 @@ from torch.utils.data import Dataset
 import deepcv.utils
 
 __all__ = ['TENSOR_OR_SEQ_OF_TENSORS_T', 'FLOAT_OR_FLOAT_TENSOR_T', 'HYPERPARAMS_T', 'METRICS_DICT_T', 'SUBMODULE_FORWARD_CALLBACK_T',
-           'SUBMODULE_CREATORS_DICT_T', 'REDUCTION_FN_T', 'NORM_TECHNIQUES_MODULES_T', 'MODULE_OR_TYPE_T',
+           'SUBMODULE_CREATORS_DICT_T', 'NORM_TECHNIQUES_MODULES_T', 'MODULE_OR_TYPE_T',
            'SIZE_1_T', 'SIZE_2_T', 'SIZE_3_T', 'SIZE_N_T']
 __author__ = 'Paul-Emmanuel Sotir'
 
@@ -23,6 +23,8 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 TENSOR_OR_SEQ_OF_TENSORS_T = Union[torch.Tensor, Sequence[torch.Tensor]]
+
+SIZE_OR_SEQ_OF_SIZE_T = Union[torch.Size, Sequence[torch.Size]]
 
 FLOAT_OR_FLOAT_TENSOR_T = Union[float, torch.FloatTensor]
 
@@ -39,11 +41,9 @@ METRIC_FN_T = Union[ignite.Metric, LOSS_FN_T]
 # `TRAINING_PROCEDURE_T` training procedures must match the following type annotation for its input arguments: `'hp': HYPERPARAMS_T, 'model': torch.nn.Module, 'loss': LOSS_FN_T, 'datasets': Tuple[Dataset], 'opt': Type[torch.optim.Optimizer], 'backend_conf': 'deepcv.meta.ignite_training.BackendConfig', 'metrics': Dict[str, METRIC_FN_T], 'callbacks_handler': Optional[deepcv.utils.CallbacksHandler], **kwargs`
 TRAINING_PROCEDURE_T = Callable[['hp', 'model', 'loss', 'datasets', 'opt', 'backend_conf', 'metrics', 'callbacks_handler', ...], Tuple[METRICS_DICT_T, ...]]
 
-SUBMODULE_FORWARD_CALLBACK_T = Callable[[TENSOR_OR_SEQ_OF_TENSORS_T, Dict[str, torch.Tensor]], TENSOR_OR_SEQ_OF_TENSORS_T]
+SUBMODULE_FORWARD_CALLBACK_T = Callable[[TENSOR_OR_SEQ_OF_TENSORS_T, Optional[List[TENSOR_OR_SEQ_OF_TENSORS_T]]], TENSOR_OR_SEQ_OF_TENSORS_T]
 
 SUBMODULE_CREATORS_DICT_T = Dict[str, Callable[..., torch.nn.Module]]
-
-REDUCTION_FN_T = Callable[[TENSOR_OR_SEQ_OF_TENSORS_T, *'args'], TENSOR_OR_SEQ_OF_TENSORS_T]
 
 NORM_TECHNIQUES_MODULES_T = Dict['NormTechnique', Union[Type[torch.nn.Module], Callable[..., torch.nn.Module]]]
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 import torch
-import torch.nn as nn
+import torch.nn
 
 import click
 from click import secho, style
@@ -29,9 +29,9 @@ __author__ = 'Paul-Emmanuel Sotir'
 # Use SinGAN: Learning a Generative Model from a Single Natural Image https://arxiv.org/abs/1905.01164  ; SinGAN github: https://github.com/tamarott/SinGAN
 
 
-class DistilledSinGAN(nn.Module):
+class DistilledSinGAN(torch.nn.Module):
     def __init__(self):
-        pass
+        super().__init__()
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError

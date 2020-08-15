@@ -11,7 +11,7 @@ Implements image/video keypoint detector from [detector part of Unsupervised Lea
 """
 import logging
 import multiprocessing
-from typing import Union, List, Dict, Any, Optional
+from typing import Union, List, Dict, Any, Optional, Tuple
 
 import torch
 import torch.nn
@@ -33,7 +33,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 class KeypointsDetector(deepcv.meta.base_module.DeepcvModule):
-    HP_DEFAULTS = {'architecture': ..., 'act_fn': nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
+    HP_DEFAULTS = {'architecture': ..., 'act_fn': torch.nn.ReLU, 'batch_norm': None, 'dropout_prob': 0.}
 
     def __init__(self, input_shape: torch.Tensor, hp: HYPERPARAMS_T):
         super().__init__(input_shape, hp)
@@ -41,7 +41,7 @@ class KeypointsDetector(deepcv.meta.base_module.DeepcvModule):
         self.initialize_parameters(self._hp['act_fn'])
 
 
-def get_keypoints_detector_pipelines():
+def get_pipelines() -> Dict[str, Pipeline]:
     p1 = Pipeline([node(deepcv.meta.data.preprocess.preprocess, name='preprocess', tags=['preprocess'],
                         inputs={'dataset_or_trainset': 'cifar10_train', 'testset': 'cifar10_test', 'params': 'params:cifar10_preprocessing'},
                         outputs=['datasets']),
@@ -52,7 +52,7 @@ def get_keypoints_detector_pipelines():
     return {'train_keypoint_detector': p1}
 
 
-def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T):
+def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T) -> torch.nn.Module:
     # Determine input and output shapes
     dummy_img, dummy_target = datasets['train_loader'][0][0]
     input_shape = dummy_img.shape
@@ -65,7 +65,7 @@ def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T):
     return deepcv.meta.base_module.DeepcvModule(input_shape, model_params)
 
 
-def train(datasets: Dict[str, Dataset], encoder: nn.Module, decoder: nn.Module, hp: HYPERPARAMS_T) -> Tuple[METRICS_DICT_T, Union['final_nas_architecture_path', ignite.engine.State], Optional[str]]:
+def train(datasets: Dict[str, Dataset], encoder: torch.nn.Module, decoder: torch.nn.Module, hp: HYPERPARAMS_T) -> Tuple[METRICS_DICT_T, Union['final_nas_architecture_path', ignite.engine.State], Optional[str]]:
     # TODO: decide whether we take Datasets or Dataloaders arguments here (depends on how preprocessing is implemented)
     backend_conf = deepcv.meta.ignite_training.BackendConfig(**(hp['backend_conf'] if 'backend_conf' in hp else {}))
     autoencoder = torch.nn.Sequential(encoder, decoder)

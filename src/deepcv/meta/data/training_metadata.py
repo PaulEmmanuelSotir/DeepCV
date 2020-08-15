@@ -15,7 +15,7 @@ import collections.abc
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
 
 import torch
-import torch.nn as nn
+import torch.nn
 
 import deepcv.utils
 from ..types_aliases import *
@@ -31,25 +31,25 @@ class TrainingMetaData(abc.ABC):
 
 class DatasetStats(TrainingMetaData):
     def __init__(self, existing_uuid: uuid.UUID = None):
-        super(self.__class__).__init__(self, existing_uuid)
+        super().__init__(self, existing_uuid)
         # TODO: store dataset datas
 
 
 class Task(TrainingMetaData):
     def __init__(self, train_loss: torch.nn.modules.loss._Loss, dummy_model_input: torch.Tensor, existing_uuid: uuid.UUID = None):
-        super(Task, self).__init__(existing_uuid)
+        super().__init__(existing_uuid)
         self._train_loss = train_loss
         self._dummy_model_input = dummy_model_input
 
 
 class Experiment(TrainingMetaData):
     def __init__(self, existing_uuid: uuid.UUID = None):
-        super(Experiment, self).__init__(existing_uuid)
+        super().__init__(existing_uuid)
 
 
 class HyperparameterSpace(TrainingMetaData):
     def __init__(self, existing_uuid: uuid.UUID = None):
-        super(HyperparameterSpace, self).__init__(existing_uuid)
+        super().__init__(existing_uuid)
         # TODO: implement
 
     def get_hp_space_overlap(self, hp_space_2: 'HyperparameterSpace'):

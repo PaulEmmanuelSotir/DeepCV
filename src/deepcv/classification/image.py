@@ -21,11 +21,11 @@ import deepcv.meta
 import deepcv.meta.data.preprocess
 from deepcv.meta.types_aliases import HYPERPARAMS_T, METRICS_DICT_T
 
-__all__ = ['get_img_classifier_pipelines', 'create_model', 'train']
+__all__ = ['get_pipelines', 'create_model', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-def get_img_classifier_pipelines() -> Dict[str, Pipeline]:
+def get_pipelines() -> Dict[str, Pipeline]:
     """ Defines all Kedro nodes and pipelines of image classifier model: datasets setup/preprocessing, image classifier training and image classifier hyperparameters search pipelines. """
     preprocess_node = node(deepcv.meta.data.preprocess.preprocess, name='preprocess', tags=['preprocess'],
                            inputs=dict(dataset_or_trainset='cifar10_train', testset='cifar10_test', params='params:cifar10_preprocessing'),
@@ -37,7 +37,7 @@ def get_img_classifier_pipelines() -> Dict[str, Pipeline]:
             'train_image_classifier': Pipeline([preprocess_node, create_model_node, train_node], tags=['classification'])}
 
 
-def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T):
+def create_model(datasets: Dict[str, Dataset], model_params: HYPERPARAMS_T) -> torch.nn.Module:
     """ Creates image classifier model from model specification of parameters.yml and determine input and output shapes according to dataset image shape and target classes count or shape """
     dummy_img, dummy_target = datasets['trainset'][0]
     input_shape = dummy_img.shape

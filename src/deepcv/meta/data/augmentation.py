@@ -20,8 +20,8 @@ import numpy as np
 from PIL import Image, ImageOps, ImageEnhance
 
 import torch
+import torch.nn
 import torchvision
-import torch.nn as nn
 
 import deepcv.utils
 from .. import hyperparams
@@ -112,13 +112,13 @@ def apply_augmentation_reciepe(datasets: Tuple[torch.utils.data.Dataset], params
     Returns a transform which returns augmented image(s) from original image
     # TODO: use albumentation instead of torchvision
     """
-    params, _ = deepcv.meta.hyperparams.to_hyperparameters(params, {'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
-                                                                    'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
+    params, _ = hyperparams.to_hyperparameters(params, {'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
+                                                        'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
     transforms = []
 
     if params.get('augmix') is not None:
         augmix_defaults = {'augmentation_chains_count': ..., 'transform_chains_dirichlet': ..., 'mix_with_original_beta': ...}
-        augmix_params, _ = deepcv.meta.hyperparams.to_hyperparameters(params['augmix'], augmix_defaults)
+        augmix_params, _ = hyperparams.to_hyperparameters(params['augmix'], augmix_defaults)
         augmix_transform = functools.partial(augment_and_mix, chains_depth=params['augmentation_ops_depth'], **augmix_params)
         # TODO: apply augmentation transforms
         raise NotImplementedError

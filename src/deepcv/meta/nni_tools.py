@@ -21,7 +21,7 @@ import mlflow
 import anyconfig
 
 import torch
-import torch.nn as nn
+import torch.nn
 from torch.utils.data import DataLoader, Dataset
 
 import nni
@@ -142,7 +142,7 @@ def gen_classic_nas_search_space(architecture_search_space_path: Union[str, Path
     return sub.returncode == os.EX_OK
 
 
-def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: nn.Module, loss: Union[nn.modules.loss._Loss, Callable], datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: 'ignite_training.BackendConfig' = None,
+def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: Union[torch.nn.modules.loss._Loss, Callable], datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: 'ignite_training.BackendConfig' = None,
                                                metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: deepcv.utils.EventsHandler = None, final_architecture_path: Union[str, Path] = None) -> Tuple[METRICS_DICT_T, Optional[Path], str]:
     """ Train model with provided NAS trainer in order to find out the best NN architecture by training a superset NN instead of performing multiple trainings/trials for each/many possible architectures.
     Args:
@@ -390,7 +390,7 @@ def sample_nni_hp_space(model_hps: HYPERPARAMS_T, training_hps: HYPERPARAMS_T) -
     return model_hps, training_hps
 
 
-def hp_search(hp_space: Dict[str, Any], define_model_fn: Callable[['hp'], nn.Module], training_procedure: Callable, dataloaders: Tuple[DataLoader], pred_across_scales: bool = False, subset_sizes: Sequence[float] = [0.005, 0.015, 0.03, 0.05, 0.07, 0.09]):
+def hp_search(hp_space: Dict[str, Any], define_model_fn: Callable[['hp'], torch.nn.Module], training_procedure: Callable, dataloaders: Tuple[DataLoader], pred_across_scales: bool = False, subset_sizes: Sequence[float] = [0.005, 0.015, 0.03, 0.05, 0.07, 0.09]):
     """ NNI Hyperparameter search trial procedure, with optional generalization prediction across scales """
     model_hps, training_hps = sample_nni_hp_space(model_hps=..., training_hps=...)  # TODO: finishn implementation of hp_search
     logging.info(f'> Hyperparameter search experiment "{nni.get_experiment_id()}" -- trial NO#{nni.get_trial_id()}...{NL}'

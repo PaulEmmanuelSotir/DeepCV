@@ -13,8 +13,8 @@ from typing import Tuple, Union, Sequence
 import numpy as np
 
 import torch
-import torch.nn as nn
-from torch.functional import F
+import torch.nn
+import torch.nn.functional
 from torch.utils.data import DataLoader
 
 import deepcv.utils
@@ -25,12 +25,12 @@ __all__ = ['jensen_shannon_divergence_consistency_loss', 'sample_triplets', 'Jen
 __author__ = 'Paul-Emmanuel Sotir'
 
 
-def jensen_shannon_divergence_consistency_loss(net: nn.Module, original: torch.Tensor, *augmented_n: Sequence[torch.Tensor], reduction: str = 'batchmean', to_log_probabilities: bool = True):
+def jensen_shannon_divergence_consistency_loss(net: torch.nn.Module, original: torch.Tensor, *augmented_n: Sequence[torch.Tensor], reduction: str = 'batchmean', to_log_probabilities: bool = True):
     """ Functionnal Implementation of Jensen Shannon Divergence Consistency Loss as defined in [AugMix DeepMind's paper](https://arxiv.org/pdf/1912.02781.pdf).
     Args:
         - to_log_probabilities: If `net` already outputs a distribution in log-propabilities (e.g. logsoftmax output layer), set `to_log_probabilities` to `False`, otherwise, if `net` outputs are regular probabilities, let it to `True`: Underlying 'torch.nn.functional.kl_div' needs input distribution to be log-probabilities and applies a log operator to target distribution
     """
-    kl_div = functools.partial(F.kl_div, reduction=reduction, log_target=not to_log_probabilities)
+    kl_div = functools.partial(torch.nn.functional.kl_div, reduction=reduction, log_target=not to_log_probabilities)
     with torch.no_grad():
         # Avoid unescessary back prop through NN applied to original image (as first adviced in [Virtual Adversarial Training 2018 paper](https://arxiv.org/pdf/1704.03976.pdf), or [UDA consistency loss (2019)](https://arxiv.org/pdf/1904.12848.pdf))
         p_original = net(original)
@@ -49,7 +49,7 @@ def sample_triplets(dataset: DataLoader) -> Tuple[torch.Tensor, torch.Tensor, to
 
 
 # NOTE: When training a model with triplet margin loss, try out to enable 'swap' option (swaps anchor and positive if distance between negative and positive is lower than distance between anchor and negative)
-TripletMarginLoss = nn.TripletMarginLoss
+TripletMarginLoss = torch.nn.TripletMarginLoss
 JensenShannonDivergenceConsistencyLoss = func_to_module(jensen_shannon_divergence_consistency_loss, init_params=['net', 'reduction', 'to_log_probabilities'])
 
 if __name__ == '__main__':

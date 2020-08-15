@@ -46,6 +46,7 @@ __author__ = 'Paul-Emmanuel Sotir'
 
 
 class BackendConfig:
+    # TODO: Refactor and clean this after having read pytorh docs and examples: https://pytorch.org/docs/stable/distributed.html#distributed-launch
 
     def __init__(self, device_or_id: Union[None, str, int, torch.device] = None, dist_backend: dist.Backend = None, dist_url: str = None):
         if device_or_id is None:
@@ -292,14 +293,13 @@ def _setup_distributed_training(device, backend_conf: BackendConfig, model: torc
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[backend_conf.local_rank, ], output_device=backend_conf.local_rank)
 
         if use_sync_batch_norm and any(map(model.modules(), lambda m: isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d, torch.nn.BatchNorm3d)))):
-            # Convert batch normalization sub-modules to `SyncBatchNorm` before warping model with DDP (DistributedDataParallel), allowing to synchronizes statistics across nodes/GPUs in distributed setups, which can be usefull when batch size is too small on a single node/GPU
+            # Convert batch normalization sub-modules to `SyncBatchNorm` before wraping model with DDP (DistributedDataParallel), allowing to synchronizes statistics across nodes/GPUs in distributed setups, which can be usefull when batch size is too small on a single node/GPU
             # NOTE: `convert_sync_batchnorm` is needed as direct usage of `SyncBatchNorm` doesnt upports DDP with mutliple GPU per process according to PyTorch 1.6.0 documentation
             # TODO: may have been fixed since muti GPU per process use case of DDP have been fixed in 1.6.0 release?
             model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     elif not backend_conf.is_cpu and is_data_parallelization_usefull_heuristic(model, batch_shape):
         # If not distributed, we can still use data parrallelization if there are multiple GPUs available and data is large enought to be worth it
         model = data_parallelize(model)
-
     return model
 
 

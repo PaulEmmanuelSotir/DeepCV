@@ -8,10 +8,8 @@
     - TODO: Look into https://github.com/google-research/google-research/tree/master/uncertainties, especially in order to dig more into MCMC SGD aproaches.
     - TODO: use torch.distributions for helper/tooling function making easier to infer prob distribution (like Mixture Density Networks). In some cases, it is prefered to infer prob densities and uncertainty over parameters of infered distribution instead of directly infering value(s) and uncertainty over value(s)
 """
-import torch
-import torch.nn as nn
-
 import deepcv.utils
+from ..types_aliases import *
 
 
 __all__ = []

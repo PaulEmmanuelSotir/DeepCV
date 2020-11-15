@@ -35,7 +35,7 @@ This list can be extended or overriden according to your needs by providing your
 NOTE: By default, there are other possible submodules which are builtin DeepcvModule: e.g. `deepcv.meta.nn_spec.yaml_tokens.NESTED_DEEPCV_MODULE`, `deepcv.meta.nn_spec.yaml_tokens.NAS_LAYER_CHOICE` and `deepcv.meta.nn_spec.yaml_tokens.NEW_BRANCH_FROM_TENSOR`. See `deepcv.meta.nn_spec.yaml_tokens` for a more exhaustive list of `DeepcvModule`'s builtin tokens (which includes builtin submodule names).
 NOTE: You can add other base submodule creators to this dictionary by using `deepcv.meta.submodule_creators.submodule_creator_dec` function decorator (see example usage in `deepcv.meta.submodule_creators.avg_pooling_creator`)
 """
-BASIC_SUBMODULE_CREATORS = {'flatten': deepcv_nn.Flatten, 'concat_coords': deepcv_nn.ConcatCoords, 'concat_hilbert_coords': deepcv_nn.ConcatHilbertCoords,
+BASIC_SUBMODULE_CREATORS = {'concat_coords': deepcv_nn.ConcatCoords, 'concat_hilbert_coords': deepcv_nn.ConcatHilbertCoords,
                             'multiresolution_fusion': hrnet.MultiresolutionFusion, 'parallel_conv': hrnet.ParallelConvolution, 'hrnet_input_stem': hrnet.hrnet_input_stem,
                             'hrnet_repr_head_v1': hrnet.HRNetV1RepresentationHead, 'hrnet_repr_head_vZ': hrnet.HRNetV2RepresentationHead, 'hrnet_repr_head_v2p': hrnet.HRNetV2pRepresentationHead, }  # ... + other creators decorated with `deepcv.meta.submodule_creators.submodule_creator_dec`
 

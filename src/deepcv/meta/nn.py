@@ -28,8 +28,8 @@ from hilbertcurve.hilbertcurve import HilbertCurve
 from deepcv.utils import NL, NUMBER_T, get_str_repr, import_tests
 from .types_aliases import *
 
-__all__ = ['XAVIER_INIT_SUPPORTED_ACT_FN', 'ConvWithMetaLayer', 'Flatten', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords',
-           'forward_call_convention_dec', 'func_to_module', 'flatten', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
+__all__ = ['XAVIER_INIT_SUPPORTED_ACT_FN', 'ConvWithMetaLayer', 'MultiHeadConcat', 'ConcatHilbertCoords', 'ConcatCoords',
+           'forward_call_convention_dec', 'func_to_module', 'to_multiscale_inputs_model', 'to_multiscale_outputs_model', 'multi_head_forward', 'concat_hilbert_coords_map', 'concat_coords_maps',
            'get_padding_from_kernel', 'nd_support', 'conv_nd', 'conv_transpose_nd', 'avg_pooling_nd', 'batch_norm_nd', 'instance_norm_nd', 'layer_norm_with_mean_only_batch_norm', 'NormTechnique',
            'NORM_TECHNIQUES_MODULES', 'normalization_techniques_impl', 'normalization_techniques', 'layer', 'resnet_net_block', 'squeeze_cell', 'multiscale_exitation_cell', 'ConvWithMetaLayer', 'meta_layer',
            'get_gain_name', 'data_parallelize', 'is_data_parallelization_usefull_heuristic', 'ensure_mean_batch_loss', 'interpolate', 'get_model_capacity', 'get_out_features_shape',
@@ -171,7 +171,7 @@ def forward_call_convention_dec(apply_parallel_forward: bool = False, refs_tenso
                     raise ValueError(f'Error: When `refs_tensor_count_similar` is `True`, all referenced output tensor(s) should each have as many tensor(s) as the first tensor(s) ref: `len(referenced_submodules_out[0])={len(referenced_submodules_out[0])}` (or should all have only a single tensor if `refs[0]` isnt a sequence) {NL}'
                                      f'Got `inputs={inputs}` and `referenced_submodules_out={referenced_submodules_out}`')
 
-            elif not apply_parallel_forward:
+            if not apply_parallel_forward:
                 refs_kwarg = {'referenced_submodules_out': referenced_submodules_out} if referenced_submodules_out else dict()
                 outs = forward_fn(inputs, *args, **refs_kwarg, **kwargs)
                 outs = [outs, ] if is_torch_obj(outs) else list(outs)
@@ -262,16 +262,6 @@ def func_to_module(typename: str, init_params: Optional[Sequence[Union[str, insp
             _Module.forward.__annotations__ = {n: getattr(p, 'annotation', None) for (n, p) in forward_signature.parameters.items()}
         return _Module
     return functools.partial(_wraper, typename=typename, init_params=init_params)
-
-
-def flatten(tensor: TENSOR_OR_SEQ_OF_TENSORS_T, from_dim: int = 0) -> torch.Tensor:
-    """ Flatten input tensor(s) along `from_dim`th dimension and all other dimensions after `from_dim`th one. """
-    def _flatten(x: torch.Tensor): return x.view(*x.shape[:from_dim + 1], -1)
-
-    if is_torch_obj(tensor):
-        return _flatten(tensor)
-    else:
-        return [_flatten(x) for x in list(tensor)]
 
 
 def to_multiscale_inputs_model(model: 'deepcv.meta.base_module.DeepcvModule', scales: int = 3, no_downscale_dims: Tuple[int] = tuple()):
@@ -395,7 +385,6 @@ def _concat_coords_maps_impl(x: torch.Tensor, channel_dim: int = 1, euclidian: b
 
 
 # Torch modules created from their resective forward function:
-Flatten = func_to_module('Flatten', ['from_dim'])(flatten)
 MultiHeadConcat = func_to_module('MultiHeadConcat', init_params=['heads', 'concat_dim', 'new_dim'])(multi_head_forward)
 ConcatHilbertCoords = func_to_module('ConcatHilbertCoords', init_params=['channel_dim'])(concat_hilbert_coords_map)
 ConcatCoords = func_to_module('ConcatCoords', init_params=['channel_dim'])(concat_coords_maps)

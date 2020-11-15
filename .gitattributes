@@ -1,0 +1,35 @@
+### GIT ATTRIBUTES FILE ###
+# See https://git-scm.com/book/en/v2/Customizing-Git-Git-Attributes for more details on this git configuration file 
+
+# Set the default behavior, in case people don't have core.autocrlf set.
+* text auto
+
+# Force LF line enddings on configuration and code files
+.py text eol=lf
+.json text eol=lf
+.conf text eol=lf
+.md text eol=lf
+.sh text eol=lf
+.yml text eol=lf
+
+# Allow image diff based on image metadata with `exif` (please install exif with `sudo apt install exif` if you didn't installed it already and run `git config diff.exif.textconv exiftool`)
+*.png binary diff=exif
+*.jpg binary diff=exif
+*.jpeg binary diff=exif
+*.bmp binary diff=exif
+*.tiff binary diff=exif
+*.svg binary diff=exif
+*.gif binary diff=exif
+
+# You can also use Git attributes to tell Git to use different merge strategies for specific files in your project.
+# One very useful option is to tell Git to not try to merge specific files when they have conflicts, but rather to use 
+# your side of the merge over someone else’s.
+# This is helpful if a branch in your project has diverged or is specialized, but you want to be able to merge changes 
+# back in from it, and you want to ignore certain files. Say you have a database settings file called database.xml that 
+# is different in two branches, and you want to merge in your other branch without messing up the database file. You can 
+# set up an attribute like this:
+
+#database.xml merge=ours
+
+# You then need to define a dummy ours merge strategy with:
+# $ git config --global merge.ours.driver true

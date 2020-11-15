@@ -16,6 +16,7 @@ dependencies:
         - coverage # Tool for measuring code testing coverage of Python
         - joblib # Used for transparent disk-caching of functions and lazy re-evaluation with `joblib.Memory`
         - click # CLI Tooling (see 'kedro_cli.py')
+        - zope.event # Basic event publishing system library
         - jupyter # Jupyter notebooks
         - matplotlib # Basic data plotting and visualization library
         - pandas # Fast, powerful, flexible and easy to use open source data analysis and manipulation tool (built around `pandas.Dataframe` data container, like PyTorch is built around 'torch.Tensor' or numpy reling on 'numpy.ndarray')
@@ -24,12 +25,13 @@ dependencies:
         - scikit-learn # Machine learning toolkit (very common depedency for non-deep-learning machine learning project)
         - scikit-image # Extends scikit-learn with a collection of algorithms for image processing
         - cudatoolkit=10.2
-        - pytorch>=1.6.* # PyTorch DeepLearning framework, developped by Facebook. PyTorch is one of the main dependencies of DeepCV.
-        - torchvision>=0.7.* # Vision tooling and datasets for PyTorch
+        - torchvision # Vision tooling and datasets part of PyTorch DeepLearning framework
+        - torchaudio # Audio tooling and datasets part of PyTorch DeepLearning framework
+        - pytorch>=1.7.* # PyTorch DeepLearning framework, developped by Facebook. PyTorch is one of the main dependencies of DeepCV.
         - albumentations>=0.4.* # Image augmentation trasforms library (allows coherent/target-aware image transform)
         - ignite>=0.4.* # High-level library to help with training neural networks in PyTorch (see 'deepcv.meta.ignite_training')
-        - mlflow>=1.10.* # OpenSource platform for managing machine learning lifecycle (Tracking experiments, packaging ML code, Manage and deploy ML models, MLFlow Web UI for experiment tracking)
-        - kedro>=0.16.4 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
+        - mlflow>=1.11.* # OpenSource platform for managing machine learning lifecycle (Tracking experiments, packaging ML code, Manage and deploy ML models, MLFlow Web UI for experiment tracking)
+        - kedro==0.16.6 # Deepcv project structure and pipelining comes from Kedro template and framework. Kedro is an open source development workflow framework that implements software engineering best-practice for data pipelines with an eye towards productionising machine learning models.
         - pynvml # Allows ignite to output GPU usage information in progress bars
         - networkx # Graph library for creation, manipulation, study of the structure, dynamics, and function of complex networks/graphs.
         - hilbertcurve # Used for an alternative approach to CoordConv where we append a single feature map of Hilbert Curve coordinates instead of euclidian coordinates on two features maps (see 'deepcv.meta.nn.concat_hilbert_coords_channel' function)
@@ -41,5 +43,6 @@ dependencies:
         - pip:
                   - nni # Microsoft Neural Network Inteligence: Open source AutoML toolkit to automate machine learning lifecycle, including feature engineering, neural architecture search, model compression and hyper-parameter tuning (mainly used for the later)
                   - kedro-viz # Allows Kedro data pipelines visualization
+                  - kedro-pandas-profiling # Kedro pipeline profiling plugin based on pandas-profiling
                   - ruamel.yaml # YAML configuration parsing library used as backend of anyconfig instead of PyYAML (which is used by Kedro to load configuration files)
                   - git+https://github.com/modestyachts/ImageNetV2_pytorch # ImageNetV2 third party: A new/alternative testset wich have been sampled/created from the same image distribution/procedure (see https://github.com/modestyachts/ImageNetV2)

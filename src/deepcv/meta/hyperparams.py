@@ -226,18 +226,19 @@ class GeneralizationAcrossScalesPredictor(torch.nn.Module):
         return estimation
 
 
-def to_hyperparameters(hp: HYPERPARAMS_T, defaults: HYPERPARAMS_T = None, raise_if_missing: bool = True) -> Union[Hyperparameters, Tuple[Hyperparameters, List[str]]]:
+def to_hyperparameters(hp: HYPERPARAMS_T, defaults: HYPERPARAMS_T = None, raise_if_missing: bool = True, drop_keys_not_in_defaults: bool = False) -> Union[Hyperparameters, Tuple[Hyperparameters, List[str]]]:
     """ Converts given parameters Dict to a `deepcv.meta.hyperparams.Hyperparameters` object if needed. Alse allows you to check required and default hyperparameter through `defaults` argument (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
     Args:
         - hp: Parameter dict or `deepcv.meta.hyperparams.Hyperparameters` object
         - defaults: Optional argument specifying required and default (hyper)parameter(s) (see `deepcv.meta.hyperparams.Hyperparameters.with_defaults` for more details)
         - raise_if_missing: Boolean indicating whether if this function should raise an exception if `defaults` specifies mandatory (hyper)parameters which are missing in `hp`
+        - drop_keys_not_in_defaults: Boolean indicating whether to drop/remove entries from `hp` which are not specified in `defaults` (removes unkown params) 
     Returns resulting `deepcv.meta.hyperparams.Hyperparameters` object with provided defaults, and eventually also returns missing hyperparameters which are missing according to `defaults` argument, if provided.
     """
     if not isinstance(hp, Hyperparameters):
         hp = Hyperparameters(**hp)
     if defaults is not None:
-        hp, missing = hp.with_defaults(defaults)
+        hp, missing = hp.with_defaults(defaults, drop_keys_not_in_defaults=drop_keys_not_in_defaults)
         if len(missing) > 0:
             msg = f'Error: Missing mandatory (hyper)parameter(s) (missing="{missing}").'
             logging.error(msg)

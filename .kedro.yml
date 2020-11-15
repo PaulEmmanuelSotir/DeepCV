@@ -4,3 +4,5 @@ repo_name: deepcv
 python_package: deepcv
 include_example: true
 context_path: deepcv.run.ProjectContext
+project_version: 0.16.6
+package_name: deepcv

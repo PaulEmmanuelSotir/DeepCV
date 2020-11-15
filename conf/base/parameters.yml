@@ -84,7 +84,7 @@ models:
       architecture:
         - _nested_deepcvmodule: *basic_backbone
         #- _nested_deepcvmodule: *lager_backbone
-        - !py!deepcv.meta.nn.Flatten
+        - !py!torch.nn.Flatten
         - fully_connected: { act_fn: !py!torch.nn.Sigmoid , dropout_prob: 0., batch_norm: null }
   - keypoints_encoder:
       act_fn: !py!torch.nn.ReLU
@@ -117,7 +117,7 @@ basic_training_params: &basic_ignite_training
   save_every_iters: 1000
   log_grads_every_iters: 1000
   seed: 563454
-  deterministic_cudnn: true # torch.backends.cudnn.deterministic
+  deterministic: true # torch.backends.cudnn.deterministic
   prefetch_batches: true
   # TODO: Probably should put NNI NAS/HP-specific parameters in another dict (aimed at another pipeline?)
   nni_single_shot_nas_algorithm: "ENAS" # Shloud either be 'ENAS' or 'DART' (or eventually 'P-DARTS', 'SPOS', 'CDARTS', 'ProxylessNAS', or 'TextNAS' if relevant and supported by NNI for your model/task) one-shot NAS algorithm (See https://nni.readthedocs.io/en/latest/NAS/Overview.html#supported-one-shot-nas-algorithms for more details on NNI NAS algorithms). If undefined or `null`, NNI NAS Mutable layers and inputs used in trained model will be fixed to their first choice (i.e. fixed architecture; no NAS space)

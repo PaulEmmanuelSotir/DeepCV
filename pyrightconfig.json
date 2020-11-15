@@ -1,0 +1,25 @@
+{
+    "pythonVersion": "3.7",
+    "pythonPlatform": "Linux",
+    "venvPath": "/home/pes/anaconda3",
+    "stubPath": "src/stubs",
+    "reportMissingTypeStubs": false,
+    "include": ["src"],    
+    "executionEnvironments": [
+        {
+            "root": "src/deepcv"
+        },
+        {
+            "root": "src/tests",
+            "extraPaths": ["src/deepcv"]
+        }
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "src/typestubs",
+        "**/_WIP_IGNORE/",
+        "**/*_WIP_IGNORE.*",
+        "**/*_WIP_IGNORE"
+    ]
+}

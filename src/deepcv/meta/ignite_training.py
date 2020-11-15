@@ -12,7 +12,7 @@ import traceback
 import multiprocessing
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, Optional, Iterable, Tuple, Union, Type, Callable
+from typing import Any, Dict, Optional, Iterable, Tuple, Union, Type, Callable, Sequence, Mapping
 
 import torch
 import torch.nn
@@ -20,9 +20,9 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader, Dataset
 
 import ignite
-from ignite.utils import convert_tensor
+import ignite.utils
+import ignite.metrics
 from ignite.engine import Events, Engine, create_supervised_evaluator
-from ignite.metrics import Loss, Metric
 from ignite.handlers import Checkpoint, global_step_from_engine
 from ignite.contrib.engines import common
 from ignite.contrib.handlers import TensorboardLogger, ProgressBar
@@ -35,18 +35,50 @@ import nni
 
 import deepcv.utils
 from .nn import is_data_parallelization_usefull_heuristic, data_parallelize
-from .nni_tools import is_nni_run_standalone
+from .nni_tools import is_nni_run_standalone, get_nni_or_mlflow_experiment_and_trial
 from .hyperparams import to_hyperparameters
 from .types_aliases import *
 
 from .data.datasets import dataloader_prefetch_batches
 
-__all__ = ['BackendConfig', 'train']
+__all__ = ['MAIN_TRAINING_LOSS_NAME', 'HyperparamsOutpoutHandler', 'BackendConfig', 'train']
 __author__ = 'Paul-Emmanuel Sotir'
+
+# Default loss name (prefix) used for training loss obtained from ponderated mean of each provided loss terms (see `losses` and `loss_weights` arguments of `deepcv.meta.ignite_training.train` training procedure) 
+MAIN_TRAINING_LOSS_NAME = 'main_loss'
+
+
+class HyperparamsOutpoutHandler(BaseOutputHandler):
+    """ Custom ignite output handler for tensorboard hyperparameter set logging  
+    .. See [PyTorch tensorboard support for more details on hyperparameter set logging](https://pytorch.org/docs/stable/tensorboard.html#torch.utils.tensorboard.writer.SummaryWriter.add_hparams)  
+    (Preferaly use it for HP search and/or on Events.COMPLETE ignite events)
+    """
+    def __init__(self, hp: Union[Dict[str, Any], deepcv.meta.hyperparams.Hyperparameters], tag = 'hpparam', metric_names: Sequence[str] = None, output_transform: Callable = None):
+        super(HyperparamsOutpoutHandler, self).__init__(tag, metric_names, output_transform, None)
+        self.hp = hp.get_dict_view() if isinstance(hp, deepcv.meta.hyperparams.Hyperparameters) else hp
+    
+    def __call__(self, engine: Engine, logger: TensorboardLogger, event_name: str):
+        if not isinstance(logger, TensorboardLogger):
+            raise RuntimeError(f'Error: Handler `{type(self).__name__}` works only with `TensorboardLogger` logger')
+
+        metrics = self._setup_output_metrics(engine)
+
+        prefixed_metrics = dict()
+        for key, value in metrics.items():
+            if isinstance(value, numbers.Number) or isinstance(value, torch.Tensor) and value.ndimension() == 0:
+                prefixed_metrics['{self.tag}/{key}'] = value
+            elif isinstance(value, torch.Tensor) and value.ndimension() == 1:
+                for i, v in enumerate(value):
+                    prefixed_metrics[f'{self.tag}/{key}/{i}'] = v.item()
+            else:
+                warnings.warn(f'Warning: TensorboardLogger {type(self).__name__} can not log metrics value type {type(value)}')
+        logger.writer.add_hparams(self.hp, metric_dict={f'hpparam/{m}': v for m, v in metrics}})
 
 
 class BackendConfig:
+    """ Training backend configuration for device and distributed training setup
     # TODO: Refactor and clean this after having read pytorh docs and examples: https://pytorch.org/docs/stable/distributed.html#distributed-launch
+    """
 
     def __init__(self, device_or_id: Union[None, str, int, torch.device] = None, dist_backend: dist.Backend = None, dist_url: str = None):
         if device_or_id is None:
@@ -89,25 +121,82 @@ class BackendConfig:
 TRAINING_EVENTS = {'TRAINING_INIT', 'AFTER_TRAINING_INIT', 'ON_EPOCH_STARTED', 'ON_EPOCH_COMPLETED',
                    'ON_ITERATION_STARTED', 'ON_ITERATION_COMPLETED', 'ON_EVAL_STARTED', 'ON_EVAL_COMPLETED', 'ON_TRAINING_COMPLETED'}
 
+def add_training_output_dir(output_path: Union[str, Path], backend_conf: BackendConfig = None, prefix: str = '', named_after_datetime_now: bool =True) -> Path:
+    """ Determine output directory name and create it if it deosn exists yet (Aimed at training experiment output directory) """
+    if backend_conf is None or not backend_conf.distributed or backend_conf.rank == 0:
+        now = '-' + datetime.now().strftime(r'%Y_%m_%d-%HH_%Mmin') if named_after_datetime_now else ''
+        backend_conf = '' if backend_conf is None else f'-{str(backend_conf)}'
+        experiment, trial = get_nni_or_mlflow_experiment_and_trial()
+        if experiment:
+            output_path = Path() / f'{prefix}exp_output_{experiment}_run_{trial}{now}{backend_conf}'
+        else:
+            output_path = Path(hp['output_path']) / f'{prefix}exp_output{now}{backend_conf}'
+        output_path.mkdir(parents=True, exist_ok=True)
+        return output_path
 
-def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(),
-          metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: deepcv.utils.EventsHandler = None, nni_compression_pruner: nni.compression.torch.Compressor = None) -> Tuple[METRICS_DICT_T, ignite.engine.State]:
-    """ Pytorch model training procedure defined using ignite
+
+def _setup_ignite_losses(losses: LOSS_FN_TERMS_T, loss_weights: Sequence[FLOAT_OR_FLOAT_TENSOR_T] = None, device: Union[str, torch.device] = None, default_name_prefix: str = 'loss_term_', main_training_loss_name: str = MAIN_TRAINING_LOSS_NAME) -> Dict[str, ignite.metrics.Loss]:
+    """ Check and cast given `losses` loss term(s) to output new `ignite.metrics.Loss` object(s) mapped to their name and eventually ponderated by their repective weight from `loss_weights`. """
+    def _ignite_loss_get_batchsize(target_tensor: TENSOR_OR_SEQ_OF_TENSORS_T) -> int:
+        """ Function used by ignite to gt batch size from tensor(s). This non-default callable is needed in case of sequence of tensor(s) usage instead of a single tensor (`TENSOR_OR_SEQ_OF_TENSORS_T`). """
+        if deepcv.utils.is_torch_obj(target_tensor):
+            return len(target_tensor) # Assume target_tensor is a single tensor
+        elif len(target_tensor) > 0:
+            return len(target_tensor[0]) # Assume target_tensor is a sequence of mutliple tensors of the same batch size
+        return 0
+
+    # Handle different accepted `losses` types and check validity/coherence of given arguments
+    if loss_weights is not None and (isinstance(loss_weights, Mapping) != isinstance(losses, Mapping) or getattr(losses, '__len__', lambda: 1)() != getattr(loss_weights, '__len__', lambda: 1)()):
+        raise TypeError(f'Error: `loss_weights` and `losses` should either both be mapping/dicts or both sequences of the same size (or single loss term and weight).{deepcv.utils.NL}'
+                        f'Got `loss_weights="{loss_weights}"` and `losses="{losses}"`')
+    if not isinstance(losses, (Sequence, Mapping)):
+        losses = {main_training_loss_name: (losses, 1.),}
+    elif isinstance(losses, Sequence):
+        losses = {(f'{default_name_prefix}{i}' if len(losses) > 1 else main_training_loss_name): (loss, w) for i, (loss, w) in enumerate(zip(losses, loss_weights if loss_weights is not None and len(losses) > 1 else [1.,] * len(losses)))}
+    else: # Otherwise, assume `losses` and `loss_weights` are mappings
+        losses = {n: (v, loss_weights[n] if loss_weights is not None and len(losses) > 1 else 1.) for n, v in losses.items()}
+    
+    # Instanciate new `ignite.metrics.Loss` objects and make sure to multiply each loss terms by ther respective weight and to divide it by the sum of all weight(s)
+    loss_weights_sum = torch.sum(list(zip(*losses.values()))[1]).to(device) # Sum of loss term(s) weights is needed to divide ponderated sum of loss terms when processing final training loss (which makes it a ponderated mean)
+    ignite_losses = dict()
+    for n, (loss, w) in losses.items():
+        if isinstance(loss, torch.nn.Module):
+            loss = loss.to(device)
+        w = w.to(device) if isinstance(w, torch.Tensor) else torch.FloatTensor(w, device=device)
+        if not (w / loss_weights_sum).eq(1.):
+            loss = lambda *args, **kwargs: w * loss(*args, **kwargs)
+        if not isinstance(loss, ignite.metrics.Loss):
+            loss = ignite.metrics.Loss(loss, device=device, batch_size=_ignite_loss_get_batchsize)
+        ignite_losses[n] = loss
+
+    # If multiple loss terms are provided, we add `main_training_loss_name` loss which is the ponderated sum of each provided loss terms 
+    if main_training_loss_name not in ignite_losses and len(ignite_losses) > 1:
+        def _training_loss(*args, **kwargs): return torch.sum(ignite_losses.values(), dim=1) / loss_weights_sum
+        ignite_losses[main_training_loss_name] = ignite.metrics.Loss(_training_loss, device=device, batch_size=_ignite_loss_get_batchsize)
+    return ignite_losses
+
+def train(hp: HYPERPARAMS_T, model: torch.nn.Module, losses: LOSS_FN_TERMS_T, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: BackendConfig = BackendConfig(),
+          loss_weights: Sequence[FLOAT_OR_FLOAT_TENSOR_T] = None, metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: deepcv.utils.EventsHandler = None, nni_compression_pruner: nni.compression.torch.Compressor = None) -> Tuple[METRICS_DICT_T, ignite.engine.State]:
+    """ Pytorch model training procedure defined using ignite  
+
     Args:
-        - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters
-        - model: Pytorch ``torch.nn.Module`` to train
-        - loss: Loss module to be used
-        - datasets: Tuple of pytorch Dataset giving access to trainset, validset and an eventual testset
-        - opt: Optimizer type to be used for gradient descent
-        - backend_conf: Backend information defining distributed configuration (available GPUs, whether if CPU or GPU are used, distributed node count, ...), see ``deepcv.meta.ignite_training.BackendConfig`` class for more details.
-        - metrics: Additional metrics dictionnary (loss is already included in metrics to be evaluated by default)
-        - callbacks_handler: Callbacks Events handler. If not `None`, events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS` will be fired at various steps of training process, allowing to extend `deepcv.meta.ignite_training.train` functionnalities ("two-way" callbacks ).
-        # apis-for-updating-fine-tuning-status.
-        - nni_compression_pruner: Optional argument for NNI compression support. If needed, provide NNI Compressor object used to prune or quantize model during training so that compressor will be notified at each epochs and steps. See NNI Compression docs. for more details: https://nni.readthedocs.io/en/latest/Compressor/QuickStart.html
-    Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).
+        - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters  
+        - model: Pytorch ``torch.nn.Module`` to train  
+        - losses: Loss(es) module(s) and/or callables to be used as training criterion(s) (may be a single loss function/module, a sequence of loss functions or a mapping of loss function(s) assiciated to their respective loss name(s)).  
+            .. See `loss_weights` argument for more details on multiple loss terms usage and their weighting.
+        - datasets: Tuple of pytorch Dataset giving access to trainset, validset and an eventual testset  
+        - opt: Optimizer type to be used for gradient descent  
+        - backend_conf: Backend information defining distributed configuration (available GPUs, whether if CPU or GPU are used, distributed node count, ...), see ``deepcv.meta.ignite_training.BackendConfig`` class for more details.  
+        - loss_weights: Optional weights/factors sequence or mapping to be applied to each loss terms (`loss_weights` defaults to `[1.,] * len(losses)` when `None` or when `len(losses) <= 1`). This argument should contain as many scalars as there are loss terms/functions in `losses` argument. Sum of all weights should be different from zero due to the mean operator (loss terms ponderated sum is divided by the sum/L1-norm of their weights).  
+            NOTE: Each scalar in `loss_weights` weights/multiplies its respective loss term so that the total loss on which model is trained is the ponderated mean of each loss terms (e.g. when `loss_weights` only contains `1.` values for each loss term, then the final loss is the mean of each of those).  
+            NOTE: You may provide a mapping of weights instead of a Sequence in case you need to apply weights/factors to their respective term identified by their names (`losses` should also be a mapping in this case).  
+        - metrics: Additional metrics dictionnary (loss is already included in metrics to be evaluated by default)  
+        - callbacks_handler: Callbacks Events handler. If not `None`, events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS` will be fired at various steps of training process, allowing to extend `deepcv.meta.ignite_training.train` functionnalities ("two-way" callbacks ).  
+        - nni_compression_pruner: Optional argument for NNI compression support. If needed, provide NNI Compressor object used to prune or quantize model during training so that compressor will be notified at each epochs and steps. See NNI Compression docs. for more details: https://nni.readthedocs.io/en/latest/Compressor/QuickStart.html  
+    Returns a [`ignite.engine.state`](https://pytorch.org/ignite/engine.html#ignite.engine.State) object which describe ignite training engine's state (iteration, epoch, dataloader, max_epochs, metrics, ...).  
 
-    NOTE: `callbacks_handler` argument makes possible to register "two-way callbacks" for events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS`; Systematic "two-way callbacks" usage in training loop is a pattern well described in [FastAI blog post about DeepLearning API implementation choices for better flexibility and code stability using multiple API layers/levels and two-way callbacks](https://www.fast.ai/2020/02/13/fastai-A-Layered-API-for-Deep-Learning/#callback). "Two-way callback" usage at every steps of training procedure allows easier modification of training loop behavior without having to modify its code, which allows to implement new features while preserving code stability.
-    # TODO: add support for cross-validations
+    NOTE: `callbacks_handler` argument makes possible to register "two-way callbacks" for events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS`; Systematic "two-way callbacks" usage in training loop is a pattern well described in [FastAI blog post about DeepLearning API implementation choices for better flexibility and code stability using multiple API layers/levels and two-way callbacks](https://www.fast.ai/2020/02/13/fastai-A-Layered-API-for-Deep-Learning/#callback). "Two-way callback" usage at every steps of training procedure allows easier modification of training loop behavior without having to modify its code, which allows to implement new features while preserving code stability.  
+    # TODO: add support for cross-validations  
     """
     TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'epochs': ..., 'scheduler': None, 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
                             'validate_every_epochs': 1, 'save_every_iters': 1000, 'log_grads_every_iters': -1, 'log_progress_every_iters': 100, 'seed': None,
@@ -131,19 +220,9 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
 
     model = model.to(device, non_blocking=True)
     model = _setup_distributed_training(device, backend_conf, model, (trainset.batch_size, *trainset.dataset[0][0].shape), use_sync_batch_norm=hp['use_sync_batch_norm'])
-
-    if not backend_conf.distributed or backend_conf.rank == 0:
-        # Create output directory if current node is master or if not distributed
-        now = datetime.now().strftime(r'%Y_%m_%d-%HH_%Mmin')
-        if mlflow.active_run() is not None:
-            # Append more informative and run-specfic output directory name
-            mlflow_experiment_name = mlflow.get_experiment(mlflow.active_run().info.experiment_id).name
-            output_path = Path(hp['output_path']) / f'{mlflow_experiment_name}_run_{str(mlflow.active_run().info.run_id)}_{now}-{backend_conf}'
-        else:
-            output_path = Path(hp['output_path']) / f'{now}-{backend_conf}'
-
-    loss = loss.to(device) if isinstance(loss, torch.nn.Module) else loss
+    losses = _setup_ignite_losses(losses=losses, loss_weights=loss_weights, device=device)
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
+    output_path = add_training_output_dir(hp['output_path'], backend_conf)
     scheduler = None
     if hp['scheduler'] is not None:
         args_to_eval = hp['scheduler']['eval_args'] if 'eval_args' in hp['scheduler'] else {}
@@ -151,22 +230,29 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
                             for n, v in hp['scheduler']['kwargs'].items()}
         scheduler = hp['scheduler']['type'](optimizer=optimizer, **scheduler_kwargs)
 
-    def process_function(engine: Engine, batch: Tuple[torch.Tensor]):
-        if hasattr(engine._dataloader_iter, 'prefetch_device'):
-            # Don't need to move batches to device memory: Batch comes from `BatchPrefetchDataLoader` which prefetches batches to device memory duing computation
-            x, y = batch
+    def process_function(engine: Engine, batch: Tuple[TENSOR_OR_SEQ_OF_TENSORS_T]) -> Dict[str, float]:
+        nonlocal hp, device, model, losses, loss_weights, optimizer
+        if hp['prefetch_batches'] and hasattr(engine._dataloader_iter, '_prefetched_batch'):
+            # Don't need to move batches to device memory: Batch comes from a dataloader patched with `dataloader_prefetch_batches` which prefetches batches to device memory duing computation
+            x, *y = batch
         else:
-            x, y = (convert_tensor(b, device=device, non_blocking=True) for b in batch)
+            if hp['prefetch_batches']:
+                # TODO: remove this message once debugged
+                logging.warn('Warning: Batch prefetching not enabled even if `prefetch_batches` is `True` (non-cuda device? or code error)')
+            x, *y = tuple(ignite.utils.convert_tensor(b, device=device, non_blocking=True) for b in batch)
+        if len(y) == 1:
+            y = y[0] # Only one target tensor
 
+        # Apply model on input batch(es) `x`
         model.train()
-        # Supervised part
         y_pred = model(x)
-        loss_tensor = loss(y_pred, y)
 
+        # Evaluate loss(es)/metric(s) function(s) and train model by performing a backward prop followed by an optimizer step
+        batch_losses = {n: loss(y_pred, y) for n, loss in losses.items()}
         optimizer.zero_grad()
-        loss_tensor.backward()
+        batch_losses[MAIN_TRAINING_LOSS_NAME].backward()
         optimizer.step()
-        return {'batch_train_loss': loss_tensor.item(), }
+        return {n: loss.item() for n, loss in batch_losses.items()}
 
     trainer = Engine(process_function)
 
@@ -175,7 +261,7 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
     if backend_conf.distributed and not callable(getattr(train_sampler, 'set_epoch', None)):
         raise ValueError(f'Error: `trainset` DataLoader\'s sampler should have a method `set_epoch` (train_sampler=`{train_sampler}`)')
     to_save = {'trainer': trainer, 'model': model, 'optimizer': optimizer} + (dict() if scheduler is None else {'scheduler': scheduler})
-    metric_names = ['batch_train_loss', ]
+    metric_names = ['_batch_train_loss', *losses.keys()]
     common.setup_common_training_handlers(trainer,
                                           train_sampler=train_sampler,
                                           to_save=to_save,
@@ -193,9 +279,11 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
         tb_logger = TensorboardLogger(log_dir=str(output_path))
         tb_logger.attach(trainer, log_handler=OutputHandler(tag='train', metric_names=metric_names), event_name=Events.ITERATION_COMPLETED)
         tb_logger.attach(trainer, log_handler=OptimizerParamsHandler(optimizer, param_name='lr'), event_name=Events.ITERATION_STARTED)
+        # TODO: make sure hp params logging works here + use test eval metrics instead of training's
+        tb_logger.attach(trainer, log_handler=HyperparamsOutoutHandler(hp, metric_names=metric_names), event_name=Events.COMPLETED)
 
     def _metrics(prefix): return {**{f'{prefix}_{n}': m for n, m in metrics.items()},
-                                  f'{prefix}_loss': Loss(loss, device=device if backend_conf.distributed else None)}
+                                  **{f'{prefix}_{n}': loss for n, loss in losses.items()}}
 
     valid_evaluator = create_supervised_evaluator(model, metrics=_metrics('valid'), device=device, non_blocking=True)
     train_evaluator = create_supervised_evaluator(model, metrics=_metrics('train'), device=device, non_blocking=True)
@@ -259,7 +347,6 @@ def train(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: LOSS_FN_T, datasets: 
 
     try:
         logging.info(f'> ignite runs training loop for "{model}" model...')
-        output_path.mkdir(parents=True, exist_ok=True)
         state = trainer.run(trainset, max_epochs=hp['epochs'])
         logging.info(f'Training of "{model}" model done sucessfully.')
 
@@ -332,7 +419,7 @@ if __name__ == '__main__':
         print(f"{deepcv.utils.NL}Epoch %03d/%03d{deepcv.utils.NL}" % (epoch, epochs) + '-' * 15)
         train_loss = 0
 
-        trange, update_bar = tu.progess_bar(trainset, '> Training on trainset', min(
+        trange, update_bar = tu.progress_bar(trainset, '> Training on trainset', min(
             len(trainset.dataset), trainset.batch_size), custom_vars=True, disable=not pbar)
         for (batch_x, colors, bbs) in trange:
             batch_x, colors, bbs = batch_x.to(DEVICE).requires_grad_(True), tu.flatten_batch(colors.to(DEVICE)), tu.flatten_batch(bbs.to(DEVICE))
@@ -372,7 +459,7 @@ def evaluate(epoch: int, model: torch.nn.Module, validset: DataLoader, bce_loss_
         bb_metric, pos_metric = torch.nn.MSELoss(), torch.nn.BCEWithLogitsLoss()
         valid_loss = 0.
 
-        for step, (batch_x, colors, bbs) in enumerate(tu.progess_bar(validset, '> Evaluation on validset', min(len(validset.dataset), validset.batch_size), disable=not pbar)):
+        for step, (batch_x, colors, bbs) in enumerate(tu.progress_bar(validset, '> Evaluation on validset', min(len(validset.dataset), validset.batch_size), disable=not pbar)):
             batch_x, colors, bbs = batch_x.to(DEVICE), tu.flatten_batch(colors.to(DEVICE)), tu.flatten_batch(bbs.to(DEVICE))
             output_colors, output_bbs = model(batch_x)
             valid_loss += (bce_loss_scale * pos_metric(output_colors, colors) + bb_metric(output_bbs, bbs)) / len(validset)
@@ -420,7 +507,7 @@ def evaluate(epoch: int, model: torch.nn.Module, validset: DataLoader, bce_loss_
 #         # Training/evaluation loop
 #         def _epoch(is_training):
 #             dataloader = trainset if is_training else validset
-#             batches, update_bar = progess_bar(dataloader, '> Training' if is_training else '> Evaluation', disable=disable_progress_bar)
+#             batches, update_bar = progress_bar(dataloader, '> Training' if is_training else '> Evaluation', disable=disable_progress_bar)
 #             for step, (inputs, targets) in enumerate(batches):
 #                 inputs = inputs.to(device)
 #                 targets = targets.to(device)

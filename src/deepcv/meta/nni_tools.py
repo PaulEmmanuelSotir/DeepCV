@@ -15,7 +15,7 @@ import functools
 import subprocess
 import multiprocessing
 from pathlib import Path
-from typing import Sequence, Iterable, Callable, Dict, Tuple, Any, Union, Optional, List, Type
+from typing import Sequence, Iterable, Callable, Dict, Tuple, Any, Union, Optional, List, Type, Set
 
 import mlflow
 import anyconfig
@@ -40,7 +40,8 @@ from . import hyperparams
 from .data import datasets
 from .types_aliases import *
 
-__all__ = ['is_nni_single_shot_nas_algorithm', 'is_nni_classic_nas_algorithm', 'is_nni_gen_search_space_mode', 'is_nni_run_standalone', 'get_nni_or_mlflow_experiment_and_trial', 'model_contains_nni_nas_mutable',
+__all__ = ['NNI_SINGLE_SHOT_NAS_ALGORITHMS', 'NNI_CLASSIC_NAS_ALGORITHMS', 'NNI_HP_TUNERS', 'NNI_SINGLE_SHOT_NAS_MUTATORS' 
+           'is_nni_gen_search_space_mode', 'is_nni_run_standalone', 'get_nni_or_mlflow_experiment_and_trial', 'model_contains_nni_nas_mutable',
            'gen_classic_nas_search_space', 'nni_single_shot_neural_architecture_search', 'handle_nni_nas_trial', 'run_nni_hp_search', 'gen_nni_config', 'sample_nni_hp_space',
            'hp_search', 'get_hp_position_in_search_space', 'generate_hp_space_template']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -60,19 +61,7 @@ NNI_SIGNLE_SHOT_NAS_MUTATORS = ...  # TODO: More support for NNI NAS Mutators
 #_____________________________________________ NNI INTEGRATION FUNCTIONS ______________________________________________#
 
 
-def is_nni_single_shot_nas_algorithm(algorithm: str) -> bool:
-    if algorithm in NNI_SINGLE_SHOT_NAS_ALGORITHMS:
-        return True
-    if algorithm in NNI_CLASSIC_NAS_ALGORITHMS:
-        return False
-    raise ValueError(f'Error: Bad NNI NAS algorithm name "{algorithm}", valid NNI SingleShot NAS algorithms are "{NNI_SINGLE_SHOT_NAS_ALGORITHMS.keys()}" and '
-                     f'valid NNI Classic NAS algorithms are "{NNI_CLASSIC_NAS_ALGORITHMS}".')
-
-
-def is_nni_classic_nas_algorithm(algorithm: str) -> bool:
-    return not is_nni_single_shot_nas_algorithm(algorithm)
-
-
+# TODO: remove it
 # def nni_hp_with_singleshot_nas_trial(params) -> bool:
 #     """ Returns a boolean indicating whether we are performing an NNI HP search with NNI Single-Shot NAS training as trial code  (Nested usage of NNI HP and NNI SingleShot NAS APIs) """
 #     return trial_env_vars.NNI_PLATFORM == ... and asked_for_nas and single_shot_nas_algorithm
@@ -141,26 +130,130 @@ def gen_classic_nas_search_space(architecture_search_space_path: Union[str, Path
         logging.error(f'Failed to generate JSON NNI NAS search space using `nnictl ss_gen` command. STDErr from `nnictl`: "{sub.stderr}"')
     return sub.returncode == os.EX_OK
 
+""" Default accepted batch mapping target(s) and input(s) names (see `deepcv.meta.ignite_training.get_inputs_and_targets_from_batch`) """
+DEFAULT_ACCEPTED_BATCH_MAPPING_TARGET_KEYS = set({'target', 'y', 'label', 'ground_truth', 'groundtruth'}) # The same keys with a trailing 's' are also accepted/valid target keys
+DEFAULT_ACCEPTED_BATCH_MAPPING_TARGET_KEYS += {f'{key}s' for key in DEFAULT_ACCEPTED_BATCH_MAPPING_TARGET_KEYS}
+DEFAULT_ACCEPTED_BATCH_MAPPING_INPUT_KEYS = set({'input', 'in', 'x', 'image'})  # The same keys with a trailing 's' are also accepted/valid input keys
+DEFAULT_ACCEPTED_BATCH_MAPPING_INPUT_KEYS += {f'{key}s' for key in DEFAULT_ACCEPTED_BATCH_MAPPING_TARGET_KEYS}
 
-def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: torch.nn.Module, loss: Union[torch.nn.modules.loss._Loss, Callable], datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: 'ignite_training.BackendConfig' = None,
-                                               metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: deepcv.utils.EventsHandler = None, final_architecture_path: Union[str, Path] = None) -> Tuple[METRICS_DICT_T, Optional[Path], str]:
-    """ Train model with provided NAS trainer in order to find out the best NN architecture by training a superset NN instead of performing multiple trainings/trials for each/many possible architectures.
+def get_inputs_and_targets_from_batch(batch: Union[TENSOR_OR_SEQ_OF_TENSORS_T, Sequence[TENSOR_OR_SEQ_OF_TENSORS_T], Mapping[TENSOR_OR_SEQ_OF_TENSORS_T]], device: Union[str, torch.device] = None, convert_mapping_to_list: bool = False, mapping_input_keys: Set[str] = DEFAULT_ACCEPTED_BATCH_MAPPING_INPUT_KEYS, mapping_targets_keys: Set[str] = None):
+    """ Returns inputs and targets obtained from `batch`.  
+    Input tensor(s) can be provided in various ways: `batch` can either be a single input tensor, a sequence of `TENSOR_OR_SEQ_OF_TENSORS_T` or a mapping of `TENSOR_OR_SEQ_OF_TENSORS_T`.  
+    If obtained input(s) and/or target(s) are lists (not maps/dicts) and only have one element, then those are `squeezed` so that their only entry is returned instead. 
+
+    Args:  
+        - batch: Input batch from which returned inputs and targets are obtained  
+        - device: If not `None`, input and target tensor(s) are moved to provided device  
+        - convert_mapping_to_list: If `True`, then, when input `batch` is a mapping/dict of str keys associated to `TENSOR_OR_SEQ_OF_TENSORS_T`, returned input(s) and target(s) are lists of tensors instead of dicts.  
+        - mapping_input_keys: Used for mapping/dict input `batch`: Input tensor(s) are choosen from `batch` mapping according to `mapping_input_keys` keys (returned inputs will only contain tensors from `batch` which have its name specified in `mapping_input_keys`)  
+        - mapping_targets_keys: Used for mapping/dict input `batch`: If `None` (default), all non-input tensors from `batch` mapping are considered as targets. Otherwise, if this argument is provided (e.g. set to `deepcv.meta.ignite_training.DEFAULT_ACCEPTED_BATCH_MAPPING_TARGET_KEYS`), returned targets only contains tensors from `batch` which are named after keys in `mapping_targets_keys`.  
+    
+    NOTE: Logs a warning if there are common keys between `mapping_input_keys` and `mapping_targets_keys`  
+    NOTE: When `mapping_targets_keys` isn't `None` and when `batch` is a mapping/dict, if there are some 'unkown' tensor(s) keys in `batch` which are not present in `mapping_input_keys` nor in `mapping_targets_keys`, then a warning is logged.  
+    """
+    is_mapping = isinstance(batch, Mapping)
+    if is_mapping:
+        inputs = {n: x for n, x in batch.items() if n in mapping_input_keys}
+        if mapping_targets_keys is None:
+            targets = {n: x for n, x in batch.items() if n not in mapping_input_keys}
+        else:
+            targets = {n: x for n, x in batch.items() if n in mapping_targets_keys}
+            overlaping_keys = [k for k in mapping_targets_keys if k in mapping_input_keys]
+            if len(overlaping_keys) > 0:
+                logging.warn(f'Warning: there are common/overlaping keys ("{overlaping_keys}") betwen target(s) and input(s) accepted keys:'
+                             f'"mapping_input_keys={mapping_input_keys}", "mapping_targets_keys={mapping_targets_keys}"')
+            if len(targets) + len(inputs) != len(batch):
+                logging.warn('Warning: Some entries from `batch` input tensor(s) map have been ignored because those have unrecognized key/name (not in `mapping_targets_keys` nor in `mapping_input_keys`)')
+        if convert_mapping_to_list:
+            inputs, targets = list(inputs.values()), list(targets.values())
+    else:
+        if isinstance(batch, Sequence):
+            if len(batch) == 0:
+                inputs, targets = list(), list()
+            else:
+                inputs, *targets = list(batch)
+                targets = [t[0] if len(t) == 1 else t for t in targets]
+        else:
+            inputs, targets = batch, list()
+
+        if len(targets) == 1:
+            targets = targets[0]
+        if len(inputs) == 1:
+            inputs = inputs[0]
+
+    if device not in (None, ''):
+        inputs = ignite.utils.convert_tensor(inputs, device=device, non_blocking=True)
+        if is_mapping and not convert_mapping_to_list:
+            targets = {n: ignite.utils.convert_tensor(x, device=device, non_blocking=True) for n, x in targets.items()}
+        else:
+            targets = [ignite.utils.convert_tensor(x, device=device, non_blocking=True) for x in targets]
+    return inputs, targets
+
+
+def _single_shot_nas_retrain_for_eval(model: torch.nn.Module, criterion: LOSS_FN_T, metrics: Dict[str, METRIC_FN_T], trainset: DataLoader, max_iters: int, module_types_to_be_retrained: Tuple[Type[torch.nn.Module]]) -> Optinal[AverageMeterGroup]:
+    """ Function re-training model for evaluation/metric-reporting which is nescessary when model contains batch normmalization or any other techniques leveraging any 'learned' statistics which could be biased by single-shot NAS algorithm.  
+    For example, Single-Shot NAS SPOS algorithm trains a 'superset' network which could have different batch norm statistics than statistics needed for unbiased evaluation of fixed architecture sampled from this 'superset' model architecture search space.  
+    .. See NNI NAS example from which is inspired this code: [tester.py in SPOS NNI Single-Shot NAS example](https://github.com/microsoft/nni/blob/master/examples/nas/spos/)  
+    TODO: make sure this is needed for any SingleShot NAS algorithm or anly perform this when using SPOS.  
+    """    
+    needs_to_be_retrained = False
+
+    with torch.no_grad():
+        for submodule in model.modules():
+            if isinstance(submodule, module_types_to_be_retrained):
+                needs_to_be_retrained = True
+                submodule.running_mean = torch.zeros_like(submodule.running_mean)
+                submodule.running_var = torch.ones_like(submodule.running_var)
+
+        if needs_to_be_retrained:
+            logger.info('Performing a re-scaling/reset of model batch statistics for unbasied evaluation of architecture during Single-Shot Neural Architecture Search... (e.g. BatchNorm statistics needs to be reset/retrained)')
+            model.train()
+            meters = AverageMeterGroup()
+            for step, batch in deepcv.utils.progress_bar(zip(range(max_iters), trainset), desc='Retraining model before NNI Single-Shot NAS evaluation:'):
+                inputs, targets = get_inputs_and_targets_from_batch(batch, device=device)
+                logits = model(inputs)
+                loss = criterion(logits, targets)
+                batch_metrics = {'batch_loss': loss.item(), **{metric_fn(logits, targets).item() for metric_name, metric_fn in metrics.items()}}
+                meters.update(metrics)
+            return meters
+
+def nni_single_shot_eval(model: torch.nn.Module, criterion: LOSS_FN_T, metrics: Dict[str, METRIC_FN_T], trainset: DataLoader, max_iters: int = 10000, module_types_to_be_retrained: Tuple[Type[torch.nn.Module]] = (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d, torch.nn.BatchNorm3d)) -> METRICS_DICT_T:
+    _single_shot_nas_retrain_for_eval(model, criterion, metrics, trainset, max_iters, module_types_to_be_retrained)
+    
+
+    if final_eval:
+        nni.report_final_result(metrics)
+    else:
+        nni.report_intermediate_result(metrics)
+    return metrics
+
+#TODO: refactor loss usage like in ingite_training and use `get_inputs_and_targets_from_batch` in dataloader ouput transform (harmonize training procedures in `ingite_training.train`, `_single_shot_nas_retrain_for_eval` and `nni_single_shot_eval`)
+def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: torch.nn.Module, losses: LOSS_FN_TERMS_T, datasets: Tuple[Dataset], opt: Type[torch.optim.Optimizer], backend_conf: 'ignite_training.BackendConfig' = None,
+                                               loss_weights: LOSS_TERMS_WEIGHTS_T = None, metrics: Dict[str, METRIC_FN_T] = {}, callbacks_handler: deepcv.utils.EventsHandler = None, final_architecture_path: Union[str, Path] = None) -> Tuple[METRICS_DICT_T, Optional[Path], str]:
+    """ Train model with provided NAS trainer in order to find out the best NN architecture by training a superset NN instead of performing multiple trainings/trials for each/many possible architectures.  
     Args:
-        - hp:
-        - model:
-        - loss:
-        - datasets:
-        - opt:
-        - backend_conf:
-        - metrics:
-        - callbacks_handler:
-        - final_architecture_path:
-    Returns a pathlib.Path to a JSON file storing the best NN model architecture found by NNI Single-Shot NAS (JSON file storing mutable layer(s)/input(s) choices made in model search space in order to define best fixed architeture found; This file is also logged to mlflow if there is an active run)
-    NOTE: Support for SPOS SingleShot NAS is partial for now, see [NNI NAS SPOS documentation](https://nni.readthedocs.io/en/latest/NAS/SPOS.html) for more details on Evolution Tuner looking for best architecture and its usage. (be aware of issues around batch normalization which should be retrained before evaluation when using SPOS Evolution)
-    # TODO: convert ignite metrics for NNI NAS trainer usage if needed (to Callable[['outout', 'target'], Dict[str, float]])
-    # TODO: reuse code from ignite training for output path and log final architecture as mlflow artifact
-    # TODO: Allow resuming an NNI single shot NAS experiment throught 'hp['resume_from']' parameter (if possible easyly using NNI API?)
-    # TODO: Add support for two-way callbacks using deepcv.utils.EventsHandler in a similar way than ignite_training.train (once ignite_training fully support it)
+        - hp: Hyperparameter dict, see ```deepcv.meta.ignite_training._check_params`` to see required and default training (hyper)parameters  
+        - model: Pytorch ``torch.nn.Module`` to train  
+        - losses: Loss(es) module(s) and/or callables to be used as training criterion(s) (may be a single loss function/module, a sequence of loss functions or a mapping of loss function(s) assiciated to their respective loss name(s)).  
+            .. See `loss_weights` argument for more details on multiple loss terms usage and weighting.
+        - datasets: Tuple of pytorch Dataset giving access to trainset, validset and an eventual testset  
+        - opt: Optimizer type to be used for gradient descent  
+        - backend_conf: Backend information defining distributed configuration (available GPUs, whether if CPU or GPU are used, distributed node count, ...), see ``deepcv.meta.ignite_training.BackendConfig`` class for more details.  
+        - loss_weights: Optional weight/scaling/importance vector or sequence to be applied to each loss terms (defaults to 1. when `None`). This argument should contain as many scalars as there are loss terms/functions in `losses` argument. All weight values are casted to `torch.float32` and L1-norm (sum) should be different from zero due to the mean operator (loss terms ponderated sum is diveded by L1-norm of weights).  
+            NOTE: Each scalar in `loss_weights` weights its respective loss term so that the total loss on which model is trained is the ponderated mean of each loss terms (e.g. when `loss_weights` contains `1.` values for each loss term, then the final loss is the mean of each of those. Another example: if `loss_weights` only contains `len()` values, then the loss on which model is trained is the sum of each terms)  
+            NOTE: You may provide a mapping of weights instead of a Sequence in case you need to apply weights/factors to their respective term identified by their names (`losses` should also be a mapping in this case)
+        - metrics: Additional metrics dictionnary (loss is already included in metrics to be evaluated by default)  
+        - callbacks_handler: Callbacks Events handler. If not `None`, events listed in `deepcv.meta.ignite_training.TRAINING_EVENTS` will be fired at various steps of training process, allowing to extend `deepcv.meta.ignite_training.train` functionnalities ("two-way" callbacks ).  
+        - final_architecture_path: File path where the final/optimal fixed architecture found by Single-Shot NAS algorithm have to be exported (JSON file which contains NNI NAS Mutable choices needed to obtain the fixed architecture from the model search space).  
+
+    Returns a pathlib.Path to a JSON file storing the best NN model architecture found by NNI Single-Shot NAS (JSON file storing mutable layer(s)/input(s) choices made in model search space in order to define best fixed architeture found; This file is also logged to mlflow if there is an active run).  
+    NOTE: Support for SPOS SingleShot NAS is untested and may be partial for now, see [NNI NAS SPOS documentation](https://nni.readthedocs.io/en/latest/NAS/SPOS.html) for more details on Evolution Tuner usage to find best model architecture.  
+
+    *To-Do List*
+        - # TODO: convert ignite metrics for NNI NAS trainer usage if needed (to Callable[['outout', 'target'], Dict[str, float]])
+        - # TODO: reuse code from ignite training for output path and log final architecture as mlflow artifact
+        - # TODO: Allow resuming an NNI single shot NAS experiment throught 'hp['resume_from']' parameter (if possible easyly using NNI API?)
+        - # TODO: Add support for two-way callbacks using deepcv.utils.EventsHandler in a similar way than ignite_training.train (once ignite_training fully support it)
     """
     from .ignite_training import BackendConfig
     if backend_conf is None:
@@ -169,7 +262,7 @@ def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: torch.n
     run_info_msg = f'(Experiment: "{experiment_name}", run_id: "{run_id}")'
     logging.info(f'Starting Single-Shot Neural Architecture Search (NNI NAS API) training over NN architecture search space {run_info_msg}.')
 
-    TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'epochs': ..., 'batch_size': None, 'nni_single_shot_nas_algorithm': ..., 'output_path': Path.cwd() / 'data/04_training/', 'log_output_dir_to_mlflow': True,
+    TRAINING_HP_DEFAULTS = {'optimizer_opts': ..., 'epochs': ..., 'batch_size': None, 'nni_single_shot_nas_algorithm': ..., 'output_path': Path.cwd() / 'data' / '04_training', 'log_output_dir_to_mlflow': True,
                             'log_progress_every_iters': 100, 'seed': None, 'resume_from': '', 'deterministic_cudnn': False, 'nas_mutator': None, 'nas_mutator_kwarg': dict(), 'nas_trainer_kwargs': dict()}
     hp, _ = hyperparams.to_hyperparameters(hp, TRAINING_HP_DEFAULTS, raise_if_missing=True)
     deepcv.utils.setup_cudnn(deterministic=hp['deterministic_cudnn'], seed=backend_conf.rank + hp['seed'])  # In distributed setup, we need to have different seed for each workers
@@ -178,6 +271,9 @@ def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: torch.n
     num_workers = max(1, (backend_conf.ncpu - 1) // (backend_conf.ngpus_current_node if backend_conf.ngpus_current_node > 0 and backend_conf.distributed else 1))
     optimizer = opt(model.parameters(), **hp['optimizer_opts'])
     trainset, *validset_testset = datasets
+    output_path = ingite_training.add_training_output_dir(hp['output_path'], backend_conf, prefix='single_shot_nas_')
+    # TODO: use this output_path in trainer and export final architecture to this directory too
+    # TODO: use ingite_training function to setup distributed training?
 
     # Creates HP scheduler from hp if respective hp arguments have been provided by user
     scheduler = None
@@ -230,8 +326,10 @@ def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: torch.n
     logging.info(f'Final/best NN architeture obtained from NNI Single-Shot NAS wont be saved to a JSON file as `final_architecture_path` is `None`. {run_info_msg}{NL}'
                  f'NAS Mutable choices:{NL}'
                  f'``` json{NL}{json_choices}{NL}```')
+
+    logging.info(f'Saving final/best NN architeture obtained from NNI Single-Shot NAS (and may log it to MLFLow artifacts). {run_info_msg}')
+
     if final_architecture_path is not None:
-        logging.info(f'Saving final/best NN architeture obtained from NNI Single-Shot NAS (and may log it to MLFLow artifacts). {run_info_msg}')
         final_architecture_path = Path(final_architecture_path)
         with final_architecture_path.open(mode='w', newline=NL) as json_file:  # 'w' mode will replace any existing file
             json_file.write(json_choices)  # export the final architecture to a JSON file
@@ -245,7 +343,7 @@ def nni_single_shot_neural_architecture_search(hp: HYPERPARAMS_T, model: torch.n
     return (..., final_architecture_path, architecture_choices)  # TODO: return 'meters' metrics resulting from best evaluation on validset
 
 
-def handle_nni_nas_trial(training_pipeline_name: str, model: torch.nn.Module, regular_training_fn: TRAINING_PROCEDURE_T, training_kwargs: Dict[str, Any], single_shot_nas_training_fn: TRAINING_PROCEDURE_T = nni_single_shot_neural_architecture_search) -> 'training_procedure_results':
+def handle_nni_nas_trial(training_pipeline_name: str, project_path: Union[str, Path], model: torch.nn.Module, regular_training_fn: TRAINING_PROCEDURE_T, training_kwargs: Dict[str, Any], single_shot_nas_training_fn: TRAINING_PROCEDURE_T = nni_single_shot_neural_architecture_search) -> 'training_procedure_results':
     """ Entry point of any training procedure which may support NNI NAS (single-shot and/or classic NAS) (which itself can be trial-code of an NNI HP search)
     This function will decide whether to trigger regular training procedure, run Single-shot NAS training (training done with appropriate trainer and mutator), run classic NAS trial training (regular training procedure of sampled architecture), generate NNI Classic NAS search space if needed, generate a template for NNI config if missing for this training pipeline (NNI Classic NAS), or apply a fixed architecture reesulting from a previous NNI NAS experiment on given model/training-pipeline.
     NOTE: NNI NAS algorithms can be split into two different categories: Classic NAS and SignleShot NAS algorithms.
@@ -253,32 +351,49 @@ def handle_nni_nas_trial(training_pipeline_name: str, model: torch.nn.Module, re
     while SingleShot NNI NAS is a Python API (not based on `nnictl`) allowing to find best performing architectures in a single training using specific 'trainer'(s) and 'mutator'(s).
     Thus, only NNI SingleShot NAS trainings can be nested within an NNI HP search (i.e. NNI HP trials performing SingleShot NAS instead of regular training).
     If NNI Classic NAS experiment is desired, this function will generate NAS JSON search space and/or NNI config file for Classic NAS if missing, feel free to modify NNI config file generated for this training pipeline according to your needs.
+    Args:
+        - training_pipeline_name: 
+        - model:
+        - regular_training_fn:
+        - training_kwargs;
+        - single_shot_nas_training_fn:
+    
+    Return output from execution of training procedure (`regular_training_fn` or `single_shot_nas_training_fn`)
     NOTE: NNI SingleShot NAS and regular training procedures should handle `nni.report_final_result` and `nni.report_intermediate_results` calls in case we are performing an NNI HP (or NNI Classic NAS experiment for regular training procedure). You may use `deepcv.meta.nni_tools.is_nni_run_standalone` in training procedure(s) to decide whether to report results to NNI (see `ignite_training.train` training procedure for an example).
     """
+    # TODO: take parameters from training_kwargs['hp']?
+    nas_algorithm = getattr(getattr(training_kwargs, 'hp', dict()), 'nni_nas_algorithm', None)
+    project_path = Path(project_path)
 
     if model_contains_nni_nas_mutable(model):
         experiment, trial = get_nni_or_mlflow_experiment_and_trial()
         nas_prefix = 'single_shot_nas' if single_shot_nas_algorithm else 'classic_nas'
         exp_str = f'-pipeline_{training_pipeline_name}' if experiment is None else f'-exp_{experiment}'
 
-        # Determine `fixed_architecture_path` file path
-        if specified_fixed_architecture is not None:
-            fixed_architecture_path = Path(specified_fixed_architecture)
-        else:
-            # Default NAS fixed/final architecture better should be named after trial/run ID if we are performing an NNI SingleShot NAS within an NNI HP search (Nested usage of NNI HP and NNI SingleShot NAS APIs: MLFlow run ID is named after 'upper' NNI HP search trial ID)
-            fixed_architecture_path = Path(hp['output_path']) / f'{nas_prefix}{exp_str}{"" if trial is None else f"-trial_{trial}"}.json'
+        # Handle NNI NAS YAML parameters defaults
+        conf_base_path = project_path / 'conf' / 'base'
+        PARAMS_DEFAULTS = { 'nni_nas_algorithm': None,
+                            'classic_nas_config_path': conf_base_path / 'classic_nas_configs' / f'{training_pipeline_name}_nni_config.yml',
+                            'common_classic_nas_config_file': conf_base_path / 'classic_nas_configs' / '_common_classic_nas_config.yml',
+                            'nni_hp_config_file': conf_base_path / 'nni_hp_configs' / f'{training_pipeline_name}_nni_config.yml',
+                            'common_nni_hp_config_file': conf_base_path / 'nni_hp_configs' / '_common_nni_hp_config.yml',
+                            'classic_nas_search_space_path': conf_base_path / 'classic_nas_search_spaces' / f'classic_nas_search_space{exp_str}.json',
+                            'nni_compression_search_space': conf_base_path / 'nni_compression_spaces' / f'nni_compression_search_space{exp_str}.json',
+                            'fixed_architecture_path': project_path / 'data' / '04_training' / f'final-architecture{nas_prefix}{exp_str}{"" if trial is None else f"-trial_{trial}"}.json'}
+        nni_nas_params = hyperparams.to_hyperparameters(getattr(training_kwargs, 'hp', dict()), defaults=PARAMS_DEFAULTS)
 
-        if is_nni_classic_nas_algorithm(hp['nni_nas_algorithm']):
+        if nas_algorithm in NNI_CLASSIC_NAS_ALGORITHMS:
             # If missing generates NNI config and/or NNI search space for Classic NAS experiment
             # TODO: make sure common_nni_config_file is a Path
-            pipeline_nni_config_path = common_nni_config_file.parent / f'{kedro_pipeline}_nni_config.yml'
-            architecture_search_space_path = Path.cwd() / ... / f'{nas_prefix}_search_space{exp_str}.json'
+            pipeline_nni_config_path = nni_nas_params['classic_nas_config_path'] if nni_nas_params['classic_nas_config_path'] is not None else (common_nni_config_file.parent / f'{training_pipeline_name}_nni_config.yml')
+            
 
             if not pipeline_nni_config_path.exists():
                 # NNI Classic NAS needs an NNI config file (Single Shot NAS have a pure Python API and wont need an NNI config file, allowing upper/nested NNI HP search) (same for JSON search space)
                 logging.info(f'Generating NNI config for NNI Classic NAS for "{training_pipeline_name}" training pipeline.{NL}'
                              f'NOTE: If you want to change NNI config for this pipeline or any other pipelines, please avoid modifying generated config and, instead, modify common NNI config template ("{common_nni_config_file}") or pipeline-specific NAS parameters in `./base/conf/parameters.yml` (overrides common NNI template for this pipeline).')
-                gen_nni_config(common_nni_config_file, pipeline_nni_config_path, training_pipeline_name, ...)
+                gen_nni_config(common_nni_config_file, new_config_path=pipeline_nni_config_path, kedro_pipeline=training_pipeline_name,
+                               optimize_mode = 'minimize', hp_tunner = 'TPE', early_stopping='Medianstop')
 
             # If missing, generate NAS JSON search space from model NNI Mutable(s) for Classic NAS experiment
             if not architecture_search_space_path.exists() and not is_nni_gen_search_space_mode():
@@ -294,21 +409,25 @@ def handle_nni_nas_trial(training_pipeline_name: str, model: torch.nn.Module, re
             model = nni.nas.pytorch.classic_nas.get_and_apply_next_architecture(model)
             logging.info(f'Sampled a model architecture from NAS search space.{NL}'
                          f'About to perform a trial of NNI Classic NAS for "{training_pipeline_name}" training pipeline...')
-        elif is_nni_single_shot_nas_algorithm(hp['nni_nas_algorithm']):
+        elif nas_algorithm in NNI_SINGLE_SHOT_NAS_ALGORITHMS:
             # Performing NNI Single Shot NAS training procedure (only one trial to generate fixed architecture from NAS)
             logging.info(f'About to perform a Single-Shot NNI NAS for "{training_pipeline_name}" training pipeline..')
             return single_shot_nas_training_fn(**training_kwargs, final_architecture_path=fixed_architecture_path)
+        elif nas_algorithm not in (None, r''):
+            raise ValueError(f'Error: Bad NNI NAS algorithm name "{nas_algorithm}", valid NNI single-shot NAS algorithms are "{NNI_SINGLE_SHOT_NAS_ALGORITHMS.keys()}" and '
+                            f'valid NNI Classic NAS algorithms are "{NNI_CLASSIC_NAS_ALGORITHMS}".')
         elif is_nni_standalone_mode() and fixed_architecture_path.exists():
             # Apply fixed architecture from `fixed_architecture_path` JSON file (best/final architecture choices generated from an NNI NAS experiment)
             # NOTE: If fixed architecture doesnt exists for this model and NNI is in standalone mode, then model will automatically be fixed to the first choice/candidate of any of its Mutable `LayerChoice`/`InputChoice`(s) (just run regular training/trial code)
-            logging.info(
-                f'Applying fixed architecture from NNI NAS final results for "{training_pipeline_name}" training pipeline... (fixed_architecture_path="{fixed_architecture_path}")')
+            logging.info(f'Applying fixed architecture from NNI NAS final results for "{training_pipeline_name}" training pipeline... '
+                         f'(fixed_architecture_path="{fixed_architecture_path}")')
             model = nni.nas.pytorch.fixed.apply_fixed_architecture(model, fixed_architecture_path)
-    elif asked_for_nas or is_nni_gen_search_space_mode():
-        raise ValueError(
-            f'Error: Cant generate NNI NAS search space nor run an NNI NAS Algorithm ("{...}" parameters specified) while model to be trained doesnt contain any NNI NAS mutable `LayerChoice`(s) nor `InputChoice`(s) (model="{model}")')
+    elif nas_algorithm in (None, r'') or is_nni_gen_search_space_mode():
+        raise ValueError(f'Error: Cant generate NNI NAS search space nor run an NNI NAS algorithm: `nas_algorithm="{nas_algorithm}"` argument specified while model '
+                         f'to be trained doesnt contain any NNI NAS mutable `LayerChoice`(s) nor `InputChoice`(s) (model="{model}")')
 
     # Run regular training procedure
+    logging.info(f'About to perform regular training procedure of "{training_pipeline_name}" training pipeline...')
     return training_procedure(**training_kwargs)
 
 
@@ -321,8 +440,8 @@ def run_nni_hp_search(pipeline_name, model, backend_conf, hp):
     cmd = f'nnictl ss-gen-space'
 
 
-def gen_nni_config(common_nni_config_file: Union[str, Path], new_config_path: Union[str, Path], kedro_pipeline: str, optimize_mode: str = 'minimize', hp_tunner: str = 'TPE', early_stopping: Optional[str] = 'Medianstop'):
-    """ Generates NNI configuration file in order to run an NNI Hyperparameters Search on given pipeline (new/full NNI config file will be save in the same directory as `common_nni_config_file` and will be named after its respective pipeline name).
+def gen_nni_config(common_nni_config_file: Union[str, Path], new_config_path: Union[str, Path], kedro_pipeline: str, project_ctx: KedroContext, optimize_mode: str = 'minimize', hp_tunner: str = 'TPE', early_stopping: Optional[str] = 'Medianstop', command_opts: Union[str, Sequence[str]] = '') -> bool:
+    """ Generates NNI configuration file in order to run an NNI Hyperparameters Search on given pipeline (by default, new `kedro_pipeline`-specific NNI config file will be saved in the same directory as `common_nni_config_file` and will be named after its respective pipeline name, See `handlle_nni_nas_trial`).
     Fills missing NNI configuration fields from defaults/commons NNI YAML config (won't change any existing values from given NNI YAML configuration but appends missing parameters with some defaults).
     It means given NNI YAML config file should only contain parameters which are common to any NNI HP/NAS API usage in DeepCV and this function will populate other parameters according to a specific training pipeline.
     NOTE: `gen_nni_config` wont overwrite any existing NNI configuration named after the same pipeline (i.e., if '{kedro_pipeline}_nni_config.yml' already exists, this function wont do anything).
@@ -338,39 +457,38 @@ def gen_nni_config(common_nni_config_file: Union[str, Path], new_config_path: Un
         logging.warn(f'Warning: `deepcv.meta.nni_tools.gen_nni_config` called but YAML NNI config file already exists for this pipeline ("{kedro_pipeline}"), '
                      f'"{new_config_path.name}" YAML config wont be modified, you may want to delete it before if you need to update it.{NL}'
                      f'Also note that you can customize "{common_nni_config_file}" config if you need to change NNI common behavior for any NNI HP/NAS API usage in DeepCV (Hyperparameter searches and Neural Architecture Searches based on NNI); All NNI configuration are generated from this template/common/default YAML config. See also "deepcv.meta.nni_tools.gen_nni_config" function for more details about NNI config handling in DeepCV.')
-        return
+        return False
 
+    experiment, trial = get_nni_or_mlflow_experiment_and_trial()
     nni_config = anyconfig.load(common_nni_config_file, ac_parser='yaml')
 
-    def _set_parameter_if_not_defined(nni_config, parameter_name: str, default_value: Any):
-        nni_config[parameter_name] = getattr(nni_config, parameter_name, default_value)
-
-    _set_parameter_if_not_defined(nni_config, 'authorName', __author__)
-    _set_parameter_if_not_defined(nni_config, 'experimentName', nni.get_experiment_id())
-    _set_parameter_if_not_defined(nni_config, 'searchSpacePath', common_nni_config_file / f'hp_search_spaces/{kedro_pipeline}_search_space.json')
-    _set_parameter_if_not_defined(nni_config, 'trialConcurrency', 1)
-    _set_parameter_if_not_defined(nni_config, 'maxTrialNum', -1)
-    _set_parameter_if_not_defined(nni_config, 'trainingServicePlatform', 'local')
+    nni_config['authorName'] = getattr(nni_config, 'authorName', __author__)
+    nni_config['experimentName'] = getattr(nni_config, 'experimentName', (experiment if experiment not in (None, '') else f'{project_ctx.project_name}_{kedro_pipeline}'.lower()))
+    nni_config['searchSpacePath'] = getattr(nni_config, 'searchSpacePath', common_nni_config_file.parent / f'hp_search_spaces/{kedro_pipeline}_search_space.json')
+    nni_config['trialConcurrency'] = getattr(nni_config, 'trialConcurrency', 1)
+    nni_config['maxTrialNum'] = getattr(nni_config, , -1)
+    nni_config['trainingServicePlatform'] = getattr(nni_config, 'trainingServicePlatform', 'local')
 
     trial_conf = nni_config['trial'] if 'trial' in nni_config else dict()
-    _set_parameter_if_not_defined(trial_conf, 'command', f'kedro run --pipeline={kedro_pipeline}')
-    _set_parameter_if_not_defined(trial_conf, 'codeDir', common_nni_config_file / r'../../src/deepcv')
-    _set_parameter_if_not_defined(trial_conf, 'gpuNum', 0)
+    trial_conf['command'] = getattr(trial_conf, 'command', f'kedro run --pipeline={kedro_pipeline} {command_opts if isinstance(command_opts, str) else " ".join(command_opts)}')
+    trial_conf['codeDir'] = getattr(trial_conf, 'codeDir', common_nni_config_file / r'../../src/deepcv')
+    trial_conf['gpuNum'] = getattr(trial_conf, 'gpuNum', 0)
     nni_config['trial'] = trial_conf
 
     tuner_conf = nni_config['tuner'] if 'tuner' in nni_config else dict()
-    _set_parameter_if_not_defined(tuner_conf, 'builtinTunerName', hp_tunner)
-    _set_parameter_if_not_defined(tuner_conf, 'classArgs', {'optimize_mode': optimize_mode})
+    tuner_conf['builtinTunerName'] = getattr(tuner_conf, 'builtinTunerName', hp_tunner)
+    tuner_conf['classArgs'] = getattr(tuner_conf, 'classArgs', {'optimize_mode': optimize_mode})
     nni_config['tuner'] = tuner_conf
 
     if early_stopping is not None:
         assesor_conf = nni_config['assessor'] if 'assessor' in nni_config else dict()
-        _set_parameter_if_not_defined(assesor_conf, 'builtinAssessorName', early_stopping)
-        _set_parameter_if_not_defined(assesor_conf, 'classArgs', {'optimize_mode': optimize_mode, 'start_step': 8})
+        assesor_conf['builtinAssessorName'] = getattr(assesor_conf, 'builtinAssessorName', early_stopping)
+        assesor_conf['classArgs'] = getattr(assesor_conf, 'classArgs', {'optimize_mode': optimize_mode, 'start_step': 8})
         nni_config['assessor'] = assesor_conf
 
     # Save final NNI configuration as a new YAML file named after its respective training pipeline
     anyconfig.dump(nni_config, new_config_path, ac_parser='yaml')
+    return True
 
 
 def sample_nni_hp_space(model_hps: HYPERPARAMS_T, training_hps: HYPERPARAMS_T) -> Tuple[HYPERPARAMS_T, HYPERPARAMS_T]:

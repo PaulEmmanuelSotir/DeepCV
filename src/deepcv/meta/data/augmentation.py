@@ -6,6 +6,8 @@ Some of this python module code is a modified version of [official AugMix implem
 .. moduleauthor:: Paul-Emmanuel Sotir  
 
 *To-Do List*  
+    - TODO: Use albumentation and/or DALI augmentation transforms instead of torchvision's. See DALI augmentation example: https://docs.nvidia.com/deeplearning/dali/user-guide/docs/examples/image_processing/augmentation_gallery.html
+        DALI have GPU support but Albumentation still features good performances and, more importntly, have better handling of targets made of image transform-dependent data. Albumentation Image transforms may support Masks, BoundingBoxes and Keypoints targets
     - TODO: finish implementation of YAML parsing of augmentations reciepes specs
     - TODO: implement various augmentation operators: sharpness, crop, brightness, contrast, tweak_colors, gamma, noise, rotate, translate, scale, smooth_non_linear_deformation
     - TODO: implement augmentation based on distilled SinGAN model
@@ -14,9 +16,10 @@ Some of this python module code is a modified version of [official AugMix implem
     - TODO: Look into Albumentations Python package/library (or make sure to transform eventual targets to be coherent with transformed images)
 """
 import functools
-from typing import Union, Tuple, Callable, Mapping
+from typing import Union, Tuple, Callable, Mapping, Sequence, Any, Dict
 
 import numpy as np
+import albumentations
 from PIL import Image, ImageOps, ImageEnhance
 
 import torch
@@ -32,6 +35,32 @@ __all__ = ['apply_augmentation_reciepe', 'augment_and_mix', 'autocontrast', 'equ
            'rotate', 'solarize', 'shear_x', 'shear_y', 'translate_x', 'translate_y', 'color', 'contrast', 'brightness', 'sharpness']
 __author__ = 'Paul-Emmanuel Sotir'
 
+
+albumentations.HorizontalFlip, albumentations.IAAPerspective, albumentations.ShiftScaleRotate, albumentations.CLAHE, albumentations.RandomRotate90,
+albumentations.Transpose, albumentations.ShiftScaleRotate, albumentations.Blur, albumentations.OpticalDistortion, albumentations.GridDistortion, albumentations.HueSaturationValue,
+albumentations.IAAAdditiveGaussianNoise, albumentations.GaussNoise, albumentations.MotionBlur, albumentations.MedianBlur, albumentations.IAAPiecewiseAffine,
+albumentations.IAASharpen, albumentations.IAAEmboss, albumentations.RandomBrightnessContrast, albumentations.Flip 
+
+albumentations.OneOf, albumentations.Compose
+
+
+albumentations.core.composition.BboxParams
+albumentations.core.composition.KeypointParams
+aug_pipeline = Compose(tranforms, keypoint_params, bbox_params, additional_targets= Dict) # transform, OneOf, OneOrOther
+force_apply=True # Ignores p parameter
+# TODO: use ReplayCompose in case of deterministic training or only rely on fixed random seed?? 
+# Use additional_targets={'image0': 'image', 'image1': 'image'} in case you need to transform multiple images with the exact same pipeline and trasforms
+aug_pipeline(image, mask=mask, keypoints=keypoints, bboxes=bboxes)
+
+
+def apply_transform(transform: str, img: Union[Image, torch.Tensor, np.ndarray], severity: float = 1., transform_params: Dict[str, Any] = None, keypoints_targets = None, mask_targets= None, bounding_box_targets: Sequence[]= None, other_data: Any = None):
+    """
+    """
+    if isinstance(transform, str):
+        tranform = ALBUMENTATIONS_TRANSFORMS[transform_name] 
+    if targets is not None and len(targets) > 0:
+        pass
+    return tranform(img, severity, )
 
 def autocontrast(pil_img: Image, _):
     return ImageOps.autocontrast(pil_img)
@@ -110,7 +139,6 @@ def apply_augmentation_reciepe(datasets: Tuple[torch.utils.data.Dataset], params
         - datasets: Tuple of Datasets on which data augmentation is performed
         - params: Augmentation hyperparameters (Mapping or deepcv.meta.hyperparams.Hyperparameters object), must at least contain `transforms` entry, see `params.with_defaults({...})` in this function code or [augmentation reciepes spec. in ./conf/base/parameters.yml](./conf/base/parameters.yml)
     Returns a transform which returns augmented image(s) from original image
-    # TODO: use albumentation instead of torchvision
     """
     params, _ = hyperparams.to_hyperparameters(params, {'transforms': ..., 'keep_same_input_shape': False, 'random_transform_order': True,
                                                         'augmentation_ops_depth': [1, 4], 'augmentations_per_image': [0, 3], 'augmix': None})
@@ -154,6 +182,8 @@ def augment_and_mix(image: Image, augmentation_chains_count: int = 3, chains_dep
     if severity == 0.:
         return pil2tensor(image)
 
+    # TODO: read image with opencv or convert PIL image to np.ndarray before transforming it with albumentation (For more details, see https://github.com/albumentations-team/albumentations_examples/blob/master/notebooks/migrating_from_torchvision_to_albumentations.ipynb)
+
     ws = np.random.dirichlet([transform_chains_dirichlet] * augmentation_chains_count).astype(np.float32)
     m = np.float32(np.random.beta(mix_with_original_beta, mix_with_original_beta))
 
@@ -163,6 +193,7 @@ def augment_and_mix(image: Image, augmentation_chains_count: int = 3, chains_dep
         for i in range(augmentation_chains_count):
             image_aug = image.copy()
             depth = np.random.randint(*chains_depth) if isinstance(chains_depth, tuple) else chains_depth
+            # TODO: apply albumentation transform pipeline here instead of looping over torchvision transforms
             for _ in range(depth):
                 op = np.random.choice(AUGMENTATION_OPS)
                 image_aug = op(image_aug, severity)

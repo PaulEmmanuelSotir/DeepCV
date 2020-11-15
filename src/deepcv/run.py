@@ -5,7 +5,7 @@ import os
 import logging
 import functools
 from pathlib import Path
-from typing import Dict, Union, Any
+from typing import Dict, Union, Any, Optional
 
 from kedro.pipeline import Pipeline
 import kedro.io.transformers as transformers
@@ -18,16 +18,22 @@ import anyconfig
 import torchvision
 
 import deepcv
+import deepcv.meta.nni_tools
 
+__all__ = ['ProjectContext', 'run_package']
 __author__ = 'Paul-Emmanuel Sotir'
 
 
 class ProjectContext(KedroContext):
-    """ Users can override the remaining methods from the parent class here, or create new ones (e.g. as required by plugins) """
+    """ DeepCV main Kedro Project Context class.  
 
-    project_name = "DeepCV"
-    project_version = "0.16.4"  # `project_version` is the version of kedro used to generate the project
-    package_name = "deepcv"
+    Users can override the remaining methods from the parent class here, or create new ones (e.g. as required by plugins)  
+    .. See [kedro.framework.context.context.KedroContext code](https://github.com/quantumblacklabs/kedro/blob/master/kedro/framework/context/context.py) for more details on default Kedro behaviors and hooks.  
+    """
+
+    project_name: str= 'DeepCV'
+    project_version: str = "0.16.6"  # `project_version` is the version of kedro used to generate the project
+    package_name: str = 'deepcv'
 
     hooks = tuple()
 
@@ -54,13 +60,16 @@ class ProjectContext(KedroContext):
         # catalog.add_transformer(profile_time)  # apply it to the catalog
         return catalog
 
+    def _get_run_id(self, *args, **kwargs) -> Optional[str]:
+        return deepcv.meta.nni_tools.get_nni_or_mlflow_experiment_and_trial()[1]
+
 
 def run_package():
-    # Entry point for running a Kedro project packaged with `kedro package` using `python -m <project_package>.run` command.
+    """ Entry point for running a Kedro project packaged with `kedro package` using `python -m <project_package>.run` command """
     project_context = load_package_context(project_path=Path.cwd(), package_name=Path(__file__).resolve().parent.name)
     project_context.run()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     # Entry point for running pip-installed projects using `python -m <project_package>.run` command
     run_package()

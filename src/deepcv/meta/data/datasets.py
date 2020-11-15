@@ -89,18 +89,19 @@ def dataloader_prefetch_batches(dataloader: DataLoader, device: Union[None, str,
     else:
         @functools.wraps(dataloader.__iter__)
         def __iter__patch(self: DataLoader, *args, **kwargs):
+            nonlocal device
             iterator = self.__iter__(*args, **kwargs)
-            iterator._prefetched_batch = iterator.__next__().to(device=self._prefetch_device, non_blocking=True)
-            iterator._dataloader = self
+            iterator._prefetched_batch = iterator.__next__().to(device=device, non_blocking=True)
 
             @functools.wraps(iterator.__next__)
             def __next__patch(iterator_self: Iterable) -> Any:
+                nonlocal device
                 if isinstance(iterator_self._prefetched_batch, StopIteration):
                     raise iterator_self._prefetched_batch
                 else:
                     batch = iterator_self._prefetched_batch
                     try:
-                        iterator_self._prefetched_batch = iterator_self.__next__().to(device=iterator_self._dataloader._prefetch_device, non_blocking=True)
+                        iterator_self._prefetched_batch = iterator_self.__next__().to(device=device, non_blocking=True)
                     except StopIteration as e:
                         # Catch `StopIteration` to raise it later (during following call to `__next__`)
                         iterator_self._prefetched_batch = e
@@ -109,8 +110,8 @@ def dataloader_prefetch_batches(dataloader: DataLoader, device: Union[None, str,
             iterator.__next__ = __next__patch
             return iterator
 
-        dataloader._prefetch_device = device
         dataloader.__iter__ = __iter__patch
+        dataloader.__iter__._prefetched_batch = None
     return dataloader
 
 

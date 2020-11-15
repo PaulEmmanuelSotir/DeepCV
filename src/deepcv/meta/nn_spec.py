@@ -9,10 +9,11 @@ import enum
 import inspect
 import functools
 from collections import OrderedDict
-from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List, Set
+from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List
 
 import torch
 import torch.nn
+import torch.nn.functional
 
 import nni
 import nni.nas.pytorch.mutables as nni_mutables
@@ -32,10 +33,9 @@ DEFAULT_LAYER_CHOICE_REDUCTION = r'mean'
 
 
 class yaml_tokens(enum.Enum):
-    """ 'Enum' class stroing special tokens which can be used in YAML architecture specification of `deepcv.meta.base_module.DeepcvModule` modules
+    """ 'Enum' class storing special tokens which can be used in YAML architecture specification of `deepcv.meta.base_module.DeepcvModule` modules
     Those are builtin YAML spec tokens used by `DeepcvModule` NN architecture definition implementation (builtin means here without being submodule creators)
     """
-
     FROM = r'_from'
     SUBMODULE_NAME = r'_name'
     NAS_LAYER_CHOICE = '_nas_layer_choice'

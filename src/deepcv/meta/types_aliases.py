@@ -8,14 +8,16 @@ import enum
 import types
 from typing import Callable, Optional, Type, Union, Tuple, Iterable, Dict, Any, Sequence, List, Set, Mapping
 
+import ignite.metrics
+
 import torch
 import torch.nn
 from torch.utils.data import Dataset
 
 import deepcv.utils
 
-__all__ = ['TENSOR_OR_SEQ_OF_TENSORS_T', 'FLOAT_OR_FLOAT_TENSOR_T', 'HYPERPARAMS_T', 'METRICS_DICT_T', 'SUBMODULE_FORWARD_CALLBACK_T',
-           'SUBMODULE_CREATORS_DICT_T', 'NORM_TECHNIQUES_MODULES_T', 'MODULE_OR_TYPE_T',
+__all__ = ['TENSOR_OR_SEQ_OF_TENSORS_T', 'FLOAT_OR_FLOAT_TENSOR_T', 'HYPERPARAMS_T', 'METRICS_DICT_T', 'LOSS_FN_T', 'METRIC_FN_T', 'TRAINING_PROCEDURE_T',
+            'SUBMODULE_FORWARD_CALLBACK_T', 'SUBMODULE_CREATORS_DICT_T', 'NORM_TECHNIQUES_MODULES_T', 'MODULE_OR_TYPE_T',
            'SIZE_1_T', 'SIZE_2_T', 'SIZE_3_T', 'SIZE_N_T']
 __author__ = 'Paul-Emmanuel Sotir'
 
@@ -30,13 +32,15 @@ FLOAT_OR_FLOAT_TENSOR_T = Union[float, torch.FloatTensor]
 
 HYPERPARAMS_T = Union['deepcv.meta.hyperparams.Hyperparameters', Dict[str, Any]]
 
+LOSS_FN_T = Union[torch.nn.modules.loss._Loss, Callable[['target_pred', 'target', ...], FLOAT_OR_FLOAT_TENSOR_T ]]
+
+LOSS_FN_TERMS_T = Union[LOSS_FN_T, Sequence[LOSS_FN_T], Mapping[str, LOSS_FN_T]]
+
 # Here, `METRICS_DICT_T` is the result(s) from evaluation of named metric(s) (Not a map of named metric function(s))
 METRICS_DICT_T = Mapping[str, FLOAT_OR_FLOAT_TENSOR_T]
 
-LOSS_FN_T = Union[torch.nn.modules.loss._Loss, Callable[['target_pred', 'target', ...], Union[float, torch.Tensor]]]
-
-# Unlike losses, we may assume that a metric (`deepcv.meta.types_aliases.METRIC_FN_T`) allays returns a single value (allays reduces over minibatch dim)
-METRIC_FN_T = Union[ignite.Metric, LOSS_FN_T]
+# Unlike losses, we may assume that a metric (`epcv.meta.types_aliases.METRIC_FN_T`) allays returns a single value (allays reduces over minibatch dim)
+METRIC_FN_T = Union[ignite.metrics.Metric, LOSS_FN_T]
 
 # `TRAINING_PROCEDURE_T` training procedures must match the following type annotation for its input arguments: `'hp': HYPERPARAMS_T, 'model': torch.nn.Module, 'loss': LOSS_FN_T, 'datasets': Tuple[Dataset], 'opt': Type[torch.optim.Optimizer], 'backend_conf': 'deepcv.meta.ignite_training.BackendConfig', 'metrics': Dict[str, METRIC_FN_T], 'callbacks_handler': Optional[deepcv.utils.CallbacksHandler], **kwargs`
 TRAINING_PROCEDURE_T = Callable[['hp', 'model', 'loss', 'datasets', 'opt', 'backend_conf', 'metrics', 'callbacks_handler', ...], Tuple[METRICS_DICT_T, ...]]

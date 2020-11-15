@@ -23,6 +23,7 @@ import configparser
 import deepcv.meta
 
 __all__ = ['ProjectMainHooks']
+__author__ = 'Paul-Emmanuel Sotir'
 
 
 class ProjectMainHooks:
@@ -38,7 +39,7 @@ class ProjectMainHooks:
         self._start_mlflow_run(run_params, pipeline)
 
     @hook_impl
-    def after_pipeline_run(self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog):
+    def after_pipeline_run(self, run_params: Dict[str, Any], run_result: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog):
         if 'train' in run_params['tags'] or any(['train' in n.tags for n in pipeline.nodes]):
             if mlflow.active_run() is not None:
                 mlflow.end_run()
@@ -85,9 +86,9 @@ class ProjectMainHooks:
                     mlflow.set_tag('nni_trial_id', nni.get_trial_id())
                     mlflow.set_tag('nni_sequence_id', nni.get_sequence_id())
                 else:
-                    pipeline_name = run_params['pipeline_name'] if run_params['pipeline_name'] else 'default'
-                    mlflow.set_experiment(f'{self.project_ctx.project_name}_{pipeline_name}')
-                    mlflow.start_run(run_name=f'{pipeline_name}_run_{run_params["run_id"]}')
+                    pipeline_name = run_params['pipeline_name'].lower() if run_params['pipeline_name'] else 'default'
+                    mlflow.set_experiment(f'{self.project_ctx.project_name.lower()}_{pipeline_name}')
+                    mlflow.start_run(run_name=f'{pipeline_name.lower()}_run_{run_params["run_id"]}')
                     mlflow.set_tag('nni_standalone_mode', True)
 
             # Log basic informations about Kedro training pipeline to mlflow
@@ -100,7 +101,7 @@ class ProjectMainHooks:
             """ The following code creates special mlflow tags about current repository infos, which is not done by mlflow when starting an MLFlow run from code instead of from `mlflow run` command
             Code inspired from [`mlflow.projects._create_run`](https://www.mlflow.org/docs/latest/_modules/mlflow/projects.html) which doesn't seems to be called by `mlflow.start_run`
             """
-            tags = {mlflow.utils.mlflow_tags.MLFLOW_SOURCE_NAME: self.project_ctx.project_name,
+            tags = {mlflow.utils.mlflow_tags.MLFLOW_SOURCE_NAME: self.project_ctx.package_name,
                     mlflow.utils.mlflow_tags.MLFLOW_SOURCE_TYPE: mlflow.entities.SourceType.to_string(mlflow.entities.SourceType.PROJECT),
                     mlflow.utils.mlflow_tags.MLFLOW_PROJECT_ENTRY_POINT: inspect.getsourcefile(type(self.project_ctx))}
             try:

@@ -34,7 +34,7 @@ import tensorboard.program
 from kedro.io import DataCatalog
 
 __all__ = ['NUMBER_T', 'NL', 'mlflow_get_experiment_run_info', 'set_anyconfig_yaml_parser_priorities', 'set_seeds', 'set_each_seeds',
-           'setup_cudnn', 'progess_bar', 'get_device', 'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo',
+           'setup_cudnn', 'progress_bar', 'get_device', 'merge_dicts', 'periodic_timer', 'cd', 'ask', 'human_readable_size', 'is_roughtly_constant', 'yolo',
            'recursive_getattr', 'replace_newlines', 'filter_kwargs', 'parse_slice', 'get_by_identifier', 'get_str_repr', 'EventsHandler', 'source_dir', 'try_import', 'import_pickle', 'import_and_reload',
            'import_third_party', 'import_tests']
 __author__ = 'Paul-Emmanuel Sotir'
@@ -63,8 +63,13 @@ def set_anyconfig_yaml_parser_priorities(pyyaml_priority: int = None, ryaml_prio
 
 
 @singledispatch
-def set_seeds(all_seeds: int = 345349):
-    set_each_seeds(torch_seed=all_seeds, cuda_seed=all_seeds, np_seed=all_seeds, python_seed=all_seeds)
+def set_seeds(seed: int = 345349, set_different_seeds: bool = True):
+    """ Sets seeds for Torch, CUDA, Numpy and Python Random Number Generators from a single seed.  
+    If `set_different_seeds` is `True` (Default), then each RNG seed will be set to a different number (increments of given `seed`; e.g., CUDA RNG will have a seed of `seed + 1`, Numpy RNG will be set to `seed + 2`, etc...).  
+    NOTE: In some cases, it may be unrecommanded to set `set_different_seeds` to `False` which would set a similar seed for all RNGs (may trigger unexcepted behaviors, e.g. by performing a similar dataset sampling twice if using numpy sampling once then pytorch-based sampling once).  
+    """
+    seeds = range(seed, seed + 4, step=1) if set_different_seeds else [all_seeds,] * 4
+    set_each_seeds(*seeds)
 
 
 @set_seeds.register(int)
@@ -79,20 +84,29 @@ def set_each_seeds(torch_seed: int = None, cuda_seed: int = None, np_seed: int =
         random.seed(python_seed)
 
 
-def setup_cudnn(deterministic: bool = False, use_gpu: bool = torch.cuda.is_available(), seed: int = None):
+def setup_cudnn(deterministic: bool = False, use_gpu: bool = torch.cuda.is_available(), seed: Union[int, Tuple[int]] = None):
+    """ Setup CUDNN backend and Random Number Generators to given seed(s).  
+    Args:
+        - deterministic: Set to `True` for deterministic/reproducible results: Makes training procedure reproducible by calling `torch.set_deterministic` (may have small performance impact).  
+        - seed: Seed(s) argument which can either be a single seed passed to `deepcv.utils.set_seeds` or a Tuple of seeds which will be passed to `deepcv.utils.set_each_seeds` as positional seed arguments 
+    .. See `deepcv.utils.set_seeds` and [`torch.set_deterministic` torch documentation](https://pytorch.org/docs/stable/generated/torch.set_deterministic.html) for more details.  
+    """
+    torch.set_deterministic(deterministic) # (Pytorch 1.7+)
     if use_gpu:
-        torch.backends.cudnn.deterministic = deterministic  # Makes training procedure reproducible (may have small performance impact)
         torch.backends.cudnn.benchmark = use_gpu and not torch.backends.cudnn.deterministic
         torch.backends.cudnn.fastest = use_gpu  # Disable this if memory issues
-    if seed:
+    if isinstance(seed, int):
         set_seeds(seed)
+    else:
+        # Assume seed contains a tuple of seeds to be given as `deepcv.utils.set_each_seeds` positional arguments
+        set_each_seeds(seed)
 
 
-def progess_bar(iterable: Iterable, desc: str, disable: bool = False):
-    return tqdm(iterable, unit='batch', ncols=180, desc=desc, ascii=False, position=0, disable=disable,
+def progress_bar(iterable: Iterable, ncols: int = 180, desc: str = '', ascii: bool = False, position: int = 0, disable: bool = False, mininterval: float = 0.1, unit: str = ' step', **tqdm_kwargs):
+    return tqdm(iterable=iterable, ncols=ncols, desc=desc, ascii=ascii, position=position, disable=disable, mininterval=mininterval, unit=unit,
                 bar_format='{desc} {percentage:3.0f}%|'
                 '{bar}'
-                '| {n_fmt}/{total_fmt} [Elapsed={elapsed}, Remaining={remaining}, Speed={rate_fmt}{postfix}]')
+                '| {n_fmt}/{total_fmt} [Elapsed={elapsed}, Remaining={remaining}, Speed={rate_fmt}{postfix}]', **tqdm_kwargs)
 
 
 def start_tensorboard_server(logdir: Union[Path, str], port: Union[int, str], print_server_url: bool = True) -> Tuple[str, tensorboard.program.TensorBoard]:
@@ -232,10 +246,7 @@ def is_roughtly_constant(values: Sequence[NUMBER_T], threshold: float = 0.01) ->
 
 def yolo(self: DataCatalog, *search_terms):
     """you only load once, catalog loading helper"""
-    return SimpleNamespace(**{
-        d: self.load(d)
-        for d in self.query(*search_terms)
-    })
+    return SimpleNamespace(**{d: self.load(d) for d in self.query(*search_terms)})
 
 
 # Mokey patch catalog yolo loading :-) (code from https://waylonwalker.com/notes/kedro/)
@@ -277,6 +288,43 @@ def recursive_getattr(obj: Any, attr_name: str, recurse_on_type: Type = None, de
             next_recursion_objs.extend([o for o in attributes if isinstance(o, recurse_on_type)])
         underlying_objs = next_recursion_objs
     return default
+
+
+def none_conditional(obj: Any) -> Any:
+    """ Patch given object's __getattr__ function in order to allow non-existing attributes (returns None by default), allowing simpler synthax close to C#'s null-conditional member access operator.  
+    Actually, this function just patches `__getattr__` of given object and, recursively, of any objects returned by getattr like if `getattr(obj, attr, default=None)` was called instead of a regular dot operator usage for member access.
+    Inspired from (C# null-conditional member access operator)[https://docs.microsoft.com/en-us/dotnet/csharp/language-reference/operators/member-access-operators#null-conditional-operators--and-]  
+    .. See also `none_conditional_unpatch` function which allows to 'un-patch' `obj` object and any resulting objects which have a `__getattr__` method. (restores original `__getattr__` method).  
+
+    Bellow is simple example usage showcasing how it can simplify code writing when accessing members/methods which may not exist:  
+    ``` python
+        # No need to call `none_conditional` on `write` even if it may be `None` and even if `close` member may not exist as `none_conditional` patches returned types too in order to propagate throught all member accesses.
+        a = none_conditional(path).open().write('Hello').close()
+        none_conditional_unpatch(path, a)
+        ...
+    ```
+    """
+    if hasattr(obj, '__getattr__'):
+        def _getattr_wrapper(self, attr: str, default: Any = None) -> Any:
+            nonlocal obj
+            if self is None or not attr:
+                return default
+            rslt = obj.__getattr__none_conditional_original_fn(obj, attr, default)
+            return none_conditional(rslt)
+
+        obj.__getattr__none_conditional_original_fn = obj.__getattr__ # Store previous implementation unpatched __getattr__ method in order to allow to restore it later
+        obj.__getattr__ = _getattr_wrapper
+    return obj
+
+def none_conditional_unpatch(*patched_objs: Any) -> Union['unpatched_obj', List['unpatched_obj']]:
+    """ Unpatch object's `__getattr__` method in order to avoid modifying its behavior anymore (reverse modifications made by `none_conditional` on an object and any returned objects from `__getattr__` calls) """
+    unpatched_objs = list()
+    for obj in patched_objs:
+        if hasattr(obj, '__getattr__none_conditional_original_fn'):
+            obj.__getattr__ = obj.__getattr__none_conditional_original_fn
+            del obj.__getattr__none_conditional_original_fn
+        unpatched_objs.append(obj)
+    return unpatched_objs if len(unpatched_objs) != 1 else unpatched_objs[0]
 
 
 def replace_newlines(text: str) -> str:

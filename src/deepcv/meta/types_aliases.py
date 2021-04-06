@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-""" Typing meta module - submodules_creators.py - `DeepCV`__
+""" Typing meta module - type_aliases.py - `DeepCV`__
 Type aliases and generics for easier and consistent type checking and type annotations across DeepCV
 .. moduleauthor:: Paul-Emmanuel Sotir
 """
